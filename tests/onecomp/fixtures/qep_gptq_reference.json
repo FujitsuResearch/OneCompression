@@ -1,0 +1,51 @@
+{
+    "model.layers.0.self_attn.q_proj": {
+        "quantization_time": 0.7249176502227783,
+        "output_squared_error": 4284.220631484289,
+        "mean_output_squared_error": 3.191993110987759e-05,
+        "weight_squared_error": 276.636522647609,
+        "mean_weight_squared_error": 6.595528665724016e-05
+    },
+    "model.layers.0.self_attn.k_proj": {
+        "quantization_time": 0.6935312747955322,
+        "output_squared_error": 2659.8704285997837,
+        "mean_output_squared_error": 0.00015854063204525612,
+        "weight_squared_error": 169.27391083039691,
+        "mean_weight_squared_error": 0.0003228643623931826
+    },
+    "model.layers.0.self_attn.v_proj": {
+        "quantization_time": 0.6049947738647461,
+        "output_squared_error": 31.47236353309319,
+        "mean_output_squared_error": 1.8758990486319775e-06,
+        "weight_squared_error": 1.8666055421993448,
+        "mean_weight_squared_error": 3.5602675289141556e-06
+    },
+    "model.layers.0.self_attn.o_proj": {
+        "quantization_time": 0.6391634941101074,
+        "output_squared_error": 1.5620067302247342,
+        "mean_output_squared_error": 1.1637857036476837e-08,
+        "weight_squared_error": 8.592857834071989,
+        "mean_weight_squared_error": 2.0486969552211735e-06
+    },
+    "model.layers.0.mlp.gate_proj": {
+        "quantization_time": 0.6110234260559082,
+        "output_squared_error": 4552.160302098249,
+        "mean_output_squared_error": 1.233317717123641e-05,
+        "weight_squared_error": 54.0099416848098,
+        "mean_weight_squared_error": 4.682535837763856e-06
+    },
+    "model.layers.0.mlp.up_proj": {
+        "quantization_time": 5.270941495895386,
+        "output_squared_error": 4460.136242486981,
+        "mean_output_squared_error": 1.2083856199240092e-05,
+        "weight_squared_error": 52.03908209768138,
+        "mean_weight_squared_error": 4.511666913265001e-06
+    },
+    "model.layers.0.mlp.down_proj": {
+        "quantization_time": 11.207305908203125,
+        "output_squared_error": 13.283052819100963,
+        "mean_output_squared_error": 9.896645560190799e-08,
+        "weight_squared_error": 66.73850883428449,
+        "mean_weight_squared_error": 5.786072890046249e-06
+    }
+}

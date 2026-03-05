@@ -1,0 +1,14 @@
+{
+  "mlp.down_proj": {
+    "model.layers.0.mlp.down_proj": {
+      "squared_error": 24.41201400756836,
+      "mean_squared_error": 1.8188367789662152e-07
+    }
+  },
+  "self_attn.o_proj": {
+    "model.layers.0.self_attn.o_proj": {
+      "squared_error": 6.080684661865234,
+      "mean_squared_error": 4.5304631157705444e-08
+    }
+  }
+}
