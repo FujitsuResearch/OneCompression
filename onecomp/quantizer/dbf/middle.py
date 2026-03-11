@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
-"""
-Middle phase functions for MDBF (Matrix-extended Double Binary Factorization)
+"""Middle phase functions for MDBF (Matrix-extended Double Binary Factorization)
 
 Main features:
 1. Closed-form optimization of intermediate matrix M (dense) or UV^T (low-rank) for residuals
 2. Optional fine-tuning via gradient methods
 3. Numerically stable Cholesky decomposition and SVD implementations
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Yuma Ichikawa
 """
 
 import gc  # ! Free memory

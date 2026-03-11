@@ -7,9 +7,9 @@ for quantization.
 Functions:
     run_cq(layer, each_row): Execute CQ quantization on a layer.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 """
 
 from logging import getLogger

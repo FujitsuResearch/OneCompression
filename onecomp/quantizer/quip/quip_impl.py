@@ -7,9 +7,9 @@ using Hessian matrices, similar to GPTQ but with improved accuracy through incoh
 Functions:
     run_quip(H, layer, percdamp, wbits, incoh_mode): Execute QUIP quantization on a layer.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Yuma Ichikawa
 """
 
 import gc

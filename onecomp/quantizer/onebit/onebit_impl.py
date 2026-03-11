@@ -6,9 +6,9 @@ Functions:
     run_onebit(hessian, layer, iters, use_importance_scaling, use_balancing,
                 balance_iters, balance_alpha): Execute OneBit quantization on a layer.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Yuma Ichikawa
 """
 
 import gc

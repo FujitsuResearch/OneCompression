@@ -7,9 +7,9 @@ Classes:
     OnebitResult: Result class for OneBit quantization containing quantized weights and parameters.
     Onebit: OneBit quantizer class that performs OneBit quantization.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 """
 
 import torch

@@ -9,9 +9,9 @@ Functions:
             use_progressive_quantization, progressive_bits):
         Execute QBB quantization on a layer.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Yuma Ichikawa
 """
 
 from typing import Optional

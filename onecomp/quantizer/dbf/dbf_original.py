@@ -2,9 +2,9 @@
 """
 
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Yuma Ichikawa
 
 - Ported from QEP-dev codebase (2025/12/05)
 

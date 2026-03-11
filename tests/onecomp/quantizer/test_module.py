@@ -1,4 +1,9 @@
-"""Common utilities and base specs for quantization tests."""
+"""Common utilities and base specs for quantization tests.
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+"""
 
 import random
 

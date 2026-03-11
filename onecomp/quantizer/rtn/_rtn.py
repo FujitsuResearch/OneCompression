@@ -6,9 +6,9 @@ Classes:
     RTNResult: Result class for RTN quantization containing quantized weights and parameters.
     RTN: RTN quantizer class that performs round-to-nearest quantization.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 """
 
 from dataclasses import dataclass

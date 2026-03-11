@@ -50,9 +50,9 @@ Available Outlier Detection Methods
 
 - **percentile**: Direct percentile cutoff (e.g., 99.9th percentile).
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 
 """
 

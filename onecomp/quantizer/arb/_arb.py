@@ -6,9 +6,9 @@ Classes:
     ARBResult: Result class for ARB quantization containing quantized weights and parameters.
     ARB: ARB quantizer class that performs 1-bit binary quantization.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 """
 
 from dataclasses import dataclass

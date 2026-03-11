@@ -1,4 +1,9 @@
-"""Tests for the GPTQ quantizer implementation."""
+"""Tests for the GPTQ quantizer implementation.
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+"""
 
 import sys
 import os

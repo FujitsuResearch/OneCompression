@@ -4,9 +4,9 @@ QEP reference data generation script.
 Quantize TinyLlama with GPTQ+QEP and save the quantization errors as reference data.
 Run once before refactoring to generate baseline values for testing.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 
 Usage:
     python tests/onecomp/fixtures/generate_qep_gptq_reference.py

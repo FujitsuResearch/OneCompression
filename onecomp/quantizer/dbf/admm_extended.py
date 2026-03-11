@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-Extended ADMM functions for MDBF (Matrix-extended Double Binary Factorization)
+"""Extended ADMM functions for MDBF (Matrix-extended Double Binary Factorization)
 
 Implements coordinated optimization of all parameters via extended ADMM.
 Extends the basic DBF ADMM (which only optimizes A, B) to simultaneously optimize:
@@ -10,6 +9,10 @@ Extends the basic DBF ADMM (which only optimizes A, B) to simultaneously optimiz
 - d: Diagonal component (for low-rank case)
 
 Alternating optimization is performed at each outer iteration.
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Yuma Ichikawa
 """
 
 import gc  # ! Free memory

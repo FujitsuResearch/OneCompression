@@ -1,4 +1,9 @@
-"""Pytest hooks for shared parametrization."""
+"""Pytest hooks for shared parametrization.
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+"""
 
 import pytest
 

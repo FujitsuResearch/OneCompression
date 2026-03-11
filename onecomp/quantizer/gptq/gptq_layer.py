@@ -4,9 +4,9 @@ GPTQ Quantized Linear Layer for Fast Inference
 Implements a Linear layer for GPTQ-quantized models.
 Runs inference in quantized (INT) form for better memory and speed.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Yuma Ichikawa
 
 """
 

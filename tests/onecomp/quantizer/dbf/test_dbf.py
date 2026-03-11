@@ -1,4 +1,9 @@
-"""Tests for the DBF quantizer implementation."""
+"""Tests for the DBF quantizer implementation.
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+"""
 
 import sys
 import os

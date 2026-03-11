@@ -5,6 +5,10 @@ Intended use-cases:
 - Validate forward-hook captured input activations before running expensive quantization.
 - Detect pathological cases such as all-zero activations
   (often caused by device_map="auto" sharding + hooks).
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
 """
 
 from __future__ import annotations

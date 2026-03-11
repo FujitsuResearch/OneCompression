@@ -1,9 +1,9 @@
 """
 Chunked Calibration Quantization Module
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 
 Quantization module for large-scale calibration data.
 Splits calibration data and accumulates X^T X across multiple forward passes,

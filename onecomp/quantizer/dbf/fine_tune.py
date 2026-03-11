@@ -1,5 +1,8 @@
-"""
-Fine-tuning module for DBF/MDBF quantization
+"""Fine-tuning module for DBF/MDBF quantization
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Yuma Ichikawa
 """
 
 import gc  # ! Free memory

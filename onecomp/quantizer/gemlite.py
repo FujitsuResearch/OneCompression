@@ -4,7 +4,9 @@ GemLite acceleration layer.
 Optional: When GemLite is installed, quantized layers are accelerated
 via Triton kernels.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
 """
 
 import torch

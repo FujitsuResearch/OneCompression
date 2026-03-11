@@ -1,3 +1,10 @@
+"""Weight balancing utilities for DBF quantization.
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Yuma Ichikawa
+"""
+
 from typing import Any, Dict, Literal, Tuple
 
 import logging

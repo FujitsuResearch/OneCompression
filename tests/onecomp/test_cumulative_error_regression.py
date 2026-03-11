@@ -4,9 +4,9 @@ Regression tests for cumulative error analysis.
 Verify that analyze_cumulative_error results closely match the reference data.
 Run after refactoring to ensure the results have not changed.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 
 Usage:
     pytest tests/onecomp/test_cumulative_error_regression.py -v

@@ -1,6 +1,6 @@
 # Change log
 
-## [v0.3.5+cmunittest] 2026-03-11
+## [v0.3.6] 2026-03-12
 
 ### Completion of Save/Load Pipeline
 

@@ -1,9 +1,9 @@
 """
 Multi-GPU Quantization Module (Multi-threaded version)
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 
 Phase 1: Capture - Capture activations for all layers in a single thread
 Phase 2: Quantize - Parallel quantization using multiple threads

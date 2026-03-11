@@ -5,9 +5,9 @@ DBF : W ≈ A * diag(d) * B
 Functions:
     run_dbf( ... ): Execute DBF quantization on a layer.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Yuma Ichikawa
 """
 import logging
 import torch

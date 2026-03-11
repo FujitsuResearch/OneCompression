@@ -5,9 +5,9 @@ This module provides the run_rtn function for RTN quantization.
 Functions:
     run_rtn(layer, wbits, groupsize, sym): Execute RTN quantization on a layer.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Yuma Ichikawa
 """
 
 import torch

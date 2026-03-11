@@ -7,9 +7,9 @@ binary matrices with scale and bias terms.
 Functions:
     run_arb(layer, arb_iters, split_points, verbose): Execute ARB quantization on a layer.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Yuma Ichikawa
 """
 
 from typing import Optional

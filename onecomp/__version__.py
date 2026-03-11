@@ -1,9 +1,9 @@
 """
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 
 """
 
-__version__ = "0.3.5+cmunittest"
+__version__ = "0.3.6"

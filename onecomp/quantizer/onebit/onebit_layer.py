@@ -3,6 +3,10 @@ OneBit Layer implementation
 
 Inference implementation for OneBit quantized Linear layers.
 W ≈ a ⊙ sign(W) ⊙ b^T
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Yuma Ichikawa
 """
 
 import traceback
