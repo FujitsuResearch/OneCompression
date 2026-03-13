@@ -214,6 +214,8 @@ class Quantizer(metaclass=ABCMeta):
         original_input_activation=None,
         percdamp=0.01,
         perccorr=0.5,
+        hessian=None,
+        delta_hatX=None,
     ):  # pylint: disable=too-many-arguments, too-many-positional-arguments
         """Quantize the layer with QEP
 
@@ -221,6 +223,8 @@ class Quantizer(metaclass=ABCMeta):
             module (torch.nn.Module): The layer module
             quant_input_activation (torch.Tensor): The input activations of the quantized layer
             original_input_activation (torch.Tensor): The input activations of the original layer
+            hessian (torch.Tensor): The Hessian matrix
+            delta_hatX (torch.Tensor): The cross-term matrix
         """
 
         name = self.module_to_name[module]
@@ -228,19 +232,18 @@ class Quantizer(metaclass=ABCMeta):
         start_time = time.time()
 
         # Calculate the Hessian matrix
-        if self.flag_hessian:
+        if hessian is None and self.flag_hessian:
             hessian = self.calculate_hessian(module, quant_input_activation)
-        else:
-            hessian = None
 
         # Adjust the weights to be quantized
-        if original_input_activation is not None:
+        if delta_hatX is not None or original_input_activation is not None:
             self.logger.info("Adjusting the weight of the layer: %s", name)
             self.adjust_weight(
                 module,
                 quant_input_activation,
                 original_input_activation,
                 original_hessian=hessian,
+                original_delta_hatX=delta_hatX,
                 percdamp=percdamp,
                 perccorr=perccorr,
             )
@@ -261,12 +264,11 @@ class Quantizer(metaclass=ABCMeta):
         torch.cuda.empty_cache()
 
         if self.calc_quant_error:
-            device = module.weight.device
             # Record quantization error
             self._record_quantization_error(
                 module,
                 name,
-                quant_input_activation.to(device),
+                quant_input_activation,
                 result,
             )
 
@@ -303,6 +305,7 @@ class Quantizer(metaclass=ABCMeta):
         quant_input_activation,
         original_input_activation,
         original_hessian=None,
+        original_delta_hatX=None,
         percdamp=0.01,
         perccorr=0.5,
     ):  # pylint: disable=too-many-arguments, too-many-positional-arguments, too-many-locals
@@ -323,9 +326,12 @@ class Quantizer(metaclass=ABCMeta):
             hessian = original_hessian.clone()
 
         # Calculate delta^T hat_X
-        delta_hatX = self.calculate_delta_hatX(
-            module, quant_input_activation, original_input_activation
-        )
+        if original_delta_hatX is None:
+            delta_hatX = self.calculate_delta_hatX(
+                module, quant_input_activation, original_input_activation
+            )
+        else:
+            delta_hatX = original_delta_hatX.clone()
 
         # Dead columns guard
         dead = torch.diag(hessian) == 0

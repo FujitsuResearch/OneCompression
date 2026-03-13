@@ -17,13 +17,13 @@ import time
 import torch
 
 from .model_config import ModelConfig
+from .qep import QEPConfig
 from .quantizer import Quantizer
 from .quantizer.dbf import DBF
 from .quantizer.gptq import GPTQ
 from .utils import calculate_perplexity
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import prepare_calibration_dataset as prepare_calib_dataset
-from .utils import capture_input_activations
 from .__version__ import __version__
 
 from pathlib import Path
@@ -80,7 +80,7 @@ class Runner:
         quantizer=None,
         quantizers=None,
         qep=False,
-        qep_params=None,
+        qep_config=None,
         calibration_strategy="drop_rand",
         calibration_seed=0,
         multi_gpu=False,
@@ -109,6 +109,9 @@ class Runner:
                 ``calibration_batch_size`` is set and ``qep=False``.
             qep (bool):
                 Whether to use QEP.
+            qep_config (QEPConfig or None):
+                Configuration for QEP. If None and ``qep=True``,
+                a default ``QEPConfig()`` is used.
             calibration_strategy (str):
                 Strategy for preparing calibration inputs.
                 Default is "drop_rand".
@@ -220,17 +223,7 @@ class Runner:
         self.calibration_batch_size = calibration_batch_size
         self.num_layers_per_group = num_layers_per_group
         if qep:
-            if qep_params is None:
-                self.qep_params = {}
-            else:
-                self.qep_params = qep_params
-            if "percdamp" not in self.qep_params:
-                self.qep_params["percdamp"] = 0.01
-            if "perccorr" not in self.qep_params:
-                self.qep_params["perccorr"] = 0.5
-            if "exclude_layer_keywords" not in self.qep_params:
-                self.qep_params["exclude_layer_keywords"] = ["mlp.down_proj"]
-                # TODO: This depends on the architecture and needs to be fixed
+            self.qep_config = qep_config if qep_config is not None else QEPConfig()
 
     def check(self):
         """Check the settings
@@ -497,77 +490,38 @@ class Runner:
     def quantize_with_qep(self):
         """Quantize the model with QEP
 
-        A generic implementation independent of model architecture.
-        Consumes extra CPU memory and incurs unnecessary forward passes.
-        Could be faster by leveraging model structure to avoid redundant forward passes.
+        Dispatches to either the generic or architecture-aware
+        implementation based on ``qep_config.general``.
 
-        Current procedure:
-        1. Save input activations of the original model to CPU
-        2. For each target layer l, perform the following sequentially:
-        2-1. Save input activations of layer l in the quantized model to CPU
-        2-2. Quantize the weights of layer l in the quantized model
-        2-3. Update the weights of layer l in the quantized model
+        - ``general=True``: Generic implementation independent
+          of model architecture. Captures input activations per layer.
+        - ``general=False`` (default): Architecture-aware implementation that
+          exploits shared activations (e.g., QKV in Llama).
 
         """
-        # TODO: Implement quantization that leverages model structure.
-
-        model = self.model_config.load_model()
-        logger = self.logger
-        input_device = next(model.parameters()).device
-        inputs = self.prepare_calibration_dataset(input_device)
-
-        # Setup the quantizer
-        self.quantizer.setup(model)
-
-        # 1. Save input activations of the original model to CPU
-        original_input_activations = capture_input_activations(
-            model=model,
-            inputs=inputs,
-            module_to_name=self.quantizer.module_to_name,
-            exclude_layer_keywords=self.qep_params["exclude_layer_keywords"],
-            logger=self.logger,
+        kwargs = dict(
+            model_config=self.model_config,
+            quantizer=self.quantizer,
+            qep_config=self.qep_config,
+            calibration_dataset=self.calibration_dataset,
+            max_length=self.max_length,
+            num_calibration_samples=self.num_calibration_samples,
+            calibration_strategy=self.calibration_strategy,
+            calibration_seed=self.calibration_seed,
         )
-        torch.cuda.empty_cache()
 
-        logger.info("Quantizing the model using %s", self.quantizer.name)
+        if self.qep_config.general:
+            # Lazy import: load submodule only when needed
+            # pylint: disable-next=import-outside-toplevel
+            from .qep._quantize_with_qep import run_quantize_with_qep
 
-        # 2. For each target layer, perform the following sequentially
-        for module, name in self.quantizer.module_to_name.items():
+            run_quantize_with_qep(**kwargs)
+        else:
+            # Lazy import: load submodule only when needed
+            # pylint: disable-next=import-outside-toplevel
+            from .qep._quantize_with_qep_arch import run_quantize_with_qep_arch
 
-            logger.info(
-                "Processing layer: %s =================================================",
-                name,
-            )
-
-            # 2-1. Save input activations of only the target layer to CPU
-            quant_input_activation = capture_input_activations(
-                model=model,
-                inputs=inputs,
-                module_to_name={module: name},
-                logger=self.logger,
-            )[name]
-
-            # 2-2. Quantize the weights of the target layer
-            self.quantizer.quantize_with_qep(
-                module,
-                quant_input_activation,
-                original_input_activation=original_input_activations.get(name, None),
-                percdamp=self.qep_params["percdamp"],
-                perccorr=self.qep_params["perccorr"],
-            )
-
-            # 2-3. Update the weights of the target layer
-            dtype = module.weight.data.dtype
-            device = module.weight.data.device
-            module.weight.data = (
-                self.quantizer.results[name].dequantized_weight.to(device).to(dtype)
-            )
-
-            # 2-4. Free memory
-            del quant_input_activation
-
-        del original_input_activations
-        self.quantizer.execute_post_processing()
+            run_quantize_with_qep_arch(**kwargs)
 
     def quantize_with_jointq_error_propagation(
         self,

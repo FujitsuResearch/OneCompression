@@ -41,6 +41,23 @@
 - Migrated package and project management to `uv` and `pyproject.toml`.
 - Applied `black` linter to scripts.
 
+### QEP Module Refactoring
+
+- Added `QEPConfig` dataclass (`onecomp/qep/_qep_config.py`)
+- Extracted `quantize_with_qep` logic into standalone function (`onecomp/qep/_quantize_with_qep.py`)
+- Added `general` flag to `QEPConfig` for dispatching between generic and architecture-aware implementations
+- Added stub for architecture-aware QEP quantization (`onecomp/qep/_quantize_with_qep_arch.py`)
+- Implemented architecture-aware QEP quantization with block-wise sequential pipeline (`onecomp/qep/_quantize_with_qep_arch.py`)
+  - Added helper functions: `_get_blocks`, `get_blocks_and_inputs`, `make_grouped_module`, `compute_hessian_and_crossterm`, `forward_input`
+  - Added `Catcher` class for capturing input activations of transformer blocks
+  - Groups layers sharing the same input activations for efficient Hessian/cross-term computation
+- Extended `Quantizer.quantize_with_qep()` and `adjust_weight()` to accept precomputed `hessian` and `delta_hatX` (`onecomp/quantizer/_quantizer.py`)
+- Fixed `_record_quantization_error` to handle `quant_input_activation=None` for architecture-aware QEP (`onecomp/quantizer/_quantizer.py`)
+- Fixed architecture-aware QEP to respect `num_layers` and layer selection by checking `quantizer.module_to_name` (`onecomp/qep/_quantize_with_qep_arch.py`)
+- Fixed architecture-aware QEP to support `exclude_layer_keywords`: excluded layers are quantized without weight correction (`onecomp/qep/_quantize_with_qep_arch.py`)
+- Added consistency test between generic and architecture-aware QEP implementations (`tests/onecomp/test_qep_general_consistency.py`)
+- Changed `QEPConfig.general` default from `True` to `False` (architecture-aware implementation is now the default)
+
 ## [v0.3.5] 2026-03-05
 
 - Based on v0.3.4 codebase
