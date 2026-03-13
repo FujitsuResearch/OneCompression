@@ -8,6 +8,7 @@ Author: Yuma Ichikawa
 from typing import Any, Dict, Literal, Tuple
 
 import logging
+
 logger = logging.getLogger(__name__)
 import torch
 
@@ -124,9 +125,7 @@ def balance_track(
         return 0.0
 
     # KKT residual and statistics computation
-    def compute_stats(
-        Dr_vec: torch.Tensor, Dc_vec: torch.Tensor
-    ) -> Tuple[float, float]:
+    def compute_stats(Dr_vec: torch.Tensor, Dc_vec: torch.Tensor) -> Tuple[float, float]:
         """Compute KKT residuals and statistics."""
         Wb = Dr_vec[:, None] * W * Dc_vec[None, :]
 

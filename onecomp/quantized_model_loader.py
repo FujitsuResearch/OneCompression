@@ -109,15 +109,12 @@ class QuantizedModelLoader:
         quant_config = config_dict.get("quantization_config")
         if quant_config is None:
             raise ValueError(
-                "No quantization config found in config.json. "
-                "Expected 'quantization_config'."
+                "No quantization config found in config.json. " "Expected 'quantization_config'."
             )
         if quant_config.get("quant_method") is None:
             raise ValueError("quant_method not found in quantization config.")
         if "modules_in_block_to_quantize" not in quant_config:
-            raise ValueError(
-                "quantization_config must contain 'modules_in_block_to_quantize'."
-            )
+            raise ValueError("quantization_config must contain 'modules_in_block_to_quantize'.")
 
         return config_dict, quant_config
 
@@ -142,7 +139,7 @@ class QuantizedModelLoader:
 
         dtype = torch_dtype if torch_dtype is not None else torch.float16
         config_cls = CONFIG_MAPPING[model_type]
-        model_config = config_cls.from_dict(clean_config) # to build empty model from config
+        model_config = config_cls.from_dict(clean_config)  # to build empty model from config
         return AutoModelForCausalLM.from_config(model_config, torch_dtype=dtype)
 
     @staticmethod
@@ -169,8 +166,7 @@ class QuantizedModelLoader:
                 state_dict.update(load_file(f))
         if not state_dict:
             raise FileNotFoundError(
-                f"No model weights found in {directory}. "
-                "Expected *.safetensors files."
+                f"No model weights found in {directory}. " "Expected *.safetensors files."
             )
         return state_dict
 
@@ -189,11 +185,7 @@ class QuantizedModelLoader:
 
         for name in quantized_names:
             prefix = name + "."
-            layer_sd = {
-                k[len(prefix) :]: v
-                for k, v in state_dict.items()
-                if k.startswith(prefix)
-            }
+            layer_sd = {k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)}
 
             linear = name_to_module[name]
             in_features, out_features = linear.in_features, linear.out_features

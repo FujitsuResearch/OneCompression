@@ -21,6 +21,7 @@ logger = getLogger(__name__)
 # Optional GemLite integration
 try:
     from onecomp.quantizer.gemlite import create_gemlite_linear, is_gemlite_available
+
     HAS_GEMLITE_SUPPORT = True
 except ImportError:
     HAS_GEMLITE_SUPPORT = False
@@ -29,6 +30,7 @@ except ImportError:
 # ========================================
 # Bit packing / unpacking
 # ========================================
+
 
 def _pack_rows(matrix: torch.Tensor, wbits: int) -> torch.Tensor:
     """Pack integer values along dim-0 into INT32 (AutoGPTQ continuous bit-stream).
@@ -45,9 +47,9 @@ def _pack_rows(matrix: torch.Tensor, wbits: int) -> torch.Tensor:
 
     if wbits in (2, 4, 8):
         pack_factor = 32 // wbits
-        assert rows % pack_factor == 0, (
-            f"rows ({rows}) must be divisible by pack_factor ({pack_factor})"
-        )
+        assert (
+            rows % pack_factor == 0
+        ), f"rows ({rows}) must be divisible by pack_factor ({pack_factor})"
         reshaped = matrix.reshape(rows // pack_factor, pack_factor, cols)
         packed = torch.zeros(rows // pack_factor, cols, dtype=torch.int32, device=matrix.device)
         for i in range(pack_factor):
@@ -56,9 +58,7 @@ def _pack_rows(matrix: torch.Tensor, wbits: int) -> torch.Tensor:
 
     if wbits == 3:
         # 32 values → 96 bits → 3 INT32s (continuous bit-stream, no waste)
-        assert rows % 32 == 0, (
-            f"rows ({rows}) must be divisible by 32 for 3-bit packing"
-        )
+        assert rows % 32 == 0, f"rows ({rows}) must be divisible by 32 for 3-bit packing"
         num_blocks = rows // 32
         reshaped = matrix.reshape(num_blocks, 32, cols)
         packed = torch.zeros(num_blocks, 3, cols, dtype=torch.int32, device=matrix.device)
@@ -183,6 +183,7 @@ def unpack_zeros(packed_zeros: torch.Tensor, wbits: int, out_features: int) -> t
 # GPTQ quantized Linear layer
 # ========================================
 
+
 class GPTQLinear(nn.Module):
     """
     GPTQ quantized Linear layer.
@@ -210,7 +211,7 @@ class GPTQLinear(nn.Module):
         bias: Bias (optional)
         use_gemlite: GemLite flag (None=auto)
     """
-    
+
     def __init__(  # pylint: disable=too-many-positional-arguments
         self,
         in_features: int,
@@ -219,8 +220,8 @@ class GPTQLinear(nn.Module):
         groupsize: int,
         actorder: bool,
         quantized_weight: torch.Tensor,  # INT32, shape: (out_features, in_features)
-        scale: torch.Tensor,             # FP16
-        zero: torch.Tensor,              # FP16
+        scale: torch.Tensor,  # FP16
+        zero: torch.Tensor,  # FP16
         perm: Optional[torch.Tensor] = None,  # INT64
         bias: Optional[torch.Tensor] = None,
         device: str = "cuda",
@@ -228,23 +229,23 @@ class GPTQLinear(nn.Module):
         use_gemlite: Optional[bool] = None,  # GemLite flag
     ):
         super().__init__()
-        
+
         self.in_features = in_features
         self.out_features = out_features
         self.wbits = wbits
         self.groupsize = groupsize
         self.actorder = actorder
-        
+
         device = torch.device(device) if isinstance(device, str) else device
-        
+
         # Decide whether to use GemLite
         if use_gemlite is None:
             use_gemlite = (
-                HAS_GEMLITE_SUPPORT and
-                is_gemlite_available() and
-                not actorder and  # actorder not compatible with GemLite
-                groupsize > 0 and  # group quantization required
-                wbits in [2, 4, 8]  # supported bit widths
+                HAS_GEMLITE_SUPPORT
+                and is_gemlite_available()
+                and not actorder  # actorder not compatible with GemLite
+                and groupsize > 0  # group quantization required
+                and wbits in [2, 4, 8]  # supported bit widths
             )
 
         gemlite_layer = None
@@ -258,17 +259,13 @@ class GPTQLinear(nn.Module):
                 num_groups = in_features // groupsize
                 for i in range(num_groups):
                     start, end = i * groupsize, (i + 1) * groupsize
-                    weight_dequant[:, start:end] = (
-                        scale[i, :].unsqueeze(1)
-                        * (weight_dequant[:, start:end] - zero[i, :].unsqueeze(1))
+                    weight_dequant[:, start:end] = scale[i, :].unsqueeze(1) * (
+                        weight_dequant[:, start:end] - zero[i, :].unsqueeze(1)
                     )
             weight_for_gemlite = weight_dequant.to(torch.float16)
 
             gemlite_layer = create_gemlite_linear(
-                weight_for_gemlite,
-                nbits=wbits,
-                group_size=groupsize,
-                device=device
+                weight_for_gemlite, nbits=wbits, group_size=groupsize, device=device
             )
 
         self.using_gemlite = False
@@ -277,22 +274,22 @@ class GPTQLinear(nn.Module):
         self._weight_is_packed = bool(pack_weights and wbits <= 8)
         if self._weight_is_packed:
             packed = pack_int_weights(quantized_weight, wbits)
-            self.register_buffer('qweight', packed.to(device))
+            self.register_buffer("qweight", packed.to(device))
         else:
-            self.register_buffer('qweight', quantized_weight.to(device))
+            self.register_buffer("qweight", quantized_weight.to(device))
 
         # --- Scales: normalize to (num_groups, out_features) ---
         scale = self._normalize_scale_zero(scale, out_features)
-        self.register_buffer('scales', scale.to(torch.float16).to(device))
+        self.register_buffer("scales", scale.to(torch.float16).to(device))
 
         # --- Zeros: normalize then pack (AutoGPTQ v1 convention) ---
         # v1: store (raw_zero - 1); vLLM exllama kernel restores via stored + 1
         zero = self._normalize_scale_zero(zero, out_features)
         zero_int = zero.round().to(torch.int32) - 1
         if self._weight_is_packed:
-            self.register_buffer('qzeros', pack_zeros(zero_int, wbits).to(device))
+            self.register_buffer("qzeros", pack_zeros(zero_int, wbits).to(device))
         else:
-            self.register_buffer('qzeros', zero_int.to(device))
+            self.register_buffer("qzeros", zero_int.to(device))
 
         self._gemlite_layer = gemlite_layer if gemlite_layer is not None else None
         if self._gemlite_layer is not None:
@@ -300,16 +297,16 @@ class GPTQLinear(nn.Module):
 
         # Permutation order
         if perm is not None and actorder:
-            self.register_buffer('perm', perm.to(device))
+            self.register_buffer("perm", perm.to(device))
         else:
             self.perm = None
 
         # Bias
         if bias is not None:
-            self.register_buffer('bias', bias.to(torch.float16).to(device))
+            self.register_buffer("bias", bias.to(torch.float16).to(device))
         else:
             self.bias = None
-        
+
         # Group index (when groupsize != -1)
         if groupsize != -1:
             if actorder and perm is not None:
@@ -320,7 +317,7 @@ class GPTQLinear(nn.Module):
                 g_idx = torch.arange(in_features, dtype=torch.int32, device=device) // groupsize
         else:
             g_idx = torch.zeros(in_features, dtype=torch.int32, device=device)
-        self.register_buffer('g_idx', g_idx)
+        self.register_buffer("g_idx", g_idx)
 
     @staticmethod
     def _normalize_scale_zero(tensor: torch.Tensor, out_features: int) -> torch.Tensor:
@@ -365,8 +362,8 @@ class GPTQLinear(nn.Module):
 
         # Dequantize: weight = scale * (weight_int - zero)
         # scales: (num_groups, out_features), g_idx: (in_features,)
-        scale_expanded = self.scales[self.g_idx, :].T   # (out_features, in_features)
-        zero_expanded = zeros[self.g_idx, :].T          # (out_features, in_features)
+        scale_expanded = self.scales[self.g_idx, :].T  # (out_features, in_features)
+        zero_expanded = zeros[self.g_idx, :].T  # (out_features, in_features)
         weight = scale_expanded * (weight_int.float() - zero_expanded)
 
         # Linear op
@@ -375,7 +372,7 @@ class GPTQLinear(nn.Module):
         output = F.linear(x, weight, bias)
 
         return output
-        
+
     @classmethod
     def from_quantization_result(  # pylint: disable=too-many-positional-arguments
         cls, result, bias=None, device="cuda", pack_weights=True, use_gemlite=None

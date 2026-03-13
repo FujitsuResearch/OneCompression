@@ -51,7 +51,7 @@ def mul_ortho_butterfly(Bpp, x):
     for i in range(len(pfn)):
         mpfx = math.prod(pfn[0:i])
         p = pfn[i]
-        msfx = math.prod(pfn[(i + 1):])
+        msfx = math.prod(pfn[(i + 1) :])
         x = x.reshape(mpfx, p, msfx, q).permute(0, 2, 1, 3).reshape(mpfx * msfx, p, q)
         x = B[i] @ x
         x = x.reshape(mpfx, msfx, p, q).permute(0, 2, 1, 3).reshape(n, q)
@@ -63,4 +63,3 @@ def mul_ortho_butterfly(Bpp, x):
 
 def rand_ortho_butterfly_noblock(n):
     return mul_ortho_butterfly(gen_rand_ortho_butterfly_noblock(n), torch.eye(n))
-

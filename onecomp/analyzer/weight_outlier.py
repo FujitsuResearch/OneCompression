@@ -163,9 +163,7 @@ class WeightOutlierAnalysis:
         min_outlier_ratio: float | None = None,
         min_outlier_count: int | None = None,
         top_k: int | None = None,
-        sort_by: Literal[
-            "outlier_ratio", "outlier_count", "abs_max"
-        ] = "outlier_ratio",
+        sort_by: Literal["outlier_ratio", "outlier_count", "abs_max"] = "outlier_ratio",
     ) -> list[LayerOutlierStats]:
         """Extract layers that look difficult to quantize (many outliers).
 
@@ -296,9 +294,7 @@ class WeightOutlierAnalyzer:
     many_outliers_ratio: float = 1e-3
     sample_size: int | None = 200_000
     compute_on_cpu: bool = True
-    chunk_size: int = (
-        2_000_000  # number of elements per chunk for streaming stats
-    )
+    chunk_size: int = 2_000_000  # number of elements per chunk for streaming stats
 
     def __post_init__(self):
         self.logger = getLogger(__name__)
@@ -309,17 +305,12 @@ class WeightOutlierAnalyzer:
             return False
 
         # 2. include_layer_names (exact match)
-        if (
-            self.include_layer_names is not None
-            and name not in self.include_layer_names
-        ):
+        if self.include_layer_names is not None and name not in self.include_layer_names:
             return False
 
         # 3. include_layer_keywords (contains any)
         if self.include_layer_keywords is not None:
-            if not any(
-                keyword in name for keyword in self.include_layer_keywords
-            ):
+            if not any(keyword in name for keyword in self.include_layer_keywords):
                 return False
 
         # 4. exclude_layer_names (exact match)
@@ -333,9 +324,7 @@ class WeightOutlierAnalyzer:
 
         return True
 
-    def _sample_abs(
-        self, w: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _sample_abs(self, w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Return (flat, abs_sample_float32).
 
         Avoids materializing full |w| in float32, so it works on large models.
@@ -349,9 +338,7 @@ class WeightOutlierAnalyzer:
         if self.sample_size is None or numel <= self.sample_size:
             sample = flat
         else:
-            idx = torch.randint(
-                0, numel, (self.sample_size,), device=flat.device
-            )
+            idx = torch.randint(0, numel, (self.sample_size,), device=flat.device)
             sample = flat[idx]
 
         # Compute stats on a small sample only
@@ -444,9 +431,7 @@ class WeightOutlierAnalyzer:
             flat, abs_sample = self._sample_abs(weight)
             thr, extra = self._calc_threshold(abs_sample)
 
-            outlier_count, abs_max_val = self._count_outliers_and_absmax(
-                flat, thr
-            )
+            outlier_count, abs_max_val = self._count_outliers_and_absmax(flat, thr)
             numel = int(flat.numel())
             outlier_ratio = float(outlier_count / max(numel, 1))
             has_many = outlier_ratio >= self.many_outliers_ratio
@@ -467,11 +452,7 @@ class WeightOutlierAnalyzer:
                 outlier_ratio=outlier_ratio,
                 has_many_outliers=has_many,
                 abs_max=abs_max_val,
-                mean=(
-                    float(abs_sample.mean().item())
-                    if abs_sample.numel() > 0
-                    else None
-                ),
+                mean=(float(abs_sample.mean().item()) if abs_sample.numel() > 0 else None),
                 std=(
                     float(abs_sample.std(unbiased=False).item())
                     if abs_sample.numel() > 0
@@ -495,9 +476,7 @@ class WeightOutlierAnalyzer:
             "num_layers_analyzed": len(layers),
             "total_params_analyzed": total_params,
             "total_outliers": total_outliers,
-            "overall_outlier_ratio": float(
-                total_outliers / max(total_params, 1)
-            ),
+            "overall_outlier_ratio": float(total_outliers / max(total_params, 1)),
         }
 
         return WeightOutlierAnalysis(layers=layers, summary=summary)
@@ -697,11 +676,7 @@ def save_weight_distribution_plots(
 
     for name in names:
         module = name_to_module.get(name)
-        if (
-            module is None
-            or not hasattr(module, "weight")
-            or module.weight is None
-        ):
+        if module is None or not hasattr(module, "weight") or module.weight is None:
             continue
         w = module.weight.detach().reshape(-1)
         numel = int(w.numel())
@@ -726,9 +701,7 @@ def save_weight_distribution_plots(
 
         # Plot
         rows = 2 if include_signed else 1
-        fig, axes = plt.subplots(
-            rows, 1, figsize=(8, 3.5 * rows), tight_layout=True
-        )
+        fig, axes = plt.subplots(rows, 1, figsize=(8, 3.5 * rows), tight_layout=True)
         if rows == 1:
             axes = [axes]
 

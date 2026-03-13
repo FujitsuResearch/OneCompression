@@ -16,6 +16,7 @@ import gc
 import torch
 import transformers
 import logging
+
 logger = logging.getLogger(__name__)
 
 from onecomp.quantizer.dbf.balance import balance_track
@@ -77,14 +78,10 @@ def run_onebit(
 
         # Check convergence
         final_kkt_row = (
-            balance_hist["kkt_row"][-1]
-            if len(balance_hist["kkt_row"]) > 0
-            else float("inf")
+            balance_hist["kkt_row"][-1] if len(balance_hist["kkt_row"]) > 0 else float("inf")
         )
         final_kkt_col = (
-            balance_hist["kkt_col"][-1]
-            if len(balance_hist["kkt_col"]) > 0
-            else float("inf")
+            balance_hist["kkt_col"][-1] if len(balance_hist["kkt_col"]) > 0 else float("inf")
         )
         logger.debug(
             f"[OneBit] Weight balancing completed: \
@@ -98,9 +95,7 @@ def run_onebit(
 
     # Step 3: Importance scaling
     if use_balancing:
-        logger.debug(
-            "[OneBit] Weight balancing enabled, skipping i_norm/o_norm scaling"
-        )
+        logger.debug("[OneBit] Weight balancing enabled, skipping i_norm/o_norm scaling")
         W_scaled = W
         norm_i = torch.ones(W.shape[1], device=W.device)
         norm_o = torch.ones(W.shape[0], device=W.device)
@@ -112,26 +107,20 @@ def run_onebit(
         if i_norm is None:
             if hessian is not None:
                 i_norm = torch.diag(hessian).clamp(min=1e-8)
-                logger.debug(
-                    "[OneBit] Using Hessian diagonal as i_norm approximation"
-                )
+                logger.debug("[OneBit] Using Hessian diagonal as i_norm approximation")
             else:
                 i_norm = torch.ones(W.shape[1], device=W.device)
                 logger.debug(
                     "[OneBit] Warning: No i_norm or Hessian available, using dummy values"
                 )
         else:
-            logger.debug(
-                f"[OneBit] Using pre-collected i_norm (shape: {i_norm.shape})"
-            )
+            logger.debug(f"[OneBit] Using pre-collected i_norm (shape: {i_norm.shape})")
 
         if o_norm is None:
             o_norm = torch.ones(W.shape[0], device=W.device)
             logger.debug("[OneBit] Warning: o_norm not available, using dummy values")
         else:
-            logger.debug(
-                f"[OneBit] Using pre-collected o_norm (shape: {o_norm.shape})"
-            )
+            logger.debug(f"[OneBit] Using pre-collected o_norm (shape: {o_norm.shape})")
 
         norm_i = i_norm.sqrt().clamp(min=1e-8)
         norm_o = o_norm.sqrt().clamp(min=1e-8)
@@ -159,9 +148,7 @@ def run_onebit(
             v_max = Vh[0, :].abs()
         else:
             logger.debug("[OneBit] Using power method for large matrix")
-            u_max, sigma_max, v_max = power_iteration(
-                W_abs, num_iters=max(iters, 30)
-            )
+            u_max, sigma_max, v_max = power_iteration(W_abs, num_iters=max(iters, 30))
             u_max = u_max.abs()
             v_max = v_max.abs()
 
@@ -199,18 +186,16 @@ def run_onebit(
         logger.debug("[OneBit] Applying inverse weight balancing transformation")
         # Correct inverse transform: W_orig = Dr^{-1} * W_balanced * Dc^{-1}
         # Since W_balanced = Dr * W * Dc, W = W_balanced / (Dr * Dc)
-        W_reconstructed = W_reconstructed / (
-            balance_Dr[:, None] * balance_Dc[None, :]
-        )
+        W_reconstructed = W_reconstructed / (balance_Dr[:, None] * balance_Dc[None, :])
         del balance_Dr, balance_Dc
 
     # Step 9: Update weights
     if isinstance(layer, transformers.Conv1D):
         W_reconstructed = W_reconstructed.t()
 
-    dequantized_weight = W_reconstructed.reshape(layer.weight.shape).to(
-        layer.weight.data.dtype
-    ).cpu()
+    dequantized_weight = (
+        W_reconstructed.reshape(layer.weight.shape).to(layer.weight.data.dtype).cpu()
+    )
 
     # Save decomposition results
     weight_a = a.cpu()
@@ -229,14 +214,9 @@ def run_onebit(
 
     # Numerical stability check
     if err > 1e4:
-        logger.debug(
-            f"[OneBit] WARNING: High reconstruction error detected: {err:.4e}"
-        )
+        logger.debug(f"[OneBit] WARNING: High reconstruction error detected: {err:.4e}")
 
-    if (
-        torch.isnan(W_reconstructed).any()
-        or torch.isinf(W_reconstructed).any()
-    ):
+    if torch.isnan(W_reconstructed).any() or torch.isinf(W_reconstructed).any():
         logger.debug("[OneBit] ERROR: NaN or Inf detected in quantized weights!")
         return False
 
@@ -271,9 +251,7 @@ def power_iteration(
                 A - torch.outer(u if "u" in locals() else torch.mv(A, v), v),
                 "fro",
             ).item()
-            logger.debug(
-                f"[OneBit Power Iteration {itt} STEP] ||A-ûv̂||_F = {current_error:.4e}"
-            )
+            logger.debug(f"[OneBit Power Iteration {itt} STEP] ||A-ûv̂||_F = {current_error:.4e}")
 
         u = torch.mv(A, v)
         u_norm = torch.norm(u)
@@ -288,11 +266,7 @@ def power_iteration(
         v = v / v_norm
 
     sigma = torch.norm(torch.mv(A, v))
-    u = (
-        torch.mv(A, v) / sigma
-        if sigma > 0
-        else torch.zeros_like(torch.mv(A, v))
-    )
+    u = torch.mv(A, v) / sigma if sigma > 0 else torch.zeros_like(torch.mv(A, v))
     return u, sigma, v
 
 

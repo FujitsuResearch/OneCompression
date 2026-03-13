@@ -16,6 +16,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 import logging
+
 logger = logging.getLogger(__name__)
 import torch
 from torch import optim
@@ -59,9 +60,7 @@ def _safe_cholesky(A: torch.Tensor, lam: float = 0.0) -> torch.Tensor:
 
             # Warn if large regularization was needed
             if factor > 1e-4:
-                logger.debug(
-                    f"[WARNING] Cholesky succeeded with regularization factor: {factor}"
-                )
+                logger.debug(f"[WARNING] Cholesky succeeded with regularization factor: {factor}")
 
             return L.to(dtype=odtype)
         except Exception:
@@ -82,9 +81,7 @@ def _safe_cholesky(A: torch.Tensor, lam: float = 0.0) -> torch.Tensor:
     except Exception as e:
         logger.debug(f"[ERROR] Even eigendecomposition-based Cholesky failed: {e}")
         # Last resort: approximate as diagonal matrix
-        return torch.diag(torch.sqrt(A.diag().clamp(min=1e-6))).to(
-            dtype=odtype
-        )
+        return torch.diag(torch.sqrt(A.diag().clamp(min=1e-6))).to(dtype=odtype)
 
 
 def _solve_sylvester_two_sides(
@@ -308,9 +305,7 @@ def dense_M_closed_form_given_d_stable(
 
     # NaN check
     if torch.isnan(M).any() or torch.isinf(M).any() or not np.isfinite(M_norm):
-        logger.debug(
-            f"    [WARNING] NaN/Inf detected in M, falling back to zero matrix"
-        )
+        logger.debug(f"    [WARNING] NaN/Inf detected in M, falling back to zero matrix")
         M = torch.zeros_like(M)
         return M.to(dtype=orig_dtype)
 
@@ -334,11 +329,7 @@ def dense_M_closed_form_given_d_stable(
                 M = torch.cholesky_solve(S1.T, LB).T
                 M_norm_new = torch.norm(M, "fro").item()
 
-                if (
-                    torch.isnan(M).any()
-                    or torch.isinf(M).any()
-                    or not np.isfinite(M_norm_new)
-                ):
+                if torch.isnan(M).any() or torch.isinf(M).any() or not np.isfinite(M_norm_new):
                     continue
 
                 logger.debug(
@@ -350,9 +341,7 @@ def dense_M_closed_form_given_d_stable(
                     break
 
             except Exception as e:
-                logger.debug(
-                    f"    [WARNING] Failed with {reg_factor}x regularization: {e}"
-                )
+                logger.debug(f"    [WARNING] Failed with {reg_factor}x regularization: {e}")
                 continue
 
         # Fall back to zero matrix only when extremely large
@@ -441,9 +430,7 @@ def uv_closed_form_given_d(
     n, m = W32.shape
     if m > 8192:  # For very large m
         # Compute W @ B32.T in column blocks
-        T = torch.zeros(
-            (A32.shape[1], B32.shape[0]), device=dev, dtype=torch.float32
-        )
+        T = torch.zeros((A32.shape[1], B32.shape[0]), device=dev, dtype=torch.float32)
         block_size = 2048
         for j0 in range(0, m, block_size):
             j1 = min(m, j0 + block_size)
@@ -462,9 +449,7 @@ def uv_closed_form_given_d(
 
     # Whitening: S = LA^{-1} T LB^{-T}
     S1 = torch.linalg.solve_triangular(LA, T, upper=False)  # LA^{-1} T
-    S = torch.linalg.solve_triangular(
-        LB, S1.T, upper=False
-    ).T  # (LA^{-1} T) LB^{-T}
+    S = torch.linalg.solve_triangular(LB, S1.T, upper=False).T  # (LA^{-1} T) LB^{-T}
 
     # SVD
     try:
@@ -503,12 +488,8 @@ def uv_closed_form_given_d(
     # Unwhitening:
     # U = LA^{-T} U_r sqrtSig,    V = LB^{-T} V_r sqrtSig
     try:
-        Uw = torch.linalg.solve_triangular(
-            LA.T, U_r, upper=True
-        )  # LA^{-T} U_r
-        Vw = torch.linalg.solve_triangular(
-            LB.T, V_r, upper=True
-        )  # LB^{-T} V_r
+        Uw = torch.linalg.solve_triangular(LA.T, U_r, upper=True)  # LA^{-T} U_r
+        Vw = torch.linalg.solve_triangular(LB.T, V_r, upper=True)  # LB^{-T} V_r
     except RuntimeError:
         # Fallback: explicit inverses (rare)
         Uw = torch.linalg.inv(LA.T) @ U_r
@@ -1117,9 +1098,7 @@ def compute_S_and_perm(
     QB = _orthonormal_cols(Btil.T)  # (m,k) - QR decomposition of Btil^T
 
     # Shape verification
-    assert (
-        QA.shape[1] == QB.shape[1]
-    ), f"k mismatch: QA shape={QA.shape} vs QB shape={QB.shape}"
+    assert QA.shape[1] == QB.shape[1], f"k mismatch: QA shape={QA.shape} vs QB shape={QB.shape}"
 
     # Middle matrix
     S = QA.T @ W_bal.to(torch.float32) @ QB  # (k,n)@(n,m)@(m,k) → (k,k)
@@ -1130,9 +1109,7 @@ def compute_S_and_perm(
         perm = torch.arange(k, device=S.device)
         off = S - torch.diag(torch.diag(S))
         rho_off = (off.norm() / S.norm().clamp_min(1e-12)).item() ** 2
-        logger.debug(
-            f"[S diagnosis] offdiag_ratio={rho_off:.3f} (k=1, no permutation needed)"
-        )
+        logger.debug(f"[S diagnosis] offdiag_ratio={rho_off:.3f} (k=1, no permutation needed)")
         return S, perm
 
     # Seriation: permute using Fiedler vector (symmetrize and use proximity weights)
@@ -1155,9 +1132,7 @@ def compute_S_and_perm(
             def tail_energy(r):
                 if r >= len(s):
                     return 0.0
-                return float(
-                    (s[r:] ** 2).sum() / (s**2).sum().clamp_min(1e-12)
-                )
+                return float((s[r:] ** 2).sum() / (s**2).sum().clamp_min(1e-12))
 
             logger.debug(
                 f"[S diagnosis] offdiag_ratio={rho_off:.3f}, tailE(r=4)={tail_energy(4):.3f}, tailE(r=8)={tail_energy(8):.3f}"
@@ -1165,9 +1140,7 @@ def compute_S_and_perm(
 
             # Automatic selection hints
             if rho_off < 0.1:
-                logger.debug(
-                    f"  → Suggestion: rank=0 (standard DBF) should be sufficient"
-                )
+                logger.debug(f"  → Suggestion: rank=0 (standard DBF) should be sufficient")
             elif tail_energy(4) < 0.1:
                 logger.debug(f"  → Suggestion: low-rank with r≤4 is recommended")
             elif tail_energy(8) < 0.1:

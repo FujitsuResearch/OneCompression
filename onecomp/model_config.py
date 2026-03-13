@@ -74,9 +74,7 @@ class ModelConfig:
         # Handle models without pad_token (e.g., Llama2)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-            self.logger.info(
-                "pad_token is not set. Using eos_token as pad_token."
-            )
+            self.logger.info("pad_token is not set. Using eos_token as pad_token.")
 
         return tokenizer
 

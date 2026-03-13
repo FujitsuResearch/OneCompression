@@ -82,9 +82,7 @@ class TestDBF(BaseQuantizeSpec):
         assert result.dbf_Db.dtype == torch.float16
         assert result.dbf_Db.device == torch.device("cpu")
 
-        W_reconstructed = (
-            result.dbf_A @ torch.diag(result.dbf_mid) @ result.dbf_B
-        )
+        W_reconstructed = result.dbf_A @ torch.diag(result.dbf_mid) @ result.dbf_B
         assert W_reconstructed.shape == layer.weight.shape
 
         assert torch.all((-1 <= result.dbf_A) & (result.dbf_A <= 1))
@@ -107,7 +105,8 @@ class TestDBF(BaseQuantizeSpec):
         self,
         error_original_vs_dequantized,
         error_dequantized_vs_applied,
-        max_error_dequantized_vs_applied):
+        max_error_dequantized_vs_applied,
+    ):
         """Validate forward errors."""
         print(
             "[DBF forward error] "

@@ -169,9 +169,7 @@ def run_jointq_error_propagation(
             )
             dtype = module.weight.data.dtype
             module_device = module.weight.data.device
-            module.weight.data = (
-                result.dequantized_weight.to(module_device).to(dtype)
-            )
+            module.weight.data = result.dequantized_weight.to(module_device).to(dtype)
             continue
 
         logger.info(

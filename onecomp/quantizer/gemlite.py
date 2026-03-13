@@ -18,6 +18,7 @@ from typing import Optional
 try:
     from gemlite.core import GemLiteLinearTriton, DType
     from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
+
     HAS_GEMLITE = True
 except ImportError:
     HAS_GEMLITE = False
@@ -33,7 +34,7 @@ def pad_cols_to_multiple(t: torch.Tensor, multiple: int, value: int) -> torch.Te
         return t
     pad_cols = (-t.shape[1]) % multiple
     if pad_cols:
-        t = F.pad(t, (0, pad_cols, 0, 0), value=value) # (left,right,top,bottom) = (0,pad,0,0)
+        t = F.pad(t, (0, pad_cols, 0, 0), value=value)  # (left,right,top,bottom) = (0,pad,0,0)
     return t
 
 
@@ -41,7 +42,7 @@ def create_gemlite_linear(
     weights: torch.Tensor,
     nbits: int = 1,
     group_size: int = DEFAULT_GROUP_SIZE,
-    device: torch.device = torch.device("cuda")
+    device: torch.device = torch.device("cuda"),
 ) -> Optional[nn.Module]:
     """
     Create a GemLiteLinear layer.
@@ -69,43 +70,37 @@ def create_gemlite_linear(
     """
     if not HAS_GEMLITE:
         return None
-    
+
     try:
         orig_out, orig_in = weights.shape
-        
+
         # GemLite requires in_features to be a multiple of group_size
         if orig_in % group_size != 0:
             return None
-        
+
         # Pad columns (in_features) to a multiple of group_size
         weights = pad_cols_to_multiple(weights, group_size, 1)
         out_features, in_features = weights.shape
-        
+
         # Create a temporary Linear layer
-        linear = nn.Linear(in_features, out_features, bias=False, device='cpu')
-        linear.weight = nn.Parameter(
-            weights.to(torch.float16), requires_grad=False
-        )
-        
+        linear = nn.Linear(in_features, out_features, bias=False, device="cpu")
+        linear.weight = nn.Parameter(weights.to(torch.float16), requires_grad=False)
+
         # HQQ quantization config
         quant_config = BaseQuantizeConfig(
-            nbits=nbits,
-            group_size=group_size,
-            quant_zero=False,
-            quant_scale=False,
-            axis=1
+            nbits=nbits, group_size=group_size, quant_zero=False, quant_scale=False, axis=1
         )
-        quant_config['weight_quant_params']['optimize'] = False
-        
+        quant_config["weight_quant_params"]["optimize"] = False
+
         # Create HQQLinear
         hqq_layer = HQQLinear(
             linear,
             quant_config=quant_config,
             compute_dtype=torch.float16,
-            device='cpu',
-            del_orig=False
+            device="cpu",
+            del_orig=False,
         )
-        
+
         # Create GemLiteLinear
         gemlite_linear = GemLiteLinearTriton(
             W_nbits=nbits,
@@ -113,27 +108,28 @@ def create_gemlite_linear(
             in_features=in_features,
             out_features=out_features,
             input_dtype=DType.FP16,
-            output_dtype=DType.FP16
+            output_dtype=DType.FP16,
         )
-        
+
         # Get metadata
-        scale = hqq_layer.meta['scale'].clone()
-        zero = (hqq_layer.meta['zero'].clone() 
-                if 'zero' in hqq_layer.meta 
-                else torch.zeros_like(scale))
-        
+        scale = hqq_layer.meta["scale"].clone()
+        zero = (
+            hqq_layer.meta["zero"].clone() if "zero" in hqq_layer.meta else torch.zeros_like(scale)
+        )
+
         # Pack
         gemlite_linear.pack(
             hqq_layer.unpack(dtype=torch.uint8).view((out_features, in_features)),
             scale,
             zero,
-            bias=None
+            bias=None,
         )
-        
+
         return gemlite_linear.to(device)
-    
+
     except Exception as e:
         import warnings
+
         warnings.warn(
             f"GemLite initialization failed: {e}. Falling back to standard implementation."
         )

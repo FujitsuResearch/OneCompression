@@ -50,9 +50,7 @@ def calculate_accuracy(
     # create a `model` and `tokenizer` object from the model config
     if model is None:
         if model_config is None:
-            raise ValueError(
-                "model_config must be provided if model is not provided"
-            )
+            raise ValueError("model_config must be provided if model is not provided")
         if model_config.has_additional_data():
             model = model_config.load_model()
         else:
@@ -68,13 +66,9 @@ def calculate_accuracy(
     if model is not None:
         if tokenizer is None:
             if model_config is None:
-                raise ValueError(
-                    "model_config must be provided if tokenizer is not provided"
-                )
+                raise ValueError("model_config must be provided if tokenizer is not provided")
             tokenizer = model_config.load_tokenizer()
-        eval_model = HFLM(
-            pretrained=model, tokenizer=tokenizer, batch_size=batch_size
-        )
+        eval_model = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=batch_size)
 
     # calculate the accuracy
     if tasks is None:

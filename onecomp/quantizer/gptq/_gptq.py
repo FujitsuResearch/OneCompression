@@ -58,9 +58,9 @@ class GPTQResult(QuantizationResult):
     # Weight reconstruction data
     # =========================================
     qweight: Optional[torch.Tensor] = None  # Quantized weights (INT type)
-    scales: Optional[torch.Tensor] = None   # Scale coefficients
-    qzeros: Optional[torch.Tensor] = None   # Zero points
-    perm: Optional[torch.Tensor] = None     # Column permutation order (actorder=True)
+    scales: Optional[torch.Tensor] = None  # Scale coefficients
+    qzeros: Optional[torch.Tensor] = None  # Zero points
+    perm: Optional[torch.Tensor] = None  # Column permutation order (actorder=True)
 
 
 @dataclass
@@ -97,16 +97,11 @@ class GPTQ(Quantizer):
             )
 
         if not (isinstance(self.wbits, int) and 1 <= self.wbits <= 64):
-            bad.append(
-                f"Invalid GPTQ parameter 'wbits': {self.wbits!r} (expected int in 1..64)"
-            )
+            bad.append(f"Invalid GPTQ parameter 'wbits': {self.wbits!r} (expected int in 1..64)")
 
         if not (
             isinstance(self.groupsize, int)
-            and (
-                self.groupsize == -1
-                or (1 <= self.groupsize <= self.blocksize)
-            )
+            and (self.groupsize == -1 or (1 <= self.groupsize <= self.blocksize))
         ):
             bad.append(
                 "Invalid GPTQ parameter 'groupsize': "
@@ -179,6 +174,7 @@ class GPTQ(Quantizer):
     def create_inference_layer(self, result, linear_module, **kwargs):
         """Build GPTQLinear from GPTQResult."""
         from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
+
         pack_weights = kwargs.get("pack_weights", True)
         return GPTQLinear.from_quantization_result(
             result=result,
@@ -192,7 +188,8 @@ class GPTQ(Quantizer):
             use_gemlite=kwargs.get("use_gemlite"),
         )
 
-def run_gptq( # pylint: disable=too-many-positional-arguments
+
+def run_gptq(  # pylint: disable=too-many-positional-arguments
     H: torch.Tensor,  # Hessian matrix
     layer: torch.nn.Module,
     blocksize: int = 128,
@@ -285,25 +282,21 @@ def run_gptq( # pylint: disable=too-many-positional-arguments
 
             if groupsize != -1:
                 if (i1 + i) % groupsize == 0:
-                    quantizer.find_params(
-                        W[:, (i1 + i) : (i1 + i + groupsize)], weight=True
-                    )
+                    quantizer.find_params(W[:, (i1 + i) : (i1 + i + groupsize)], weight=True)
                     # Accumulate group scale/zero
                     group_idx = (i1 + i) // groupsize
                     all_scales[:, group_idx] = quantizer.scale.squeeze(-1)
                     all_zeros[:, group_idx] = quantizer.zero.squeeze(-1)
 
-            q_int = quantize(
-                w.unsqueeze(1), quantizer.scale, quantizer.zero, quantizer.maxq
-            )
-            
+            q_int = quantize(w.unsqueeze(1), quantizer.scale, quantizer.zero, quantizer.maxq)
+
             if q_int is not None:
                 q = dequantize(q_int, quantizer.scale, quantizer.zero, quantizer.maxq).flatten()
                 q_int = q_int.flatten()
             else:
                 w_expanded = w.unsqueeze(1)  # (out_features, 1)
                 q = quantize_trits(w_expanded, quantizer.scale, quantizer.zero).flatten()
-            
+
             Q1[:, i] = q
             if q_int is not None:
                 Q1_int[:, i] = q_int
@@ -395,12 +388,14 @@ def dequantize(
     """
     return scale * (quantized.float() - zero)
 
+
 def quantize_trits(
     x: torch.Tensor,
     scale: torch.Tensor,
     zero: torch.Tensor,
 ) -> torch.Tensor:
     return (x > scale / 2).float() * scale + (x < zero / 2).float() * zero
+
 
 class GPTQExcecutor(nn.Module):
 
@@ -480,12 +475,8 @@ class GPTQExcecutor(nn.Module):
                 xmin1 = p * xmin
                 xmax1 = p * xmax
                 scale1 = (xmax1 - xmin1) / self.maxq
-                zero1 = (
-                    torch.round(-xmin1 / scale1) if not self.sym else self.zero
-                )
-                q_int = quantize(
-                    x, scale1.unsqueeze(1), zero1.unsqueeze(1), self.maxq
-                )
+                zero1 = torch.round(-xmin1 / scale1) if not self.sym else self.zero
+                q_int = quantize(x, scale1.unsqueeze(1), zero1.unsqueeze(1), self.maxq)
                 if q_int is not None:
                     q = dequantize(q_int, scale1.unsqueeze(1), zero1.unsqueeze(1), self.maxq)
                     q -= x

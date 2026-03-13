@@ -16,8 +16,10 @@ def check_nbits(wr, nbits):
     assert len(wr_vals) <= 2**nbits
     return wr_counts
 
+
 def hessian_loss(dw, H):
     return (dw @ H @ dw.T).trace()
+
 
 def calc_entropy(wr_counts):
     # empirical distribution of weights into bit patterns
@@ -25,9 +27,9 @@ def calc_entropy(wr_counts):
     logger.debug(wr_dist)
     # log(2) = 0.69... to convert from base e to bits
     logger.debug(
-        "avg bits per weight: %f"
-        % (torch.special.entr(wr_dist) / 0.69314718056).sum().item()
+        "avg bits per weight: %f" % (torch.special.entr(wr_dist) / 0.69314718056).sum().item()
     )
+
 
 def _allonce(x, w, unbiased=False):
     if unbiased:
@@ -158,9 +160,9 @@ def round_ldl(  # pylint: disable=too-many-positional-arguments
     d: input_shape, m: output_shape
     note: this has been updated with a (hopefully) more efficient LDL pass
     """
-    assert (not unbiased) or (n_greedy_passes == 0), (
-        "greedy passes are incompatible with unbiased LDL rounding"
-    )
+    assert (not unbiased) or (
+        n_greedy_passes == 0
+    ), "greedy passes are incompatible with unbiased LDL rounding"
     (d, d_) = H.shape
     assert d == d_
     (m, d) = w.shape
@@ -174,9 +176,7 @@ def round_ldl(  # pylint: disable=too-many-positional-arguments
     w_hat = w.clone()
     for i in reversed(range(d)):
         w_hat[:, i] = torch.clamp(
-            torch.floor(
-                w[:, i] + (w[:, i:] - w_hat[:, i:]) @ L[i:, i] + eta[:, i]
-            ),
+            torch.floor(w[:, i] + (w[:, i:] - w_hat[:, i:]) @ L[i:, i] + eta[:, i]),
             min=0,
             max=2**nbits - 1,
         )
@@ -220,9 +220,9 @@ def round_ldl_block(  # pylint: disable=too-many-positional-arguments
     d: input_shape, m: output_shape
     note: this has been updated with a (hopefully) more efficient LDL pass
     """
-    assert (not unbiased) or (n_greedy_passes == 0), (
-        "greedy passes are incompatible with unbiased LDL rounding"
-    )
+    assert (not unbiased) or (
+        n_greedy_passes == 0
+    ), "greedy passes are incompatible with unbiased LDL rounding"
     (d, d_) = H.shape
     assert d == d_
     (m, d) = w.shape
@@ -246,10 +246,7 @@ def round_ldl_block(  # pylint: disable=too-many-positional-arguments
         for i in reversed(range(count)):
             WHat1[:, i] = torch.clamp(
                 torch.floor(
-                    W1[:, i]
-                    + (W1 - WHat1) @ L1[i1:i2, i]
-                    + W2Hdiff @ L1[i2:, i]
-                    + Eta1[:, i]
+                    W1[:, i] + (W1 - WHat1) @ L1[i1:i2, i] + W2Hdiff @ L1[i2:, i] + Eta1[:, i]
                 ),
                 min=0,
                 max=2**nbits - 1,
@@ -413,11 +410,7 @@ def round_ldl_gptqequiv(  # pylint: disable=too-many-positional-arguments
         # w_hat[:,i] = torch.clamp(torch.floor(w[:,i] + (w - w_hat) @ L[:,i] + eta[:,i]), min=0, max=2**nbits-1)
         # optimized version
         w_hat[:, i] = torch.clamp(
-            torch.floor(
-                w[:, i]
-                + (w[:, : i + 1] - w_hat[:, : i + 1]) @ L[: i + 1, i]
-                + eta[:, i]
-            ),
+            torch.floor(w[:, i] + (w[:, : i + 1] - w_hat[:, : i + 1]) @ L[: i + 1, i] + eta[:, i]),
             min=0,
             max=2**nbits - 1,
         )
@@ -449,9 +442,7 @@ def round_vecbal_Hsort(  # pylint: disable=too-many-positional-arguments
     # LDL has special Hsort function, opposite order
     if qmethod == "ldlq":
         if lazy_batch is False:
-            return round_ldl(
-                w.float(), H, nbits=nbits, n_greedy_passes=npasses, unbiased=unbiased
-            )
+            return round_ldl(w.float(), H, nbits=nbits, n_greedy_passes=npasses, unbiased=unbiased)
         else:
             return round_ldl_block(
                 w.float(), H, nbits=nbits, n_greedy_passes=npasses, unbiased=unbiased
@@ -466,9 +457,7 @@ def round_vecbal_Hsort(  # pylint: disable=too-many-positional-arguments
                 w.float(), H, nbits=nbits, n_greedy_passes=npasses, unbiased=unbiased
             )
     elif qmethod == "ldlbal_admm":
-        return round_sorted_ldl_admm(
-            w, H, nbits=nbits, n_greedy_passes=npasses, unbiased=unbiased
-        )
+        return round_sorted_ldl_admm(w, H, nbits=nbits, n_greedy_passes=npasses, unbiased=unbiased)
     elif qmethod == "ldl_gptqequiv":
         return round_ldl_gptqequiv(w, H, nbits=nbits, unbiased=unbiased)
     else:
@@ -478,9 +467,7 @@ def round_vecbal_Hsort(  # pylint: disable=too-many-positional-arguments
         wp = w[:, p]
         if qmethod == "allbal":
             if lazy_batch is False:
-                wp_hat = round_allbal(
-                    wp, Hp, nbits=nbits, npasses=npasses, unbiased=unbiased
-                )
+                wp_hat = round_allbal(wp, Hp, nbits=nbits, npasses=npasses, unbiased=unbiased)
             else:
                 wp_hat = round_allbal_block(
                     wp, Hp, nbits=nbits, npasses=npasses, unbiased=unbiased
@@ -541,4 +528,3 @@ def quantize_weight_vecbal(  # pylint: disable=too-many-positional-arguments
         return wr_dequant.half(), wr_int.int(), scale_actual
     else:
         return NotImplementedError()
-

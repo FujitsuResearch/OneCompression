@@ -9,6 +9,7 @@ import gc  # ! Free memory
 from typing import Optional, Tuple
 
 import logging
+
 logger = logging.getLogger(__name__)
 import torch
 from torch import optim
@@ -93,9 +94,7 @@ def fine_tune_dense(
 
             # Regularization (prevent scale degeneracy and M explosion)
             # Stronger regularization to prevent parameter divergence
-            reg_scale = (Da_p - 1.0).square().mean() + (
-                Db_p - 1.0
-            ).square().mean()
+            reg_scale = (Da_p - 1.0).square().mean() + (Db_p - 1.0).square().mean()
             reg_param = M_p.square().mean() + d_p.square().mean()  # Also regularize d
             reg = reg_scale + 1e-4 * reg_param  # Stronger regularization
             loss = loss + wd * reg
@@ -241,9 +240,7 @@ def fine_tune_lowrank(
 
             # Regularization (prevent scale degeneracy and U/V explosion)
             # Stronger regularization to prevent parameter divergence
-            reg_scale = (Da_p - 1.0).square().mean() + (
-                Db_p - 1.0
-            ).square().mean()
+            reg_scale = (Da_p - 1.0).square().mean() + (Db_p - 1.0).square().mean()
             reg_param = (
                 U_p.square().mean() + V_p.square().mean() + d_p.square().mean()
             )  # Also regularize d

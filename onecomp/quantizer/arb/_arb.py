@@ -38,19 +38,19 @@ class ARBResult(QuantizationResult):
         alpha (torch.Tensor, optional): Row-wise scale coefficients (FP16, CPU).
         mu (torch.Tensor, optional): Row-wise bias (FP16, CPU).
     """
-    
+
     # =========================================
     # Quantization configuration parameters
     # =========================================
     arb_iters: int = None
     split_points: int = None
-    
+
     # =========================================
     # Weight reconstruction data
     # =========================================
     quantized_weight: Optional[torch.Tensor] = None  # Binary matrix (INT8, {±1})
-    alpha: Optional[torch.Tensor] = None             # Scale coefficient
-    mu: Optional[torch.Tensor] = None                # Bias
+    alpha: Optional[torch.Tensor] = None  # Scale coefficient
+    mu: Optional[torch.Tensor] = None  # Bias
 
 
 @dataclass
@@ -107,7 +107,7 @@ class ARB(Quantizer):
             split_points=self.split_points,
             verbose=self.verbose,
         )
-        
+
         return ARBResult(
             dequantized_weight=result_dict["dequantized_weight"],
             arb_iters=self.arb_iters,

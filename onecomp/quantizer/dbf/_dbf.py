@@ -51,6 +51,7 @@ class DBFResult(QuantizationResult):
         dbf_B (Optional[torch.Tensor]): Binary B matrix.
         dbf_Db (Optional[torch.Tensor]): Scaling vector paired with B.
     """
+
     # =========================================
     # Quantization configuration parameters
     # =========================================
@@ -91,7 +92,7 @@ class DBF(Quantizer):
         balance_alpha (float): Balancing alpha.
         balance_mode (str): Balancing mode (e.g., "l1").
         use_adaptive_rho (bool): Whether to adapt ADMM rho.
-    
+
     Methods:
         quantize_layer: Quantizes a given layer using DBF.
     """
@@ -113,20 +114,20 @@ class DBF(Quantizer):
         """Validate DBF parameters once at quantizer initialization."""
         bad = []
 
-        if self.target_bits is None or not isinstance(self.target_bits, (int, float)) or not (self.target_bits >= 1.0):
+        if (
+            self.target_bits is None
+            or not isinstance(self.target_bits, (int, float))
+            or not (self.target_bits >= 1.0)
+        ):
             bad.append(
                 f"Invalid DBF parameter 'target_bits': {self.target_bits!r} (expected numeric >= 1.0)"
             )
 
         if not (isinstance(self.iters, int) and self.iters >= 1):
-            bad.append(
-                f"Invalid DBF parameter 'iters': {self.iters!r} (expected int >= 1)"
-            )
+            bad.append(f"Invalid DBF parameter 'iters': {self.iters!r} (expected int >= 1)")
 
         if not (isinstance(self.reg, (int, float)) and self.reg >= 0):
-            bad.append(
-                f"Invalid DBF parameter 'reg': {self.reg!r} (expected numeric >= 0.0)"
-            )
+            bad.append(f"Invalid DBF parameter 'reg': {self.reg!r} (expected numeric >= 0.0)")
 
         if not (isinstance(self.balance_iters, int) and self.balance_iters >= 1):
             bad.append(
@@ -211,6 +212,7 @@ class DBF(Quantizer):
     def create_inference_layer(self, result, linear_module, **kwargs):
         """Build DoubleBinaryLinear from DBFResult."""
         from onecomp.quantizer.dbf.dbf_layer import DoubleBinaryLinear
+
         bias = (
             linear_module.bias
             if hasattr(linear_module, "bias") and linear_module.bias is not None

@@ -26,6 +26,7 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 import logging
+
 logger = logging.getLogger(__name__)
 import torch
 import transformers
@@ -60,9 +61,7 @@ def _power_rank1_abs_scaled(
         m = m / (torch.norm(m) + 1e-12)
     sigma = float(a.t() @ (A.abs() @ m))
     sigma = max(sigma, 1e-12)
-    root_sigma = torch.sqrt(
-        torch.tensor(sigma, device=A.device, dtype=A.dtype)
-    )
+    root_sigma = torch.sqrt(torch.tensor(sigma, device=A.device, dtype=A.dtype))
     a = a * root_sigma
     m = m * root_sigma
     return a, m, sigma
@@ -207,9 +206,7 @@ def find_other2(
     # Pre-compute A^T*A and A^T*W (avoid recomputing each iteration)
     XX = A.T @ A  # (k, k) matrix
     if reg > 0:
-        XX += torch.eye(XX.shape[0], device=XX.device, dtype=XX.dtype) * (
-            XX.diag().mean() * reg
-        )
+        XX += torch.eye(XX.shape[0], device=XX.device, dtype=XX.dtype) * (XX.diag().mean() * reg)
     XY = A.T @ W  # (k, m) matrix
 
     if use_adaptive_rho:
@@ -258,18 +255,12 @@ def find_other2(
                     U *= 2.0  # Dual too large → decrease ρ
 
                 # Clamp ρ range
-                rho = float(
-                    torch.clamp(torch.tensor(rho, device=A.device), 1e-6, 1e6)
-                )
+                rho = float(torch.clamp(torch.tensor(rho, device=A.device), 1e-6, 1e6))
     else:
         # Use fixed ρ (pre-compute inverse for speedup)
         rho = 1.0
-        XXinv = torch.inverse(
-            XX + torch.eye(XX.shape[0], device=XX.device) * rho
-        )
-        XXinv_start = torch.inverse(
-            XX + torch.eye(XX.shape[0], device=XX.device) * rho_start
-        )
+        XXinv = torch.inverse(XX + torch.eye(XX.shape[0], device=XX.device) * rho)
+        XXinv_start = torch.inverse(XX + torch.eye(XX.shape[0], device=XX.device) * rho_start)
 
         # First B-update
         B = XXinv_start @ (XY + rho_start * (Z - U))
@@ -344,9 +335,7 @@ def _factorizef(
     norm = i_norm.sqrt() + 1e-8  # Input scaling
     norm_o = (o_norm.sqrt() + 1e-8).unsqueeze(1)  # Output scaling
     Wn = W * norm * norm_o  # Scaled matrix
-    mid = int(
-        target_bits * (W.shape[0] * W.shape[1]) / (W.shape[0] + W.shape[1])
-    )
+    mid = int(target_bits * (W.shape[0] * W.shape[1]) / (W.shape[0] + W.shape[1]))
     mid = max(1, min(mid, W.shape[0], W.shape[1]))
     Az = torch.randn((W.shape[0], mid), device=W.device)
     Au = torch.zeros_like(Az)
@@ -354,9 +343,7 @@ def _factorizef(
     Bu = torch.zeros_like(Bz)
     final_mid = None
     for itt in range(iters):
-        rho_start = (
-            0.03 + (1.0 - 0.03) * min(1.0, itt / max(1, iters - 3)) ** 3
-        )
+        rho_start = 0.03 + (1.0 - 0.03) * min(1.0, itt / max(1, iters - 3)) ** 3
         mid_norm = Bz.norm(dim=1) + 1e-12
         Az_T, Au_T = find_other2(
             Bz.T / mid_norm,
@@ -383,12 +370,8 @@ def _factorizef(
         if itt % max(10, min(50, iters // 5)) == 0 or itt == iters - 1:
             try:
                 current_reconstruction = (Az / mid_norm).matmul(Bz)
-                frobenius_error = torch.norm(
-                    Wn - current_reconstruction, "fro"
-                ).item()
-                logger.debug(
-                    "  Step %.3d: recon error = %.4e", itt, frobenius_error
-                )
+                frobenius_error = torch.norm(Wn - current_reconstruction, "fro").item()
+                logger.debug("  Step %.3d: recon error = %.4e", itt, frobenius_error)
             except Exception:
                 pass
         if itt == iters - 1:
@@ -425,19 +408,13 @@ def _factorizeT(
 
     # Compute intermediate dimension k (based on target bit-width)
     # k ≈ target_bits * (n*m) / (n+m)
-    mid = int(
-        target_bits * (W.shape[0] * W.shape[1]) / (W.shape[0] + W.shape[1])
-    )
+    mid = int(target_bits * (W.shape[0] * W.shape[1]) / (W.shape[0] + W.shape[1]))
     mid = max(1, min(mid, W.shape[0], W.shape[1]))  # 1 ≤ k ≤ min(n,m)
 
     # Initialize ADMM variables
-    Az = torch.randn(
-        (W.shape[0], mid), device=W.device
-    )  # Initial A (random)
+    Az = torch.randn((W.shape[0], mid), device=W.device)  # Initial A (random)
     Au = torch.zeros_like(Az)  # Auxiliary variable for A
-    Bz = torch.randn(
-        (mid, W.shape[1]), device=W.device
-    )  # Initial B (random)
+    Bz = torch.randn((mid, W.shape[1]), device=W.device)  # Initial B (random)
     Bu = torch.zeros_like(Bz)  # Auxiliary variable for B
     final_mid = None  # Final intermediate scale
 
@@ -446,9 +423,7 @@ def _factorizeT(
     # sys.stdout.flush()
     for itt in range(iters):
         # ρ warmup (start small, gradually increase)
-        rho_start = (
-            0.03 + (1.0 - 0.03) * min(1.0, itt / max(1, iters - 3)) ** 3
-        )
+        rho_start = 0.03 + (1.0 - 0.03) * min(1.0, itt / max(1, iters - 3)) ** 3
 
         # === A update (B fixed) ===
         # Normalize by intermediate scale
@@ -484,12 +459,8 @@ def _factorizeT(
         if itt % max(10, min(50, iters // 5)) == 0 or itt == iters - 1:
             try:
                 current_reconstruction = (Az / mid_norm).matmul(Bz)
-                frobenius_error = torch.norm(
-                    Wn - current_reconstruction, "fro"
-                ).item()
-                logger.debug(
-                    "  Step %.3d: recon error = %.4e", itt, frobenius_error
-                )
+                frobenius_error = torch.norm(Wn - current_reconstruction, "fro").item()
+                logger.debug("  Step %.3d: recon error = %.4e", itt, frobenius_error)
             except Exception:
                 pass
 
@@ -518,15 +489,11 @@ def _factorize(
     """
 
     logger = getLogger(__name__)
-    logger.debug(
-        "[DBF] _factorize called with iters=%s, W.shape=%s", iters, W.shape
-    )
+    logger.debug("[DBF] _factorize called with iters=%s, W.shape=%s", iters, W.shape)
     # sys.stdout.flush()
 
     # Execute decomposition
-    _, Ab, Bb, mid = _factorizef(
-        W, i_norm, o_norm, iters, reg, target_bits, use_adaptive_rho
-    )
+    _, Ab, Bb, mid = _factorizef(W, i_norm, o_norm, iters, reg, target_bits, use_adaptive_rho)
 
     # Balance A,B norms (for numerical stability)
     Ac = Ab
@@ -538,9 +505,7 @@ def _factorize(
 
     # Reconstruction and sparsity measurement
     W3 = (Ac * mid).matmul(Bc)
-    actual_sparsity = ((Ac != 0).sum() + (Bc != 0).sum()).item() / (
-        Ac.numel() + Bc.numel()
-    )
+    actual_sparsity = ((Ac != 0).sum() + (Bc != 0).sum()).item() / (Ac.numel() + Bc.numel())
     logger.debug("[DBF] Actual sparsity: %.4f", actual_sparsity)
 
     return W3, Ac, Bc, mid
@@ -644,9 +609,7 @@ def run_dbf_original(
         # === Execute DBF decomposition ===
         # Compute sparsity
         sp = _compute_sparsity(W, target_bits)
-        asp = (
-            sp / 2 if W.shape[0] == W.shape[1] else sp
-        )  # Halve A's sparsity for square matrices
+        asp = sp / 2 if W.shape[0] == W.shape[1] else sp  # Halve A's sparsity for square matrices
 
         logger.debug(
             "[DBF] Configuration: target_bits=%.2f, sp=%.3f, asp=%.3f",
@@ -707,7 +670,7 @@ def run_dbf_original(
 
         # === Final reconstruction ===
         if is_conv1d:
-            # Conv1D: W = (B^T * mid * A^T)^T  
+            # Conv1D: W = (B^T * mid * A^T)^T
             W_balanced = (B_store.t() * mid_store).matmul(A_store.t()).t()
         else:
             # Normal: W = A * mid * B
@@ -716,19 +679,12 @@ def run_dbf_original(
 
         ## === Update layer weights ===
         dequantized_weight = (
-            W_out.reshape(layer.weight.shape)
-            .to(layer.weight.data.dtype)
-            .contiguous()
+            W_out.reshape(layer.weight.shape).to(layer.weight.data.dtype).contiguous()
         )
 
         # === Error check: detect NaN/Inf ===
-        if (
-            torch.isnan(dequantized_weight).any()
-            or torch.isinf(dequantized_weight).any()
-        ):
-            logger.warning(
-                "[DBF] ERROR: NaN/Inf in weights. Reverting to original weights."
-            )
+        if torch.isnan(dequantized_weight).any() or torch.isinf(dequantized_weight).any():
+            logger.warning("[DBF] ERROR: NaN/Inf in weights. Reverting to original weights.")
             dequantized_weight = weight_backup.contiguous()
             clear_dbf_meta(dequantized_weight)
             logger.warning(
@@ -742,9 +698,7 @@ def run_dbf_original(
         W_compare = W_balanced.t() if is_conv1d else W_balanced
         err = (W_compare - W_original).square().sum().item()  # Absolute error
         fro_norm = torch.norm(W_original, p="fro").item() + 1e-12
-        rel_err = (
-            torch.norm(W_compare - W_original, p="fro").item() / fro_norm
-        )  # Relative error
+        rel_err = torch.norm(W_compare - W_original, p="fro").item() / fro_norm  # Relative error
         logger.debug(
             "[DBF] Final Reconstruction error: abs=%.4e, rel=%.4e",
             err,
@@ -778,9 +732,7 @@ def run_dbf_original(
             W_meta = (dbf_A * dbf_mid).matmul(dbf_B)
 
         # Check if within tolerance
-        if not torch.allclose(
-            W_meta, dequantized_weight, rtol=5e-3, atol=5e-3
-        ):
+        if not torch.allclose(W_meta, dequantized_weight, rtol=5e-3, atol=5e-3):
             logger.warning(
                 "[DBF] WARNING: metadata (A,B,mid) does not reconst"
                 "ruct dequantized_weight within tolerance."
@@ -788,9 +740,7 @@ def run_dbf_original(
             recon_error = torch.norm(W_meta - dequantized_weight, p="fro") / (
                 torch.norm(dequantized_weight, p="fro") + 1e-12
             )
-            logger.warning(
-                "[DBF] Reconstruction relative error: %.4e", recon_error
-            )
+            logger.warning("[DBF] Reconstruction relative error: %.4e", recon_error)
             if recon_error > 0.01:
                 logger.warning(
                     "[DBF] Large error detected: A=%s, B=%s",

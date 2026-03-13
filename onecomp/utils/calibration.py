@@ -133,9 +133,7 @@ def load_c4_for_aligned_chunks(
         (target_tokens // estimated_tokens_per_sample) * 2,
     )
 
-    logger.info(
-        "Loading initial %d samples from C4 dataset...", initial_samples
-    )
+    logger.info("Loading initial %d samples from C4 dataset...", initial_samples)
     dataset = load_dataset(
         "allenai/c4",
         data_files="en/c4-train.00001-of-01024.json.gz",
@@ -164,8 +162,7 @@ def load_c4_for_aligned_chunks(
 
     if total_tokens < target_tokens:
         logger.warning(
-            "Could not reach target tokens. "
-            "Loaded %d tokens, target was %d tokens.",
+            "Could not reach target tokens. " "Loaded %d tokens, target was %d tokens.",
             total_tokens,
             target_tokens,
         )
@@ -230,9 +227,7 @@ def _chunk_single_document(
             if max_start == 0:
                 start = 0
             else:
-                start = int(
-                    torch.randint(0, max_start + 1, (1,), generator=gen).item()
-                )
+                start = int(torch.randint(0, max_start + 1, (1,), generator=gen).item())
             chunk = ids[start : start + max_length]
 
         chunks.append(chunk)
@@ -314,9 +309,7 @@ def _chunk_concat(
     if num_chunks == 0:
         # Edge case: calibration data is too short.
         # This should not normally occur, but pad to a single chunk for safety.
-        logger.warning(
-            "Calibration data is too short. Using all tokens as a single chunk."
-        )
+        logger.warning("Calibration data is too short. Using all tokens as a single chunk.")
         num_chunks = 1
         padded_tokens = torch.zeros(max_length, dtype=all_tokens.dtype)
         padded_tokens[:total_tokens] = all_tokens
@@ -401,9 +394,7 @@ def _prepare_from_c4(
 
     if strategy == "concat_chunk_align":
         # concat_chunk_align: adjust the number of samples so that num_chunks == num_calibration_samples
-        texts = load_c4_for_aligned_chunks(
-            tokenizer, num_calibration_samples, max_length, logger
-        )
+        texts = load_c4_for_aligned_chunks(tokenizer, num_calibration_samples, max_length, logger)
         return _chunk_concat(
             texts,
             tokenizer,

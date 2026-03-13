@@ -17,6 +17,7 @@ from typing import Optional
 # Optional GemLite integration
 try:
     from onecomp.quantizer.gemlite import create_gemlite_linear, is_gemlite_available
+
     HAS_GEMLITE_SUPPORT = True
 except ImportError:
     HAS_GEMLITE_SUPPORT = False
@@ -25,6 +26,7 @@ except ImportError:
 # ========================================
 # Bit packing / unpacking
 # ========================================
+
 
 def pack_binary(x: torch.Tensor) -> torch.Tensor:
     """Convert ±1 to {0,1} and pack 8:1 into uint8. Pad trailing with +1."""
@@ -37,7 +39,7 @@ def pack_binary(x: torch.Tensor) -> torch.Tensor:
     out = torch.zeros((flat.numel() // 8,), device=flat.device, dtype=torch.uint8)
     # Aggregate by bit position
     for i in range(8):
-        out += (flat[i::8] << (7 - i))
+        out += flat[i::8] << (7 - i)
     return out
 
 
@@ -53,10 +55,12 @@ def unpack_binary(x: torch.Tensor) -> torch.Tensor:
 # Basic components
 # ========================================
 
+
 class BitLinearPacked(nn.Module):
     """Packed binary matrix × input linear (fallback without GemLite).
-       Unpacks bp on every forward pass.
+    Unpacks bp on every forward pass.
     """
+
     def __init__(self, b: torch.Tensor):
         super().__init__()
         if b.ndim == 2:
@@ -77,6 +81,7 @@ class BitLinearPacked(nn.Module):
 # ========================================
 # DoubleBinaryLinear layer
 # ========================================
+
 
 class DoubleBinaryLinear(nn.Module):
     """DBF inference layer (5-stage implementation).
@@ -120,18 +125,12 @@ class DoubleBinaryLinear(nn.Module):
     ):
         super().__init__()
         # Stage 0: Input scaling
-        self.scaling0 = nn.Parameter(
-            dbf_Db.detach().to(torch.float16), requires_grad=False
-        )
+        self.scaling0 = nn.Parameter(dbf_Db.detach().to(torch.float16), requires_grad=False)
         # Stage 2: Middle scaling
         mid = dbf_mid.flatten() if dbf_mid.numel() > 1 else dbf_mid
-        self.scaling2 = nn.Parameter(
-            mid.detach().to(torch.float16), requires_grad=False
-        )
+        self.scaling2 = nn.Parameter(mid.detach().to(torch.float16), requires_grad=False)
         # Stage 4: Output scaling
-        self.scaling4 = nn.Parameter(
-            dbf_Da.detach().to(torch.float16), requires_grad=False
-        )
+        self.scaling4 = nn.Parameter(dbf_Da.detach().to(torch.float16), requires_grad=False)
 
         self._bp1_shape = tuple(dbf_B.shape)
         self._bp3_shape = tuple(dbf_A.shape)
@@ -154,16 +153,16 @@ class DoubleBinaryLinear(nn.Module):
 
         # Bias (from original Linear, if any)
         if bias is not None:
-            self.register_buffer('bias', bias.clone().to(torch.float16))
+            self.register_buffer("bias", bias.clone().to(torch.float16))
         else:
             self.bias = None
-        
+
         if device is not None:
             self.to(device)
-    
+
     def _unpack_bp(self, bp: torch.Tensor, shape: tuple) -> torch.Tensor:
         """Unpack a packed binary buffer to {-1,+1} matrix."""
-        return unpack_binary(bp)[:shape[0] * shape[1]].reshape(shape)
+        return unpack_binary(bp)[: shape[0] * shape[1]].reshape(shape)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """5-stage forward pass."""
@@ -183,7 +182,7 @@ class DoubleBinaryLinear(nn.Module):
         if self.bias is not None:
             x = x + self.bias.to(x.dtype)
         return x
-    
+
     @classmethod
     def from_quantization_result(cls, result, bias=None, device=None, use_gemlite=None):
         """
@@ -236,7 +235,7 @@ class DoubleBinaryLinear(nn.Module):
 
         def _p(k):
             t = layer_state_dict[k]
-            return (torch.zeros_like(t) if empty else t)
+            return torch.zeros_like(t) if empty else t
 
         self.scaling0 = nn.Parameter(_p("scaling0"), requires_grad=False)
         self.scaling2 = nn.Parameter(_p("scaling2"), requires_grad=False)
@@ -258,4 +257,3 @@ class DoubleBinaryLinear(nn.Module):
         self._gemlite_layers = {}
 
         return self
-

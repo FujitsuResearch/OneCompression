@@ -8,4 +8,3 @@ Author: Keiji Kimura
 This module provides extension methods for the Runner class.
 
 """
-

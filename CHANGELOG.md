@@ -36,6 +36,11 @@
 - Added parameter validation mechanism via `validate_params()` during `setup()` for `DBF` and `GPTQ`
 - Unified and revised dtype (FP16/INT32) and device (CPU) of quantization results
 
+### Build System Updates
+
+- Migrated package and project management to `uv` and `pyproject.toml`.
+- Applied `black` linter to scripts.
+
 ## [v0.3.5] 2026-03-05
 
 - Based on v0.3.4 codebase

@@ -37,39 +37,60 @@ class QuantizeTestHelper:
         dtype=torch.float32,
     ):
         """Create a linear layer for test use."""
-        return torch.nn.Linear(
-            in_features, out_features, bias=False, device=device, dtype=dtype
-        )
+        return torch.nn.Linear(in_features, out_features, bias=False, device=device, dtype=dtype)
 
-    def make_input(
-        self, batch=2, seq=3, hidden=8, device="cpu", dtype=torch.float32
-    ):
+    def make_input(self, batch=2, seq=3, hidden=8, device="cpu", dtype=torch.float32):
         """Create random input tensors for quantization tests."""
         return torch.randn(batch, seq, hidden, device=device, dtype=dtype)
 
 
 class TestModel(nn.Module):
     """Small attention+MLP stack used for error-bound checks."""
+
     def __init__(self, hidden_size=2048):
         super().__init__()
-        self.model = nn.ModuleDict({
-            'layers': nn.ModuleList([
-                nn.ModuleDict({
-                    'self_attn': nn.ModuleDict({
-                        'q_proj': nn.Linear(hidden_size, hidden_size // 8, bias=False),
-                        'k_proj': nn.Linear(hidden_size, hidden_size // 8, bias=False),
-                        'v_proj': nn.Linear(hidden_size, hidden_size // 8, bias=False),
-                        'o_proj': nn.Linear(hidden_size // 8, hidden_size, bias=False),
-                    }),
-                    'mlp': nn.ModuleDict({
-                        'gate_proj': nn.Linear(hidden_size, hidden_size * 11 // 4, bias=False),
-                        'up_proj': nn.Linear(hidden_size, hidden_size * 11 // 4, bias=False),
-                        'down_proj': nn.Linear(hidden_size * 11 // 4, hidden_size, bias=False),
-                    })
-                })
-                for _ in range(2)
-            ])
-        })
+        self.model = nn.ModuleDict(
+            {
+                "layers": nn.ModuleList(
+                    [
+                        nn.ModuleDict(
+                            {
+                                "self_attn": nn.ModuleDict(
+                                    {
+                                        "q_proj": nn.Linear(
+                                            hidden_size, hidden_size // 8, bias=False
+                                        ),
+                                        "k_proj": nn.Linear(
+                                            hidden_size, hidden_size // 8, bias=False
+                                        ),
+                                        "v_proj": nn.Linear(
+                                            hidden_size, hidden_size // 8, bias=False
+                                        ),
+                                        "o_proj": nn.Linear(
+                                            hidden_size // 8, hidden_size, bias=False
+                                        ),
+                                    }
+                                ),
+                                "mlp": nn.ModuleDict(
+                                    {
+                                        "gate_proj": nn.Linear(
+                                            hidden_size, hidden_size * 11 // 4, bias=False
+                                        ),
+                                        "up_proj": nn.Linear(
+                                            hidden_size, hidden_size * 11 // 4, bias=False
+                                        ),
+                                        "down_proj": nn.Linear(
+                                            hidden_size * 11 // 4, hidden_size, bias=False
+                                        ),
+                                    }
+                                ),
+                            }
+                        )
+                        for _ in range(2)
+                    ]
+                )
+            }
+        )
 
     def forward(self, x):
         """Forward pass is not needed for quantization tests."""
@@ -140,7 +161,7 @@ class BaseQuantizeSpec:
         self,
         error_original_vs_dequantized: float,
         error_dequantized_vs_applied: float,
-        max_error_dequantized_vs_applied: float
+        max_error_dequantized_vs_applied: float,
     ):
         """Validate forward errors."""
         raise NotImplementedError
@@ -154,9 +175,7 @@ class BaseQuantizeSpec:
         helper.set_deterministic()
         helper.seed_everything(123)
 
-        layer = helper.make_linear(
-            8, 8, device=device, dtype=torch.float32
-        )
+        layer = helper.make_linear(8, 8, device=device, dtype=torch.float32)
         inp = helper.make_input(device=device, dtype=torch.float32)
 
         q = self.make_quantizer(**self.default_parameter_for_test)
@@ -178,12 +197,8 @@ class BaseQuantizeSpec:
         """
         helper.set_deterministic()
 
-        layer1 = helper.make_linear(
-            8, 8, device=device, dtype=torch.float32
-        )
-        layer2 = helper.make_linear(
-            8, 8, device=device, dtype=torch.float32
-        )
+        layer1 = helper.make_linear(8, 8, device=device, dtype=torch.float32)
+        layer2 = helper.make_linear(8, 8, device=device, dtype=torch.float32)
         layer2.weight.data.copy_(layer1.weight.data)
 
         inp = helper.make_input(device=device, dtype=torch.float32)
@@ -206,9 +221,7 @@ class BaseQuantizeSpec:
             params (dict): Boundary parameter set.
         """
         layer = helper.make_linear(4, 4, device="cpu", dtype=torch.float32)
-        inp = helper.make_input(
-            batch=1, seq=1, hidden=4, device="cpu", dtype=torch.float32
-        )
+        inp = helper.make_input(batch=1, seq=1, hidden=4, device="cpu", dtype=torch.float32)
 
         q = self.make_quantizer(**params)
         hessian = q.calculate_hessian(layer, inp)
@@ -234,15 +247,11 @@ class BaseQuantizeSpec:
         with pytest.raises(Exception):
             q.setup(model)
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available(), reason="CUDA not available"
-    )
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_cpu_gpu_output_match(self, helper):
         """Validate that CPU and GPU quantization results match."""
         cpu_layer = helper.make_linear(8, 8, device="cpu", dtype=torch.float32)
-        gpu_layer = helper.make_linear(
-            8, 8, device="cuda", dtype=torch.float32
-        )
+        gpu_layer = helper.make_linear(8, 8, device="cuda", dtype=torch.float32)
         gpu_layer.weight.data.copy_(cpu_layer.weight.data.to("cuda"))
 
         cpu_inp = helper.make_input(device="cpu", dtype=torch.float32)
@@ -252,9 +261,7 @@ class BaseQuantizeSpec:
         cpu_hessian = q.calculate_hessian(cpu_layer, cpu_inp)
         gpu_hessian = q.calculate_hessian(gpu_layer, gpu_inp)
 
-        cpu_out = q.quantize_layer(
-            cpu_layer, cpu_inp, hessian=cpu_hessian
-        ).dequantized_weight
+        cpu_out = q.quantize_layer(cpu_layer, cpu_inp, hessian=cpu_hessian).dequantized_weight
         gpu_out = q.quantize_layer(
             gpu_layer, gpu_inp, hessian=gpu_hessian
         ).dequantized_weight.cpu()
@@ -288,9 +295,7 @@ class BaseQuantizeSpec:
                 v = torch.matmul(attn_weights, v)
                 attn_out = layer.self_attn.o_proj(v)
 
-                gate = torch.nn.functional.silu(
-                    layer.mlp.gate_proj(y_original)
-                )
+                gate = torch.nn.functional.silu(layer.mlp.gate_proj(y_original))
                 up = layer.mlp.up_proj(y_original)
                 mlp_out = layer.mlp.down_proj(gate * up)
 
@@ -312,12 +317,8 @@ class BaseQuantizeSpec:
                             dtype=torch.float32,
                         )
                         H = quantizer.calculate_hessian(module, module_inp)
-                        dbf_result = quantizer.quantize_layer(
-                            module, module_inp, H
-                        )
-                        self.apply_quantized_weights(
-                            module, dbf_result, device
-                        )
+                        dbf_result = quantizer.quantize_layer(module, module_inp, H)
+                        self.apply_quantized_weights(module, dbf_result, device)
 
         model = model.to(device)
 
@@ -333,9 +334,7 @@ class BaseQuantizeSpec:
                 v = torch.matmul(attn_weights, v)
                 attn_out = layer.self_attn.o_proj(v)
 
-                gate = torch.nn.functional.silu(
-                    layer.mlp.gate_proj(y_replaced)
-                )
+                gate = torch.nn.functional.silu(layer.mlp.gate_proj(y_replaced))
                 up = layer.mlp.up_proj(y_replaced)
                 mlp_out = layer.mlp.down_proj(gate * up)
 
@@ -354,9 +353,7 @@ class BaseQuantizeSpec:
         helper.seed_everything(123)
 
         # Prepare a linear layer and input
-        layer = helper.make_linear(
-            8, 8, device=device, dtype=torch.float32
-        )
+        layer = helper.make_linear(8, 8, device=device, dtype=torch.float32)
         inp = helper.make_input(device=device, dtype=torch.float32)
 
         # original output
@@ -368,9 +365,7 @@ class BaseQuantizeSpec:
         hessian = q.calculate_hessian(layer, inp)
         result = q.quantize_layer(layer, inp, hessian=hessian)
 
-        dequantized_layer = helper.make_linear(
-            8, 8, device=device, dtype=torch.float32
-        )
+        dequantized_layer = helper.make_linear(8, 8, device=device, dtype=torch.float32)
         dequantized_layer.weight.data.copy_(result.dequantized_weight.to(device))
         with torch.no_grad():
             y_dequantized = dequantized_layer(inp)
@@ -389,18 +384,16 @@ class BaseQuantizeSpec:
         # original_vs_dequantized
         error_original_vs_dequantized = (
             torch.norm(y_original - y_dequantized) / torch.norm(y_original)
-            ).item()
+        ).item()
         # dequantized_vs_applied
         error_dequantized_vs_applied = (
-            torch.norm(y_dequantized - y_applied)/ (torch.norm(y_dequantized))
-            ).item()
+            torch.norm(y_dequantized - y_applied) / (torch.norm(y_dequantized))
+        ).item()
         # dequantized_vs_applied (max)
-        max_error_dequantized_vs_applied = (
-            torch.abs(y_dequantized - y_applied).max().item()
-            )
+        max_error_dequantized_vs_applied = torch.abs(y_dequantized - y_applied).max().item()
 
         self.check_forward_error(
             error_original_vs_dequantized,
             error_dequantized_vs_applied,
-            max_error_dequantized_vs_applied
+            max_error_dequantized_vs_applied,
         )

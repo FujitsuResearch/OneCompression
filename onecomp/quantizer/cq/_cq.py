@@ -38,19 +38,19 @@ class CQResult(QuantizationResult):
         left_mean (torch.Tensor, optional): Left cluster mean value (scalar or row-wise vector).
         right_mean (torch.Tensor, optional): Right cluster mean value (scalar or row-wise vector).
     """
-    
+
     # =========================================
     # Quantization configuration parameters
     # =========================================
     each_row: bool = None
-    
+
     # =========================================
     # Weight reconstruction data
     # =========================================
     quantized_weight: Optional[torch.Tensor] = None  # Indices (INT8, {0, 1})
-    threshold: Optional[torch.Tensor] = None         # Threshold
-    left_mean: Optional[torch.Tensor] = None         # Left cluster mean
-    right_mean: Optional[torch.Tensor] = None        # Right cluster mean
+    threshold: Optional[torch.Tensor] = None  # Threshold
+    left_mean: Optional[torch.Tensor] = None  # Left cluster mean
+    right_mean: Optional[torch.Tensor] = None  # Right cluster mean
 
 
 @dataclass
@@ -102,7 +102,7 @@ class CQ(Quantizer):
             module,
             each_row=self.each_row,
         )
-        
+
         return CQResult(
             dequantized_weight=result_dict["dequantized_weight"],
             each_row=self.each_row,

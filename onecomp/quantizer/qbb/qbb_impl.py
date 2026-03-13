@@ -29,7 +29,7 @@ logger = getLogger(__name__)
 
 def ste_sign(x):
     """Straight-Through Estimator for sign function
-    
+
     Forward: sign(x)
     Backward: gradient passes through if |x| <= 1, else 0
     """
@@ -47,7 +47,7 @@ def identity_ste(x):
 
 def tanh_ste(x, k=1.0):
     """Tanh-based STE for smoother gradients
-    
+
     Forward: sign(x)
     Backward: k * (1 - tanh^2(k*x))
     """
@@ -276,11 +276,11 @@ def run_qbb(  # pylint: disable=too-many-positional-arguments
     # Reconstruct quantized weights
     with torch.no_grad():
         Q = sum(alpha.unsqueeze(0) * B for alpha, B in zip(alpha_list, B_list))
-        
+
         # Calculate and report error before transforming Q back to original shape
         error = ((W - Q) ** 2).sum().item()
         logger.debug(f"[QBB] Quantization complete. Reconstruction error: {error:.6f}")
-        
+
         # Convert binary matrices to integer type (int8, {±1})
         B_int_list = [B.to(torch.int8) for B in B_list]
 
@@ -303,4 +303,3 @@ def run_qbb(  # pylint: disable=too-many-positional-arguments
         "quantized_weight_list": quantized_weight_list,
         "alpha_list": alpha_list_cpu,
     }
-

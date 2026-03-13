@@ -93,9 +93,8 @@ def run_quip(
     if incoh_mode == "kron":
         U = rand_ortho_butterfly_noblock(W.shape[0]).to(torch.float32).to(W.device)
         V = rand_ortho_butterfly_noblock(W.shape[1]).to(torch.float32).to(W.device)
-        H = (
-            H * (H.shape[0] / (torch.trace(H) + 1e-8))
-            + 1e-2 * torch.eye(H.shape[0], device=W.device)
+        H = H * (H.shape[0] / (torch.trace(H) + 1e-8)) + 1e-2 * torch.eye(
+            H.shape[0], device=W.device
         )
         W = U @ W @ V.T
         H = V @ H @ V.T
@@ -104,9 +103,8 @@ def run_quip(
     elif incoh_mode == "had":
         U = (torch.randn(W.shape[0], device=W.device).sign() + 1e-5).sign().to(torch.float32)
         V = (torch.randn(W.shape[1], device=W.device).sign() + 1e-5).sign().to(torch.float32)
-        H = (
-            H * (H.shape[0] / (torch.trace(H) + 1e-8))
-            + 1e-2 * torch.eye(H.shape[0], device=W.device)
+        H = H * (H.shape[0] / (torch.trace(H) + 1e-8)) + 1e-2 * torch.eye(
+            H.shape[0], device=W.device
         )
         W = RHT_W(W, U, V)
         H = RHT_H(H, V)
@@ -156,7 +154,7 @@ def run_quip(
     # Store quantized weights on CPU
     dequantized_weight = Q.reshape(layer.weight.shape).to(layer.weight.data.dtype).cpu()
     quantized_weight = Q_int.reshape(layer.weight.shape).cpu()
-    
+
     if quantizer.qfn == "b":
         scale_final = scale_actual.cpu()
         zero = None

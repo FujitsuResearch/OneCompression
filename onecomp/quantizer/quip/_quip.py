@@ -38,21 +38,21 @@ class QUIPResult(QuantizationResult):
         zero (torch.Tensor, optional): Zero point (FP16, CPU).
         maxq (torch.Tensor, optional): Maximum quantization level.
     """
-    
+
     # =========================================
     # Quantization configuration parameters
     # =========================================
     wbits: int = None
     percdamp: float = None
     incoh_mode: str = None
-    
+
     # =========================================
     # Weight reconstruction data
     # =========================================
     quantized_weight: Optional[torch.Tensor] = None  # Quantized weights (INT type)
-    scale: Optional[torch.Tensor] = None             # Scale coefficient
-    zero: Optional[torch.Tensor] = None              # Zero point
-    maxq: Optional[torch.Tensor] = None              # Maximum quantization level
+    scale: Optional[torch.Tensor] = None  # Scale coefficient
+    zero: Optional[torch.Tensor] = None  # Zero point
+    maxq: Optional[torch.Tensor] = None  # Maximum quantization level
 
 
 @dataclass
@@ -104,7 +104,7 @@ class QUIP(Quantizer):
         """
         if hessian is None:
             hessian = self.calculate_hessian(module, input)
-        
+
         result_dict = run_quip(
             hessian,
             module,
@@ -112,7 +112,7 @@ class QUIP(Quantizer):
             wbits=self.wbits,
             incoh_mode=self.incoh_mode,
         )
-        
+
         return QUIPResult(
             dequantized_weight=result_dict["dequantized_weight"],
             wbits=self.wbits,

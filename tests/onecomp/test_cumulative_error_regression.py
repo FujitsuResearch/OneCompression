@@ -83,9 +83,7 @@ class TestCumulativeErrorRegression:
             f"  Actual: {sorted(actual_keywords)}"
         )
 
-    def test_same_layers_per_keyword(
-        self, cumulative_error_results, cumulative_error_reference
-    ):
+    def test_same_layers_per_keyword(self, cumulative_error_results, cumulative_error_reference):
         """Verify that the same layers are analyzed for each keyword."""
         for keyword in cumulative_error_reference:
             expected_layers = set(cumulative_error_reference[keyword].keys())
@@ -136,9 +134,7 @@ def cumulative_error_results_batch(cumulative_error_reference):  # pylint: disab
     Verify that it produces the same results as the per-keyword mode.
     """
     runner = run_qep_gptq_quantization()
-    results = runner.analyze_cumulative_error(
-        layer_keywords=LAYER_KEYWORDS, batch_keywords=True
-    )
+    results = runner.analyze_cumulative_error(layer_keywords=LAYER_KEYWORDS, batch_keywords=True)
     return results
 
 
@@ -185,9 +181,7 @@ class TestCumulativeErrorRegressionBatch:
                     f"  Relative error: {rel_err:.2%}"
                 )
 
-    def test_mean_squared_error(
-        self, cumulative_error_results_batch, cumulative_error_reference
-    ):
+    def test_mean_squared_error(self, cumulative_error_results_batch, cumulative_error_reference):
         """Verify that the cumulative mean squared error closely matches the reference data."""
         for keyword, layers in cumulative_error_reference.items():
             for name, expected in layers.items():

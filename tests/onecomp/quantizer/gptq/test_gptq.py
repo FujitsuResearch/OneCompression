@@ -107,7 +107,8 @@ class TestGPTQ(BaseQuantizeSpec):
         self,
         error_original_vs_dequantized,
         error_dequantized_vs_applied,
-        max_error_dequantized_vs_applied):
+        max_error_dequantized_vs_applied,
+    ):
         """Validate forward errors."""
         print(
             "[GPTQ forward error] "

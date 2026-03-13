@@ -1,2 +1,94 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onecomp"
+dynamic = ["version"]
+description = "Python package for LLM compression"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Keiji Kimura"},
+]
+requires-python = ">=3.12"
+dependencies = [
+    "transformers",
+    "accelerate",
+    "datasets",
+    "lm-eval",
+    "primefac",
+    "scipy",
+]
+
+[project.optional-dependencies]
+cpu = ["torch"]
+cu118 = ["torch"]
+cu121 = ["torch"]
+cu124 = ["torch"]
+cu126 = ["torch"]
+cu128 = ["torch"]
+dev = [
+    "black",
+    "matplotlib>=3.10.8",
+    "pylint",
+    "pytest",
+]
+gemlite = [
+    "gemlite @ git+https://github.com/mobiusml/gemlite.git",
+    "hqq @ git+https://github.com/mobiusml/hqq.git",
+]
+
+[tool.uv]
+conflicts = [
+    [{extra = "cpu"}, {extra = "cu118"}, {extra = "cu121"}, {extra = "cu124"}, {extra = "cu126"}, {extra = "cu128"}],
+]
+
+[tool.uv.sources]
+torch = [
+    {index = "pytorch-cpu", extra = "cpu"},
+    {index = "pytorch-cu118", extra = "cu118"},
+    {index = "pytorch-cu121", extra = "cu121"},
+    {index = "pytorch-cu124", extra = "cu124"},
+    {index = "pytorch-cu126", extra = "cu126"},
+    {index = "pytorch-cu128", extra = "cu128"},
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 [tool.black]
 line-length = 99
+
+[tool.setuptools.dynamic]
+version = {attr = "onecomp.__version__.__version__"}
+
+[tool.setuptools.packages.find]
+exclude = ["tests", "tests.*"]

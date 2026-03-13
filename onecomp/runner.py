@@ -562,7 +562,7 @@ class Runner:
             module.weight.data = (
                 self.quantizer.results[name].dequantized_weight.to(device).to(dtype)
             )
-            
+
             # 2-4. Free memory
             del quant_input_activation
 
@@ -1258,11 +1258,11 @@ class Runner:
                     quantizer.results[name].dequantized_weight.to(device).to(dtype)
                 )
                 logger.debug("Updated the model weights for layer: %s", name)
-                
+
     # ========================================
     # Unified Save/Load Methods (Using quantizer.results)
     # ========================================
-    
+
     def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
         logger = self.logger
         logger.info("Saving quantized model to %s", save_directory)
@@ -1284,14 +1284,14 @@ class Runner:
         quant_config["modules_in_block_to_quantize"] = modules_in_block
         # Add quantization config to model config
         model.config.quantization_config = quant_config
-        
+
         # Save model and tokenizer
         save_path = Path(save_directory)
         save_path.mkdir(parents=True, exist_ok=True)
-        
+
         model.save_pretrained(save_directory)
         tokenizer.save_pretrained(save_directory)
-        
+
         logger.info(f"Quantized model saved to {save_directory}")
         return save_directory
 

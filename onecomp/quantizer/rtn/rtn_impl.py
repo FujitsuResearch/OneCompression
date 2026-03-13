@@ -88,4 +88,3 @@ def run_rtn(
         "scale": scale,
         "zero": zero,
     }
-

@@ -19,10 +19,12 @@ import gc  # ! Free memory
 from typing import Optional, Tuple
 
 import logging
+
 logger = logging.getLogger(__name__)
 import torch
 
 from .dbf_original import find_other2
+
 # from .middle import update_d_hadamard_dense  # Dense version d update
 # from .middle import update_Da_Db_closed_form  # Da, Db scaling update
 # from .middle import _compose_dense_bal  # Dense matrix composition (currently used only)
@@ -280,21 +282,9 @@ def extended_admm_dense(
     A = A.clone()
     B = B.clone()
     d = d.clone()
-    M = (
-        torch.zeros((k, k), device=device, dtype=dtype)
-        if M_init is None
-        else M_init.clone()
-    )
-    Da = (
-        torch.ones(n, device=device, dtype=dtype)
-        if Da_init is None
-        else Da_init.clone()
-    )
-    Db = (
-        torch.ones(m, device=device, dtype=dtype)
-        if Db_init is None
-        else Db_init.clone()
-    )
+    M = torch.zeros((k, k), device=device, dtype=dtype) if M_init is None else M_init.clone()
+    Da = torch.ones(n, device=device, dtype=dtype) if Da_init is None else Da_init.clone()
+    Db = torch.ones(m, device=device, dtype=dtype) if Db_init is None else Db_init.clone()
 
     # ADMM auxiliary variables
     UA = torch.zeros_like(A)
@@ -384,10 +374,8 @@ def extended_admm_dense(
         if t > 0 and t % 5 == 0:
             # Primal residual: relative ||A^(k+1) - A^(k)|| (indicates slow convergence)
             r_primal = max(
-                torch.norm(A - A_prev, "fro")
-                / torch.norm(A, "fro").clamp(min=1e-12),
-                torch.norm(B - B_prev, "fro")
-                / torch.norm(B, "fro").clamp(min=1e-12),
+                torch.norm(A - A_prev, "fro") / torch.norm(A, "fro").clamp(min=1e-12),
+                torch.norm(B - B_prev, "fro") / torch.norm(B, "fro").clamp(min=1e-12),
             ).item()
 
             # Dual residual: relative ||U|| (indicates constraint violation magnitude)
@@ -425,9 +413,7 @@ def extended_admm_dense(
 
         # [Step 4] M update (A, B, d, Da, Db fixed)
         # Compute closed-form solution
-        M = dense_M_closed_form_given_d_stable(
-            A, B, Da, Db, W_bal, d, lam=1e-6
-        ).to(dtype)
+        M = dense_M_closed_form_given_d_stable(A, B, Da, Db, W_bal, d, lam=1e-6).to(dtype)
 
         # [Step 4.5] d update (A, B, M, Da, Db fixed)
         # Update d even in Dense version (improve numerical stability)
@@ -496,12 +482,8 @@ def extended_admm_dense(
                     )
 
             # Convergence check (always run at least 3/4 of specified iterations, relaxed criteria)
-            if t >= (3 * outer_iters) // 4 and abs(prev_error - err) < 1e-5 * (
-                prev_error + 1e-12
-            ):
-                logger.debug(
-                    f"  Converged at step {t} (after minimum {(3*outer_iters)//4} steps)"
-                )
+            if t >= (3 * outer_iters) // 4 and abs(prev_error - err) < 1e-5 * (prev_error + 1e-12):
+                logger.debug(f"  Converged at step {t} (after minimum {(3*outer_iters)//4} steps)")
                 break
 
             # Early stopping disabled (run all iterations for stability)
@@ -610,16 +592,8 @@ def extended_admm_lowrank(
         V = torch.zeros((k, max(0, rank)), device=device, dtype=dtype)
         # logger.debug(f"  Zero V init: shape {V.shape}")
 
-    Da = (
-        torch.ones(n, device=device, dtype=dtype)
-        if Da_init is None
-        else Da_init.clone()
-    )
-    Db = (
-        torch.ones(m, device=device, dtype=dtype)
-        if Db_init is None
-        else Db_init.clone()
-    )
+    Da = torch.ones(n, device=device, dtype=dtype) if Da_init is None else Da_init.clone()
+    Db = torch.ones(m, device=device, dtype=dtype) if Db_init is None else Db_init.clone()
 
     # ADMM auxiliary variables
     UA = torch.zeros_like(A)
@@ -660,9 +634,7 @@ def extended_admm_lowrank(
         # Avoid explicit diag(d) in C computation
         Btil = B * Db[None, :]
         if U is not None and U.numel() > 0 and V is not None and V.numel() > 0:
-            C = (U @ (V.T @ Btil)) + d[
-                :, None
-            ] * Btil  # k×m, U@V.T part also computed efficiently
+            C = (U @ (V.T @ Btil)) + d[:, None] * Btil  # k×m, U@V.T part also computed efficiently
         else:
             C = d[:, None] * Btil  # k×m
         A_T, UA_T = _admm_update_Z_given_left(
@@ -686,9 +658,7 @@ def extended_admm_lowrank(
         # Avoid explicit diag(d) in D computation
         Atil = Da[:, None] * A
         if U is not None and U.numel() > 0 and V is not None and V.numel() > 0:
-            D = (Atil @ U) @ V.T + Atil * d[
-                None, :
-            ]  # (n×k), U@V.T part also computed efficiently
+            D = (Atil @ U) @ V.T + Atil * d[None, :]  # (n×k), U@V.T part also computed efficiently
         else:
             D = Atil * d[None, :]  # (n×k)
         B, UB = _admm_update_Z_given_left(
@@ -718,9 +688,7 @@ def extended_admm_lowrank(
         # [Step 4] U, V update (A, B, d, Da, Db fixed)
         # Compute optimal low-rank approximation using whitened SVD
         # Strengthen regularization for numerical stability
-        U_new, V_new = uv_closed_form_given_d(
-            A, B, Da, Db, W_bal, d, rank, lam=1e-4
-        )
+        U_new, V_new = uv_closed_form_given_d(A, B, Da, Db, W_bal, d, rank, lam=1e-4)
         if U_new is not None and V_new is not None:
             # Apply adaptive damping to U, V updates (more conservative)
             uv_eta = min(
@@ -756,9 +724,7 @@ def extended_admm_lowrank(
         Db_new = Db_new.to(dtype)  # just in case
 
         # Adaptive damping: even more conservative for low-rank version
-        eta = min(
-            0.3, 0.02 + 0.28 * (t / max(1, outer_iters - 1))
-        )  # more conservative
+        eta = min(0.3, 0.02 + 0.28 * (t / max(1, outer_iters - 1)))  # more conservative
         Da = ((1 - eta) * Da + eta * Da_new).clamp_min(1e-6)
         Db = ((1 - eta) * Db + eta * Db_new).clamp_min(1e-6)
 
@@ -799,12 +765,8 @@ def extended_admm_lowrank(
                     )
 
             # Convergence check (always run at least 3/4 of specified iterations, relaxed criteria)
-            if t >= (3 * outer_iters) // 4 and abs(prev_error - err) < 1e-5 * (
-                prev_error + 1e-12
-            ):
-                logger.debug(
-                    f"  Converged at step {t} (after minimum {(3*outer_iters)//4} steps)"
-                )
+            if t >= (3 * outer_iters) // 4 and abs(prev_error - err) < 1e-5 * (prev_error + 1e-12):
+                logger.debug(f"  Converged at step {t} (after minimum {(3*outer_iters)//4} steps)")
                 break
 
             # Early stopping disabled (run all iterations for stability)
@@ -820,15 +782,10 @@ def extended_admm_lowrank(
     if best_params is not None:
         A_best, B_best, d_best, U_best, V_best, Da_best, Db_best = best_params
         err_best = torch.norm(
-            W_bal
-            - _compose_lowrank_bal(
-                A_best, d_best, U_best, V_best, B_best, Da_best, Db_best
-            ),
+            W_bal - _compose_lowrank_bal(A_best, d_best, U_best, V_best, B_best, Da_best, Db_best),
             p="fro",
         ).item()
-        err_curr = torch.norm(
-            W_bal - _compose_lowrank_bal(A, d, U, V, B, Da, Db), p="fro"
-        ).item()
+        err_curr = torch.norm(W_bal - _compose_lowrank_bal(A, d, U, V, B, Da, Db), p="fro").item()
         if err_best < err_curr:
             A, B, d, U, V, Da, Db = best_params
             logger.debug(f"  Using best parameters with error: {best_error:.4e}")

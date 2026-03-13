@@ -48,8 +48,8 @@ class RTNResult(QuantizationResult):
     # Weight reconstruction data
     # =========================================
     quantized_weight: Optional[torch.Tensor] = None  # Quantized weights (INT type)
-    scale: Optional[torch.Tensor] = None             # Scale coefficient
-    zero: Optional[torch.Tensor] = None              # Zero point
+    scale: Optional[torch.Tensor] = None  # Scale coefficient
+    zero: Optional[torch.Tensor] = None  # Zero point
 
 
 @dataclass

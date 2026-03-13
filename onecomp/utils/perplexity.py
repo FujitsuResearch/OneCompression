@@ -97,15 +97,11 @@ def calculate_perplexity(
     # create a `model` and `tokenizer` object from the model config
     if model is None:
         if model_config is None:
-            raise ValueError(
-                "model_config must be provided if model is not provided"
-            )
+            raise ValueError("model_config must be provided if model is not provided")
         model = model_config.load_model()
     if tokenizer is None:
         if model_config is None:
-            raise ValueError(
-                "model_config must be provided if tokenizer is not provided"
-            )
+            raise ValueError("model_config must be provided if tokenizer is not provided")
         tokenizer = model_config.load_tokenizer()
 
     device = model.device
@@ -113,21 +109,15 @@ def calculate_perplexity(
     # Load the dataset.
     # For C4, dataset_config is treated as data_files.
     if dataset_name == "allenai/c4":
-        test_dataset = load_dataset(
-            dataset_name, data_files=dataset_config, split=split
-        )
+        test_dataset = load_dataset(dataset_name, data_files=dataset_config, split=split)
     else:
         test_dataset = load_dataset(dataset_name, dataset_config, split=split)
 
     # Limit the number of samples
     if max_samples is not None:
-        test_dataset = test_dataset.select(
-            range(min(max_samples, len(test_dataset)))
-        )
+        test_dataset = test_dataset.select(range(min(max_samples, len(test_dataset))))
     # Concatenate texts
-    encodings = tokenizer(
-        "\n\n".join(test_dataset["text"]), return_tensors="pt"
-    )
+    encodings = tokenizer("\n\n".join(test_dataset["text"]), return_tensors="pt")
     if max_length is None:
         max_length = model.config.max_position_embeddings
     if stride is None:
@@ -138,9 +128,7 @@ def calculate_perplexity(
     prev_end_loc = 0
     for begin_loc in tqdm(range(0, seq_len, stride)):
         end_loc = min(begin_loc + max_length, seq_len)
-        trg_len = (
-            end_loc - prev_end_loc
-        )  # may be different from stride on last loop
+        trg_len = end_loc - prev_end_loc  # may be different from stride on last loop
         input_ids = encodings.input_ids[:, begin_loc:end_loc].to(device)
         target_ids = input_ids.clone()
         target_ids[:, :-trg_len] = -100

@@ -28,11 +28,11 @@ def quantize(
     threshold: float,
 ) -> torch.Tensor:
     """Quantize floating point values to integers (CQ method: threshold-based binarization).
-    
+
     Args:
         x: Input tensor (floating point).
         threshold: Clustering threshold.
-    
+
     Returns:
         Quantized integer tensor (INT8, {0, 1}).
     """
@@ -46,13 +46,13 @@ def dequantize(
     right_mean: Union[torch.Tensor, float],
 ) -> torch.Tensor:
     """Dequantize quantized integers back to floating point values (CQ method).
-    
+
     Args:
         x: Original input tensor (used for threshold comparison).
         threshold: Clustering threshold.
         left_mean: Left cluster mean value (corresponds to W <= threshold).
         right_mean: Right cluster mean value (corresponds to W > threshold).
-    
+
     Returns:
         Dequantized floating point tensor.
     """
@@ -111,7 +111,7 @@ def run_cq(
         Q_int = quantize(W, threshold)
         # Dequantize
         Q = dequantize(W, threshold, left_mean, right_mean)
-        
+
         # Convert scalar values to tensors
         threshold_tensor = torch.tensor([threshold], dtype=torch.float32)
         left_mean_tensor = torch.tensor([left_mean], dtype=torch.float32)
@@ -124,7 +124,7 @@ def run_cq(
         thresholds = torch.zeros(W.shape[0], dtype=torch.float32, device=W.device)
         left_means = torch.zeros(W.shape[0], dtype=torch.float32, device=W.device)
         right_means = torch.zeros(W.shape[0], dtype=torch.float32, device=W.device)
-        
+
         for i in range(W.shape[0]):
             # Get row vector
             vector = W[i, :]
@@ -136,12 +136,12 @@ def run_cq(
             Q_int[i, :] = quantize(W[i, :], threshold)
             # Dequantize
             Q[i, :] = dequantize(W[i, :], threshold, left_mean, right_mean)
-            
+
             # Save row-wise parameters
             thresholds[i] = threshold
             left_means[i] = left_mean
             right_means[i] = right_mean
-        
+
         threshold_tensor = thresholds
         left_mean_tensor = left_means
         right_mean_tensor = right_means
@@ -171,9 +171,7 @@ def run_clustering(
     vector: torch.Tensor,
     verbose: bool = False,
 ) -> tuple[float, float, float]:
-    """Run clustering on a vector and return the threshold and cluster means.
-
-    """
+    """Run clustering on a vector and return the threshold and cluster means."""
 
     # Step 1: Sort the vector
     vector, _ = torch.sort(vector)
@@ -202,9 +200,7 @@ def run_clustering(
     best_index = torch.argmin(scores)
     threshold = vector[best_index].item()
     left_mean = (cumsum[best_index] / (best_index + 1)).item()
-    right_mean = (
-        (cumsum[-1] - cumsum[best_index]) / (vector.shape[0] - (best_index + 1))
-    ).item()
+    right_mean = ((cumsum[-1] - cumsum[best_index]) / (vector.shape[0] - (best_index + 1))).item()
 
     if verbose:
         logger.debug(f"best_index = {best_index}")
@@ -213,4 +209,3 @@ def run_clustering(
         logger.debug(f"right mean = {right_mean}")
 
     return threshold, left_mean, right_mean
-
