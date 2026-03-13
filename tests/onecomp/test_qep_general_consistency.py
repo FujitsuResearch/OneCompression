@@ -21,9 +21,9 @@ Note:
     attention matmul/softmax are amplified by GPTQ's discrete
     quantization and error-feedback mechanism.
 
-Copyright 2026 Fujitsu Ltd.
+Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura(kimura-keiji@fujitsu.com)
+Author: Keiji Kimura
 
 Usage:
     pytest tests/onecomp/test_qep_general_consistency.py -v
