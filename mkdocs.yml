@@ -1,0 +1,106 @@
+site_name: Fujitsu One Compression
+site_description: Open-source Python library for post-training quantization of Large Language Models
+site_url: https://FujitsuResearch.github.io/OneCompression/
+repo_url: https://github.com/FujitsuResearch/OneCompression
+repo_name: FujitsuResearch/OneCompression
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - content.code.annotate
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 2
+            members_order: source
+            docstring_style: google
+            show_signature_annotations: true
+            separate_signature: true
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.snippets:
+      base_path: ["."]
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+  - User Guide:
+      - Basic Usage: user-guide/basic-usage.md
+      - Configuration: user-guide/configuration.md
+      - Examples: user-guide/examples.md
+  - Algorithms:
+      - Overview: algorithms/overview.md
+      - QEP (Quantization Error Propagation): algorithms/qep.md
+      - GPTQ: algorithms/gptq.md
+      - DBF (Double Binary Factorization): algorithms/dbf.md
+      - RTN (Round-To-Nearest): algorithms/rtn.md
+  - API Reference:
+      - api/index.md
+      - Runner: api/runner.md
+      - ModelConfig: api/model_config.md
+      - QEPConfig: api/qep_config.md
+      - Quantizers:
+          - Base Classes: api/quantizers/base.md
+          - GPTQ: api/quantizers/gptq.md
+          - DBF: api/quantizers/dbf.md
+          - RTN: api/quantizers/rtn.md
+          - JointQ: api/quantizers/jointq.md
+      - QuantizedModelLoader: api/quantized_model_loader.md
+      - Utilities: api/utilities.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md

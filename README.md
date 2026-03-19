@@ -121,6 +121,15 @@ pip install -e ".[dev]"
 Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, or `cu128`.
 
 
+### Building Documentation Locally
+
+```bash
+uv sync --extra cu128 --extra dev --extra docs
+uv run mkdocs serve
+```
+
+Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
+
 ## 🚀 Example
 
 See [example/example1.py](./example/example1.py) and [example/example2.py](./example/example2.py) for more details.

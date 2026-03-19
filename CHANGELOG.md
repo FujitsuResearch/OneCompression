@@ -2,6 +2,17 @@
 
 ## [v0.3.8] 2026-03-19
 
+### Python Version Constraint
+
+- Restricted `requires-python` to `">=3.12, <3.14"` in `pyproject.toml`
+  - PyTorch does not yet provide wheels for Python 3.14, causing `uv sync` to fail when uv auto-selects CPython 3.14
+- Updated `uv.lock` to reflect the new Python version constraint
+
+### Documentation
+
+- Added "Building Documentation Locally" section to `README.md`
+  - Previously this information was only available inside the built docs, creating a chicken-and-egg problem
+
 ### Bug Fix: Onebit Quantizer
 
 - Fixed `Onebit` to declare `flag_calibration=True` and `flag_hessian=True` (`onecomp/quantizer/onebit/_onebit.py`)

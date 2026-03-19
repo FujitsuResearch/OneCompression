@@ -1,0 +1,185 @@
+# Examples
+
+This page demonstrates common usage patterns beyond the basic workflow.
+
+## GPTQ with QEP (3-bit)
+
+Quantize a model using GPTQ at 3-bit precision with QEP to improve quality:
+
+```python
+from onecomp import ModelConfig, Runner, GPTQ, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=3)
+
+runner = Runner(model_config=model_config, quantizer=gptq, qep=True)
+runner.run()
+
+original_ppl, quantized_ppl = runner.calculate_perplexity()
+print(f"Original model perplexity: {original_ppl}")
+print(f"Quantized model perplexity: {quantized_ppl}")
+```
+
+## GPTQ without QEP
+
+Standard GPTQ quantization without error propagation:
+
+```python
+gptq = GPTQ(wbits=3)
+runner = Runner(model_config=model_config, quantizer=gptq, qep=False)
+runner.run()
+```
+
+## Chunked Calibration (Large-scale Data)
+
+When using large calibration datasets that don't fit in GPU memory, use chunked calibration.
+The `calibration_batch_size` parameter splits the forward pass into smaller batches while
+accumulating statistics exactly:
+
+```python
+gptq = GPTQ(wbits=4, groupsize=128)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    max_length=2048,
+    num_calibration_samples=1024,
+    calibration_batch_size=128,
+)
+runner.run()
+```
+
+!!! info
+    Chunked calibration is mathematically exact -- it accumulates \(X^T X\) across batches without approximation.
+
+## Multi-GPU Quantization
+
+Distribute layer-wise quantization across multiple GPUs:
+
+```python
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    multi_gpu=True,
+)
+runner.run()
+
+# Or specify particular GPUs
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    multi_gpu=True,
+    gpu_ids=[0, 2, 3],
+)
+runner.run()
+```
+
+## Comparing Multiple Quantizers
+
+Run multiple quantizers in a single session with shared calibration data:
+
+```python
+from onecomp import GPTQ
+from onecomp.quantizer.jointq import JointQ
+import torch
+
+gptq = GPTQ(wbits=4, groupsize=128, calc_quant_error=True)
+jointq = JointQ(bits=4, group_size=128, calc_quant_error=True,
+                device=torch.device(0))
+
+runner = Runner(
+    model_config=model_config,
+    quantizers=[gptq, jointq],
+    max_length=2048,
+    num_calibration_samples=1024,
+    calibration_batch_size=128,
+)
+runner.run()
+
+# Benchmark perplexity across all quantizers
+ppl_dict = runner.benchmark_perplexity()
+print(ppl_dict)
+# {'original': 5.47, 'GPTQ': 5.72, 'JointQ': 5.68}
+```
+
+## Saving and Loading Quantized Models
+
+### Save the quantized model
+
+```python
+# Save with packed integer weights (compatible with vLLM)
+runner.save_quantized_model("./output/my_quantized_model")
+
+# Or save dequantized FP16 weights
+runner.save_dequantized_model("./output/my_dequantized_model")
+```
+
+### Load a saved quantized model
+
+```python
+from onecomp import load_quantized_model
+
+model, tokenizer = load_quantized_model("./output/my_quantized_model")
+
+# Use like any Hugging Face model
+inputs = tokenizer("Hello, world!", return_tensors="pt").to(model.device)
+outputs = model.generate(**inputs, max_new_tokens=50)
+print(tokenizer.decode(outputs[0], skip_special_tokens=True))
+```
+
+## Analyzing Cumulative Error
+
+Analyze how quantization error accumulates across layers:
+
+```python
+runner.run()
+
+results = runner.analyze_cumulative_error(
+    layer_keywords=["mlp.down_proj"],
+    plot_path="cumulative_error.png",
+    json_path="cumulative_error.json",
+)
+```
+
+## Saving Quantization Statistics
+
+```python
+runner.run()
+runner.print_quantization_results()
+runner.save_quantization_statistics("stats.json")
+runner.save_quantization_results("results.pt")
+```
+
+## Layer Selection
+
+### Quantize only specific layers
+
+```python
+gptq = GPTQ(
+    wbits=4,
+    include_layer_names=["model.layers.0.self_attn.q_proj"],
+)
+```
+
+### Quantize layers matching keywords
+
+```python
+gptq = GPTQ(
+    wbits=4,
+    include_layer_keywords=["q_proj", "k_proj", "v_proj"],
+)
+```
+
+### Exclude layers by keyword
+
+```python
+gptq = GPTQ(
+    wbits=4,
+    exclude_layer_keywords=["down_proj", "gate_proj"],
+)
+```
