@@ -66,10 +66,8 @@ def run_onebit(
     balance_Dr = None
     balance_Dc = None
     if use_balancing:
-        logger.debug(
-            f"[OneBit] Applying weight balancing \
-                (mode=l1, iterations={balance_iters}, alpha={balance_alpha})"
-        )
+        logger.debug(f"[OneBit] Applying weight balancing \
+                (mode=l1, iterations={balance_iters}, alpha={balance_alpha})")
         W_balanced, balance_hist = balance_track(
             W, its=balance_iters, alpha=balance_alpha, mode="l1"
         )
@@ -83,10 +81,8 @@ def run_onebit(
         final_kkt_col = (
             balance_hist["kkt_col"][-1] if len(balance_hist["kkt_col"]) > 0 else float("inf")
         )
-        logger.debug(
-            f"[OneBit] Weight balancing completed: \
-                KKT row={final_kkt_row:.2e}, KKT col={final_kkt_col:.2e}"
-        )
+        logger.debug(f"[OneBit] Weight balancing completed: \
+                KKT row={final_kkt_row:.2e}, KKT col={final_kkt_col:.2e}")
 
         W = W_balanced
         del W_balanced, balance_hist
@@ -164,10 +160,8 @@ def run_onebit(
         a = a * balance
         b = b / balance
 
-        logger.debug(
-            f"[OneBit] SVD solution: \
-                σ_max={sigma_max:.4e}, ||a||={torch.norm(a):.4e}, ||b||={torch.norm(b):.4e}"
-        )
+        logger.debug(f"[OneBit] SVD solution: \
+                σ_max={sigma_max:.4e}, ||a||={torch.norm(a):.4e}, ||b||={torch.norm(b):.4e}")
 
     except Exception as e:
         logger.debug(f"[OneBit] SVD failed: {e}, falling back to power method")

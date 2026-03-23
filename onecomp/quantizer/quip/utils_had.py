@@ -46,7 +46,7 @@ def matmul_hadU(X, transpose=False):
         output[:, :, 0, :] = input_tensor[:, :, 0, :] + input_tensor[:, :, 1, :]
         output[:, :, 1, :] = input_tensor[:, :, 0, :] - input_tensor[:, :, 1, :]
         output = output.view(input_tensor.shape[0], input_tensor.shape[1], -1)
-        (input_tensor, output) = (output, input_tensor)
+        input_tensor, output = (output, input_tensor)
 
     del output
     clean()

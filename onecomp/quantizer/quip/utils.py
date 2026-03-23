@@ -38,14 +38,14 @@ def gen_rand_ortho_butterfly_noblock(n):
 
 
 def mul_ortho_butterfly(Bpp, x):
-    (B, p_in, p_out) = Bpp
+    B, p_in, p_out = Bpp
     assert (len(x.shape) == 1) or (len(x.shape) == 2)
     orig_dim = 2
     if len(x.shape) == 1:
         (n,) = x.shape
         x = x.reshape(n, 1)
         orig_dim = 1
-    (n, q) = x.shape
+    n, q = x.shape
     x = x[p_in, :]
     pfn = tuple(butterfly_factors(n))
     for i in range(len(pfn)):

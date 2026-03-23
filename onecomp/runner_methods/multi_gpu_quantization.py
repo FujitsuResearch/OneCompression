@@ -23,7 +23,6 @@ import torch
 from onecomp.quantizer._quantizer import QuantizationResult
 from onecomp.utils import check_activations
 
-
 logger = getLogger(__name__)
 
 

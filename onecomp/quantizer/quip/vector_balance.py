@@ -12,7 +12,7 @@ logger = getLogger(__name__)
 
 
 def check_nbits(wr, nbits):
-    (wr_vals, wr_counts) = torch.unique(wr, sorted=True, return_counts=True)
+    wr_vals, wr_counts = torch.unique(wr, sorted=True, return_counts=True)
     assert len(wr_vals) <= 2**nbits
     return wr_counts
 
@@ -51,9 +51,9 @@ def round_allbal(  # pylint: disable=too-many-positional-arguments
     w in [0,1]^{m,d}
     d: input_shape, m: output_shape
     """
-    (d, d_) = H.shape
+    d, d_ = H.shape
     assert d == d_
-    (m, d) = w.shape
+    m, d = w.shape
     wr = w
     s = torch.zeros(m, d).to(w.device)
 
@@ -97,9 +97,9 @@ def round_allbal_block(  # pylint: disable=too-many-positional-arguments
     w in [0,1]^{m,d}
     d: input_shape, m: output_shape
     """
-    (d, d_) = H.shape
+    d, d_ = H.shape
     assert d == d_
-    (m, d) = w.shape
+    m, d = w.shape
     wr = w
     s = torch.zeros(m, d).to(w.device)
 
@@ -163,9 +163,9 @@ def round_ldl(  # pylint: disable=too-many-positional-arguments
     assert (not unbiased) or (
         n_greedy_passes == 0
     ), "greedy passes are incompatible with unbiased LDL rounding"
-    (d, d_) = H.shape
+    d, d_ = H.shape
     assert d == d_
-    (m, d) = w.shape
+    m, d = w.shape
     L = torch.linalg.cholesky(H)
     L = L @ torch.diag(1 / torch.diag(L))
     L = L - torch.eye(d, device=L.device)
@@ -223,9 +223,9 @@ def round_ldl_block(  # pylint: disable=too-many-positional-arguments
     assert (not unbiased) or (
         n_greedy_passes == 0
     ), "greedy passes are incompatible with unbiased LDL rounding"
-    (d, d_) = H.shape
+    d, d_ = H.shape
     assert d == d_
-    (m, d) = w.shape
+    m, d = w.shape
     L = torch.linalg.cholesky(H)
     L = L @ torch.diag(1 / torch.diag(L))
     L = L - torch.eye(d, device=L.device)
@@ -335,9 +335,9 @@ def round_ldl_admm(  # pylint: disable=too-many-positional-arguments
     """
     # assert (not unbiased) or (n_greedy_passes == 0), (
     #     "greedy passes are incompatible with unbiased LDL rounding")
-    (d, d_) = H.shape
+    d, d_ = H.shape
     assert d == d_
-    (m, d) = w.shape
+    m, d = w.shape
     H = H / H.diag().max()
     L = torch.linalg.inv(ldlp_admm(H) + torch.eye(d, device=H.device))
     if unbiased:
@@ -393,9 +393,9 @@ def round_ldl_gptqequiv(  # pylint: disable=too-many-positional-arguments
     w in R^{m,d}
     d: input_shape, m: output_shape
     """
-    (d, d_) = H.shape
+    d, d_ = H.shape
     assert d == d_
-    (m, d) = w.shape
+    m, d = w.shape
     H = torch.flip(H, [0, 1])
     L = torch.linalg.cholesky(H)
     L = torch.flip(L, [0, 1])

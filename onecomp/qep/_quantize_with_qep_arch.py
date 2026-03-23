@@ -29,7 +29,6 @@ from onecomp.qep._qep_config import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
 from onecomp.utils import prepare_calibration_dataset
 
-
 logger = getLogger(__name__)
 
 
