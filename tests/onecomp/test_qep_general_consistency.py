@@ -39,7 +39,6 @@ from onecomp import ModelConfig, Runner, setup_logger
 from onecomp.qep import QEPConfig
 from onecomp.quantizer.gptq import GPTQ
 
-
 # Relative tolerance for dequantized weight comparison (Frobenius norm).
 # Layers after attention (o_proj, MLP) diverge due to forward-pass
 # batch-size mismatch between the two implementations.  The exact

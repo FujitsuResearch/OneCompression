@@ -11,7 +11,6 @@ from logging import getLogger
 from datasets import load_dataset
 import torch
 
-
 _VALID_CALIBRATION_STRATEGIES = (
     "concat_chunk",
     "concat_chunk_align",

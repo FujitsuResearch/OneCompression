@@ -35,7 +35,6 @@ from onecomp.model_config import ModelConfig
 from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
 from onecomp.utils import prepare_calibration_dataset
 
-
 logger = getLogger(__name__)
 
 

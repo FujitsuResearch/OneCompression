@@ -30,7 +30,6 @@ from onecomp.quantizer._quantizer import Quantizer
 from onecomp.utils import capture_input_activations
 from onecomp.utils import prepare_calibration_dataset
 
-
 logger = getLogger(__name__)
 
 
