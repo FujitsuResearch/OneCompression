@@ -216,6 +216,7 @@ class DoubleBinaryLinear(nn.Module):
         in_features: int,
         out_features: int,
         empty: bool = False,
+        target_bits: Optional[float] = None,
     ):
         """Build DoubleBinaryLinear from saved state_dict tensors.
 
@@ -226,12 +227,15 @@ class DoubleBinaryLinear(nn.Module):
             out_features: Output feature size.
             empty: If True, create zero params/buffers of the same shape (for "replace then
                 load_state_dict" flow). If False, use tensors from layer_state_dict directly.
+            target_bits: Nominal bit-width for this layer (from config; for mixed_dbf).
+                Stored on the module for inspection; not used for forward yet.
 
         Returns:
             DoubleBinaryLinear instance.
         """
         self = cls.__new__(cls)
         nn.Module.__init__(self)
+        self.target_bits = target_bits
 
         def _p(k):
             t = layer_state_dict[k]

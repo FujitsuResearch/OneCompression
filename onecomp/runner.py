@@ -1323,6 +1323,15 @@ class Runner:
         quantized_names = sorted(self.quantizer.results.keys())
         modules_in_block = list(quantized_names)
         quant_config["modules_in_block_to_quantize"] = modules_in_block
+        quant_config["quantized_layer_names"] = modules_in_block
+        quant_config = self.quantizer.finalize_quant_config_for_save(
+            quant_config=quant_config,
+            quantized_layer_names=quantized_names,
+            num_hidden_layers=(
+                getattr(model.config, "num_hidden_layers", None)
+                or getattr(getattr(model.config, "text_config", None), "num_hidden_layers", None)
+            ),
+        )
         # Add quantization config to model config
         model.config.quantization_config = quant_config
 

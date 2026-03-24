@@ -4,6 +4,7 @@ __pycache__
 models
 .vscode/
 .cursor/rules/benchmark-directory.mdc
+.cursor/rules/merge-request-review.mdc
 .hydra/
 *.out
 *.err

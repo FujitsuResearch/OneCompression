@@ -271,6 +271,7 @@ class GPTQLinear(nn.Module):
         self.using_gemlite = False
 
         # --- Weight: AutoGPTQ-compatible packed format ---
+        self.checkpoint_format = "gptq"  # always v1: OneComp generates v1 tensors unconditionally
         self._weight_is_packed = bool(pack_weights and wbits <= 8)
         if self._weight_is_packed:
             packed = pack_int_weights(quantized_weight, wbits)
@@ -285,7 +286,7 @@ class GPTQLinear(nn.Module):
         # --- Zeros: normalize then pack (AutoGPTQ v1 convention) ---
         # v1: store (raw_zero - 1); vLLM exllama kernel restores via stored + 1
         zero = self._normalize_scale_zero(zero, out_features)
-        zero_int = zero.round().to(torch.int32) - 1
+        zero_int = zero.round().to(torch.int32) - 1  # v1 offset always
         if self._weight_is_packed:
             self.register_buffer("qzeros", pack_zeros(zero_int, wbits).to(device))
         else:
@@ -355,10 +356,15 @@ class GPTQLinear(nn.Module):
             weight_int = self.qweight
 
         # Unpack zeros: (num_groups, out_features)
+        # OneComp always writes v1 (qzeros stored with -1 offset), but from_saved_state
+        # may load external checkpoints saved as gptq_v2 (qzeros stored as-is, no offset).
+        _v1 = getattr(self, "checkpoint_format", "gptq") != "gptq_v2"
         if self._weight_is_packed:
-            zeros = unpack_zeros(self.qzeros, self.wbits, self.out_features) + 1  # v1 offset
+            zeros = unpack_zeros(self.qzeros, self.wbits, self.out_features)
+            if _v1:
+                zeros = zeros + 1
         else:
-            zeros = self.qzeros + 1
+            zeros = self.qzeros + 1 if _v1 else self.qzeros
 
         # Dequantize: weight = scale * (weight_int - zero)
         # scales: (num_groups, out_features), g_idx: (in_features,)
@@ -428,6 +434,7 @@ class GPTQLinear(nn.Module):
         groupsize: int = -1,
         actorder: bool = False,
         empty: bool = False,
+        checkpoint_format: str = "gptq",
     ):
         """Build GPTQLinear from saved state_dict tensors (AutoGPTQ format).
 
@@ -439,6 +446,9 @@ class GPTQLinear(nn.Module):
             empty: If True, create zero buffers of the same shape (for
                 "replace then load_state_dict" flow). If False, use tensors
                 from layer_state_dict directly.
+            checkpoint_format: ``"gptq"`` (v1, qzeros stored with -1 offset) or
+                ``"gptq_v2"`` (v2, qzeros stored as-is). OneComp always writes v1;
+                this param exists to support external AutoGPTQ v2 checkpoints.
 
         Returns:
             GPTQLinear instance.
@@ -451,6 +461,7 @@ class GPTQLinear(nn.Module):
         self.wbits = wbits
         self.groupsize = groupsize
         self.actorder = actorder
+        self.checkpoint_format = checkpoint_format
         self._weight_is_packed = True
 
         def _t(k):

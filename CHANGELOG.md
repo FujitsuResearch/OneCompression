@@ -1,5 +1,27 @@
 # Change log
 
+## [v0.4.1] 2026-03-19
+
+### Mixed GPTQ/DBF Save/Load
+
+- **Extended Save/Load for mixed GPTQ and mixed DBF**
+  - `QuantizedModelLoader` now loads models with `quant_method` `mixed_gptq` or `mixed_dbf` (`onecomp/quantized_model_loader.py`)
+  - `effective_method` treats mixed_* as the same tensor format as the base method (gptq/dbf) and resolves per-layer bit-width via `quantization_bits`
+  - Load validates `quant_method`, `quantization_bits`, and `modules_in_block_to_quantize` from `config.json`'s `quantization_config`
+- **GPTQ**
+  - Added `get_quant_config()` to return save-time `quantization_config` with vLLM-compatible keys (`onecomp/quantizer/gptq/_gptq.py`)
+  - Sets `quant_method` to `mixed_gptq` when `module_wbits` or `mlp_wbits` is present
+  - New `onecomp/quantizer/gptq/config.py`: `resolve_gptq_layer_wbits()` resolves per-layer bit-width from `quantization_config` (priority: quantization_bits → module_wbits → mlp_wbits → bits/wbits)
+  - `GPTQLinear`: extended to accept bit-width when restoring from saved state (`onecomp/quantizer/gptq/gptq_layer.py`)
+- **DBF**
+  - Added `get_quant_config()` to return save-time `quantization_config` (`onecomp/quantizer/dbf/_dbf.py`)
+  - New `onecomp/quantizer/dbf/config.py`: `resolve_dbf_layer_bits()` resolves per-layer bit-width from `quantization_config` (priority: quantization_bits → module_target_bits → mlp_target_bits → bits)
+  - `DoubleBinaryLinear`: added argument for target bit-width (for mixed_dbf) (`onecomp/quantizer/dbf/dbf_layer.py`)
+- **Shared**
+  - `onecomp/utils/quant_config.py`: added common helper `get_quant_param()` for `quantization_config` schema (fetch params by alias keys)
+  - `Quantizer.finalize_quant_config_for_save()` hook added; subclasses (GPTQ/DBF) inject method-specific metadata (`onecomp/quantizer/_quantizer.py`)
+  - `runner`: set `quantization_config` when saving (`onecomp/runner.py`)
+
 ## [v0.4.0] 2026-03-20
 
 ### New Feature: `Runner.auto_run()` Classmethod

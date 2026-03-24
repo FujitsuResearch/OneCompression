@@ -9,15 +9,19 @@ Author: Keiji Kimura
 import glob
 import json
 import os
-from typing import Any, Dict, Optional, Tuple
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from safetensors.torch import load_file
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
+from .quantizer.dbf.config import resolve_dbf_layer_bits
 from .quantizer.dbf.dbf_layer import DoubleBinaryLinear
+from .quantizer.gptq.config import resolve_gptq_layer_wbits, resolve_gptq_layer_group_size
 from .quantizer.gptq.gptq_layer import GPTQLinear
+from .utils.quant_config import get_quant_param
 
 
 class QuantizedModelLoader:
@@ -113,8 +117,6 @@ class QuantizedModelLoader:
             )
         if quant_config.get("quant_method") is None:
             raise ValueError("quant_method not found in quantization config.")
-        if "modules_in_block_to_quantize" not in quant_config:
-            raise ValueError("quantization_config must contain 'modules_in_block_to_quantize'.")
 
         return config_dict, quant_config
 
@@ -139,8 +141,13 @@ class QuantizedModelLoader:
 
         dtype = torch_dtype if torch_dtype is not None else torch.float16
         config_cls = CONFIG_MAPPING[model_type]
-        model_config = config_cls.from_dict(clean_config)  # to build empty model from config
-        return AutoModelForCausalLM.from_config(model_config, torch_dtype=dtype)
+        model_config = config_cls.from_dict(clean_config)
+        try:
+            return AutoModelForCausalLM.from_config(model_config, torch_dtype=dtype)
+        except (ValueError, KeyError):
+            from transformers import AutoModelForImageTextToText
+
+            return AutoModelForImageTextToText.from_config(model_config, torch_dtype=dtype)
 
     @staticmethod
     def _set_module_by_name(
@@ -180,34 +187,92 @@ class QuantizedModelLoader:
         fill all weights.
         """
         quant_method = quant_config["quant_method"]
-        quantized_names = sorted(quant_config["modules_in_block_to_quantize"])
+        # mixed_* use the same tensor format as the base method (e.g. mixed_gptq -> gptq)
+        if quant_method and quant_method.startswith("mixed_"):
+            effective_method = quant_method[len("mixed_") :]
+        else:
+            effective_method = quant_method
+
+        # Validate that all entries in quantization_bits use the same quant method.
+        # Per-layer method switching is not supported; raise early with a clear message.
+        quantization_bits_list = quant_config.get("quantization_bits")
+        if quantization_bits_list:
+            methods_found: set = set()
+            for layer_cfg in quantization_bits_list:
+                for mod_cfg in layer_cfg.values():
+                    if isinstance(mod_cfg, dict) and "method" in mod_cfg:
+                        methods_found.add(mod_cfg["method"])
+            if len(methods_found) > 1:  # TODO: support mixed methods
+                raise ValueError(
+                    "Mixed quantization methods across layers are not supported. "
+                    f"Found methods: {sorted(methods_found)}. "
+                    "All layers must use the same quantization method."
+                )
+
+        if "modules_in_block_to_quantize" not in quant_config:
+            raise ValueError(
+                "modules_in_block_to_quantize is required in quantization_config "
+                "but was not found."
+            )
+        module_list = quant_config["modules_in_block_to_quantize"]
+        if not module_list:
+            return  # nothing to replace
+
+        quantization_bits_list = quant_config.get("quantization_bits") or []
+        if quant_method and quant_method.startswith("mixed_") and quantization_bits_list:
+            # Build from quantization_bits; use module_list[0] to infer layer name prefix
+            first_name = module_list[0]
+            prefix_match = re.match(r"^(.+\.layers)\.\d+\.", first_name)
+            prefix = prefix_match.group(1) if prefix_match else "model.layers"
+            quantized_names = sorted(
+                f"{prefix}.{i}.{suffix}"
+                for i, layer_cfg in enumerate(quantization_bits_list)
+                if isinstance(layer_cfg, dict)
+                for suffix in layer_cfg
+            )
+        else:
+            quantized_names = sorted(module_list)
+
         name_to_module = dict(model.named_modules())
 
         for name in quantized_names:
+            if name not in name_to_module:
+                # Layer name not found in model skeleton; skip rather than crash.
+                continue
+
             prefix = name + "."
             layer_sd = {k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)}
 
             linear = name_to_module[name]
             in_features, out_features = linear.in_features, linear.out_features
 
-            if quant_method == "gptq":
+            if effective_method == "gptq":
+                layer_wbits = resolve_gptq_layer_wbits(name, quant_config)
+                layer_groupsize = resolve_gptq_layer_group_size(name, quant_config)
                 quantized_module = GPTQLinear.from_saved_state(
                     layer_sd,
                     in_features=in_features,
                     out_features=out_features,
-                    wbits=quant_config.get("bits", quant_config.get("wbits")),
-                    groupsize=quant_config.get("group_size", quant_config.get("groupsize", -1)),
-                    actorder=quant_config.get("desc_act", quant_config.get("actorder", False)),
+                    wbits=layer_wbits,
+                    groupsize=layer_groupsize,
+                    actorder=get_quant_param(quant_config, "desc_act", "actorder", default=False),
                     empty=True,
+                    checkpoint_format=get_quant_param(
+                        quant_config, "checkpoint_format", default="gptq"
+                    ),
                 )
-            elif quant_method == "dbf":
+            elif effective_method == "dbf":
+                layer_target_bits = resolve_dbf_layer_bits(name, quant_config)
                 quantized_module = DoubleBinaryLinear.from_saved_state(
                     layer_sd,
                     in_features=in_features,
                     out_features=out_features,
                     empty=True,
+                    target_bits=layer_target_bits,
                 )
             else:
-                raise ValueError(f"Unknown quant_method: {quant_method}")
+                raise ValueError(
+                    f"Unknown quant_method: {quant_method} (effective: {effective_method})"
+                )
 
             QuantizedModelLoader._set_module_by_name(model, name, quantized_module)

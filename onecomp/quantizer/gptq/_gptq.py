@@ -7,7 +7,8 @@ Author: Yuma Ichikawa, Keiji Kimura
 """
 
 from dataclasses import dataclass
-from typing import Optional
+import re
+from typing import Any, Optional
 
 import gc
 
@@ -16,6 +17,7 @@ from torch import nn
 from transformers import Conv1D
 
 from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+from onecomp.utils.quant_config import get_quant_param
 
 
 @dataclass
@@ -117,6 +119,40 @@ class GPTQ(Quantizer):
     sym: bool = True
     q_grid: int = 600
     q_norm: float = 2.4
+    mlp_wbits: Optional[int] = None
+    mlp_groupsize: Optional[int] = None
+    module_wbits: Optional[dict[str, int]] = None
+
+    @staticmethod
+    def resolve_bits(
+        layer_name: Optional[str],
+        default_bits: int,
+        mlp_bits: Optional[int] = None,
+        module_bits: Optional[dict[str, int]] = None,
+    ) -> int:
+        """Resolve bit-width from overrides (GPTQ semantics: module > mlp > default).
+
+        Used by the quantizer and by config loader. If layer_name is None, returns default_bits.
+        Does not validate range; caller may validate.
+        """
+        if module_bits and layer_name is not None:
+            b = module_bits.get(layer_name)
+            if b is not None:
+                return b
+        if mlp_bits is not None and layer_name is not None and "mlp" in layer_name:
+            return mlp_bits
+        return default_bits
+
+    @staticmethod
+    def resolve_groupsize(
+        layer_name: Optional[str],
+        default_groupsize: int,
+        mlp_groupsize: Optional[int] = None,
+    ) -> int:
+        """Resolve group_size (mlp override > default)."""
+        if mlp_groupsize is not None and layer_name is not None and "mlp" in layer_name:
+            return mlp_groupsize
+        return default_groupsize
 
     def validate_params(self):
         """Validate GPTQ parameters once at quantizer initialization."""
@@ -155,6 +191,38 @@ class GPTQ(Quantizer):
                 f"Invalid GPTQ parameter 'q_norm': {self.q_norm!r} (expected numeric >= 1e-5)"
             )
 
+        if self.mlp_wbits is not None:
+            if not (isinstance(self.mlp_wbits, int) and 1 <= self.mlp_wbits <= 64):
+                bad.append(
+                    f"Invalid GPTQ parameter 'mlp_wbits': {self.mlp_wbits!r} (expected int in 1..64)"
+                )
+
+        if self.mlp_groupsize is not None:
+            if not (
+                isinstance(self.mlp_groupsize, int)
+                and (self.mlp_groupsize == -1 or (1 <= self.mlp_groupsize <= self.blocksize))
+            ):
+                bad.append(
+                    f"Invalid GPTQ parameter 'mlp_groupsize': {self.mlp_groupsize!r} "
+                    f"(expected int -1 or 1..blocksize)"
+                )
+
+        if self.module_wbits is not None:
+            if not isinstance(self.module_wbits, dict):
+                bad.append(
+                    f"Invalid GPTQ parameter 'module_wbits': must be a dict[str, int], got {type(self.module_wbits).__name__!r}"
+                )
+            else:
+                for layer_name, bits in self.module_wbits.items():
+                    if not isinstance(layer_name, str):
+                        bad.append(
+                            "Invalid GPTQ parameter 'module_wbits': keys must be layer name strings."
+                        )
+                    elif not (isinstance(bits, int) and 1 <= bits <= 64):
+                        bad.append(
+                            f"Invalid GPTQ parameter 'module_wbits[{layer_name!r}]': {bits!r} (expected int in 1..64)"
+                        )
+
         if bad:
             raise ValueError("; ".join(bad))
 
@@ -170,14 +238,27 @@ class GPTQ(Quantizer):
             GPTQResult: GPTQ quantization result object.
         """
 
+        layer_name = self.module_to_name.get(module)
+        resolved_wbits = GPTQ.resolve_bits(
+            layer_name,
+            self.wbits,
+            self.mlp_wbits,
+            self.module_wbits,
+        )
+        resolved_groupsize = GPTQ.resolve_groupsize(
+            layer_name,
+            self.groupsize,
+            self.mlp_groupsize,
+        )
+
         # Quantize the layer
         result_dict = run_gptq(
             hessian,
             module,
             blocksize=self.blocksize,
             percdamp=self.percdamp,
-            wbits=self.wbits,
-            groupsize=self.groupsize,
+            wbits=resolved_wbits,
+            groupsize=resolved_groupsize,
             actorder=self.actorder,
             mse=self.mse,
             # perccorr=self.perccorr,
@@ -188,8 +269,8 @@ class GPTQ(Quantizer):
 
         return GPTQResult(
             dequantized_weight=result_dict["dequantized_weight"],
-            wbits=self.wbits,
-            groupsize=self.groupsize,
+            wbits=resolved_wbits,
+            groupsize=resolved_groupsize,
             actorder=self.actorder,
             sym=self.sym,
             qweight=result_dict["qweight"],
@@ -199,14 +280,94 @@ class GPTQ(Quantizer):
         )
 
     def get_quant_config(self) -> dict:
-        """Return quantization_config dict for save_quantized_model(HF/vLLM compatible keys)."""
-        return {
-            "quant_method": "gptq",
+        """Return quantization_config dict for save_quantized_model(HF/vLLM compatible keys).
+
+        Structure: all keys at top-level (quant_method, bits, group_size, actorder, sym,
+        checkpoint_format, optional mlp_wbits / module_wbits).
+
+        When ``module_wbits`` is non-empty (mixed-bit model), ``quant_method`` is set to
+        ``"mixed_gptq"`` so vLLM can dispatch per-module kernels via the mixed_gptq plugin.
+        The ``quantization_bits`` list (indexed by transformer layer) is injected by
+        ``finalize_quant_config_for_save`` after the quantized names are known.
+
+        checkpoint_format is always ``"gptq"`` (v1).  OneComp GPTQLinear stores zero-points
+        with the -1 offset convention (v1) unconditionally, so ``"gptq_v2"`` would cause an
+        off-by-one mismatch when loaded by vLLM.
+        """
+        # mixed_gptq when any per-module or per-group bit overrides exist
+        quant_method = (
+            "mixed_gptq"
+            if (self.module_wbits or self.mlp_wbits or self.mlp_groupsize is not None)
+            else "gptq"
+        )
+        result: dict[str, Any] = {
+            "quant_method": quant_method,
             "bits": self.wbits,
+            "groupsize": self.groupsize,
+            "actorder": self.actorder,
             "group_size": self.groupsize,
             "desc_act": self.actorder,
             "sym": self.sym,
+            "checkpoint_format": "gptq",
         }
+        if self.mlp_wbits is not None:
+            result["mlp_wbits"] = self.mlp_wbits
+        if self.mlp_groupsize is not None:
+            result["mlp_groupsize"] = self.mlp_groupsize
+        if self.module_wbits:
+            result["module_wbits"] = dict(self.module_wbits)
+        return result
+
+    @staticmethod
+    def _build_quantization_bits(
+        quantized_names: list[str],
+        quant_config: dict[str, Any],
+        num_layers: int,
+    ) -> list[dict[str, Any]]:
+        _LAYER_RE = re.compile(r"\.layers\.(\d+)\.(.*)")
+        default_wbits = quant_config.get("bits", quant_config.get("wbits", 4))
+        mlp_wbits = get_quant_param(quant_config, "mlp_wbits")
+        module_wbits: dict[str, int] = get_quant_param(quant_config, "module_wbits") or {}
+        default_gs = get_quant_param(quant_config, "group_size", "groupsize", default=-1)
+        mlp_gs = get_quant_param(quant_config, "mlp_groupsize")
+
+        layer_modules: dict[int, dict[str, Any]] = {}
+        for name in quantized_names:
+            m = _LAYER_RE.search(name)
+            if m is None:
+                continue
+            layer_idx = int(m.group(1))
+            suffix = m.group(2)
+
+            bits = GPTQ.resolve_bits(name, default_wbits, mlp_wbits, module_wbits)
+            gs = GPTQ.resolve_groupsize(name, default_gs, mlp_gs)
+
+            layer_modules.setdefault(layer_idx, {})[suffix] = {
+                "bits": bits,
+                "method": "gptq",
+                "params": {"group_size": gs},
+            }
+
+        if not layer_modules:
+            return []
+
+        return [layer_modules.get(i, {}) for i in range(num_layers)]
+
+    def finalize_quant_config_for_save(
+        self,
+        quant_config: dict[str, Any],
+        quantized_layer_names: list[str],
+        num_hidden_layers: Optional[int] = None,
+    ) -> dict[str, Any]:
+        if num_hidden_layers is None:
+            raise ValueError(
+                "num_hidden_layers is required for GPTQ quantization_bits "
+                "(Runner passes model.config.num_hidden_layers)"
+            )
+        quant_config["quantization_bits"] = GPTQ._build_quantization_bits(
+            quantized_layer_names, quant_config, num_hidden_layers
+        )
+        return quant_config
 
     def create_inference_layer(self, result, linear_module, **kwargs):
         """Build GPTQLinear from GPTQResult."""

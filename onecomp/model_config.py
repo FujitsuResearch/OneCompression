@@ -8,7 +8,7 @@ Author: Keiji Kimura
 
 from logging import getLogger
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 import torch
 
 
@@ -56,16 +56,29 @@ class ModelConfig:
         return None
 
     def load_model(self, device_map=None):
-        """Load the model"""
+        """Load the model
+
+        Automatically selects the appropriate AutoModel class based on
+        the model's architecture (CausalLM, Vision2Seq, etc.).
+        """
 
         if device_map is None:
             device_map = self.device
 
-        model = AutoModelForCausalLM.from_pretrained(
-            self.get_model_id_or_path(),
+        pretrained = self.get_model_id_or_path()
+        kwargs = dict(
             dtype=getattr(torch, self.dtype),
             device_map=device_map,
         )
+
+        try:
+            model = AutoModelForCausalLM.from_pretrained(pretrained, **kwargs)
+        except (ValueError, KeyError):
+            from transformers import AutoModelForImageTextToText
+
+            self.logger.info("AutoModelForCausalLM failed; trying AutoModelForImageTextToText.")
+            model = AutoModelForImageTextToText.from_pretrained(pretrained, **kwargs)
+
         model.eval()
         return model
 

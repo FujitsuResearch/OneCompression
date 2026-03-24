@@ -10,7 +10,7 @@ from abc import ABCMeta
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from logging import getLogger
-from typing import Union
+from typing import Any, Optional, Union
 
 import time
 import math
@@ -541,6 +541,28 @@ class Quantizer(metaclass=ABCMeta):
                 len(self.results),
                 layer_class_name,
             )
+
+    # ========================================
+    # Save config post-processing hook
+    # ========================================
+
+    def finalize_quant_config_for_save(
+        self,
+        quant_config: dict[str, Any],
+        quantized_layer_names: list[str],
+        num_hidden_layers: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Optional hook to augment quantization_config just before saving.
+
+        Runner builds the common fields (e.g. modules_in_block_to_quantize) and then
+        calls this hook so each quantizer can inject method-specific metadata needed
+        by downstream consumers (e.g. vLLM plugins).
+
+        Default implementation is a no-op.
+        """
+        _ = quantized_layer_names
+        _ = num_hidden_layers
+        return quant_config
 
     def save_results(self, filepath):
         """Save the quantization results to a file.
