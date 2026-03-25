@@ -5,6 +5,7 @@ models
 .vscode/
 .cursor/rules/benchmark-directory.mdc
 .cursor/rules/merge-request-review.mdc
+.cursor/rules/test-workflow.mdc
 .hydra/
 *.out
 *.err
