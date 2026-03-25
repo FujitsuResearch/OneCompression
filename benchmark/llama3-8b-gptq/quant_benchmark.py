@@ -4,6 +4,8 @@ Run GPTQ for all combinations of bits × group_size in a single pass.
 Shares calibration data accumulation across quantizers for efficiency.
 Results are saved under output_dir.
 
+Copyright 2025-2026 Fujitsu Ltd.
+
 Usage:
     python quant_benchmark.py
 """

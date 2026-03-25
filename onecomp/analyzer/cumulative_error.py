@@ -69,7 +69,9 @@ def _update_weights(model, quantization_results, target_layer_names):
             continue
         dtype = module.weight.data.dtype
         device = module.weight.data.device
-        module.weight.data = quantization_results[name].dequantized_weight.to(device).to(dtype)
+        module.weight.data = (
+            quantization_results[name].compute_dequantized_weight().to(device).to(dtype)
+        )
 
 
 def _capture_layer_outputs(model, inputs, target_layer_names):

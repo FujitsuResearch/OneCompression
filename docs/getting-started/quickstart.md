@@ -34,6 +34,7 @@ That's it. The quantized model is saved to
 | `device`    | `"cuda:0"` | Device for computation                                   |
 | `qep`       | `True`     | Enable QEP (Quantization Error Propagation)              |
 | `evaluate`  | `True`     | Calculate perplexity and zero-shot accuracy              |
+| `eval_original_model` | `False` | Also evaluate the original (unquantized) model        |
 | `save_dir`  | `"auto"`   | Save directory (`"auto"` = derived from model name, `None` to skip) |
 
 ### Examples
@@ -90,13 +91,23 @@ After quantization, measure the impact on model quality:
 
 ```python
 # Perplexity (lower is better)
-original_ppl, quantized_ppl = runner.calculate_perplexity()
-print(f"Original: {original_ppl:.2f}")
+# Returns a 3-tuple: (original, dequantized, quantized)
+# By default, only quantized is computed (others are None)
+_, _, quantized_ppl = runner.calculate_perplexity()
 print(f"Quantized: {quantized_ppl:.2f}")
 
-# Zero-shot accuracy
-original_acc, quantized_acc = runner.calculate_accuracy()
+# To also evaluate the original model, pass original_model=True
+original_ppl, _, quantized_ppl = runner.calculate_perplexity(original_model=True)
+print(f"Original:  {original_ppl:.2f}")
+print(f"Quantized: {quantized_ppl:.2f}")
+
+# Zero-shot accuracy (same 3-tuple pattern)
+_, _, quantized_acc = runner.calculate_accuracy()
 ```
+
+!!! note
+    - Evaluating the original or dequantized model requires loading the full model on GPU.
+    - Quantized-model evaluation is currently supported only for **GPTQ** and **DBF** quantizers. Support for other methods is planned.
 
 ## Using QEP (Quantization Error Propagation)
 

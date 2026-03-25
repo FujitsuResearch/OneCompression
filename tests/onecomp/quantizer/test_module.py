@@ -261,10 +261,14 @@ class BaseQuantizeSpec:
         cpu_hessian = q.calculate_hessian(cpu_layer, cpu_inp)
         gpu_hessian = q.calculate_hessian(gpu_layer, gpu_inp)
 
-        cpu_out = q.quantize_layer(cpu_layer, cpu_inp, hessian=cpu_hessian).dequantized_weight
-        gpu_out = q.quantize_layer(
-            gpu_layer, gpu_inp, hessian=gpu_hessian
-        ).dequantized_weight.cpu()
+        cpu_out = q.quantize_layer(
+            cpu_layer, cpu_inp, hessian=cpu_hessian
+        ).compute_dequantized_weight()
+        gpu_out = (
+            q.quantize_layer(gpu_layer, gpu_inp, hessian=gpu_hessian)
+            .compute_dequantized_weight()
+            .cpu()
+        )
 
         assert torch.allclose(cpu_out, gpu_out, rtol=1, atol=1)
 
@@ -366,7 +370,7 @@ class BaseQuantizeSpec:
         result = q.quantize_layer(layer, inp, hessian=hessian)
 
         dequantized_layer = helper.make_linear(8, 8, device=device, dtype=torch.float32)
-        dequantized_layer.weight.data.copy_(result.dequantized_weight.to(device))
+        dequantized_layer.weight.data.copy_(result.compute_dequantized_weight().to(device))
         with torch.no_grad():
             y_dequantized = dequantized_layer(inp)
 

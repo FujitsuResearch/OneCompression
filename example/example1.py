@@ -8,7 +8,7 @@ Author: Keiji Kimura
 
 """
 
-from onecomp import ModelConfig, Runner, GPTQ, setup_logger
+from onecomp import GPTQ, ModelConfig, Runner, setup_logger
 
 # Set up logger (output logs to stdout)
 setup_logger()
@@ -28,8 +28,12 @@ runner = Runner(model_config=model_config, quantizer=gptq, qep=True)
 runner.run()
 
 # Calculate perplexity
-original_ppl, quantized_ppl = runner.calculate_perplexity()
+# Set True for models to evaluate, False returns None
+original_ppl, dequantized_ppl, quantized_ppl = runner.calculate_perplexity(
+    original_model=True, dequantized_model=False, quantized_model=True
+)
 
 # Display perplexity
 print(f"Original model perplexity: {original_ppl}")
+print(f"Dequantized model perplexity: {dequantized_ppl}")
 print(f"Quantized model perplexity: {quantized_ppl}")

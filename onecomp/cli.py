@@ -48,6 +48,11 @@ def main():
         help="skip perplexity and accuracy evaluation",
     )
     parser.add_argument(
+        "--eval-original",
+        action="store_true",
+        help="also evaluate the original (unquantized) model",
+    )
+    parser.add_argument(
         "--save-dir",
         default="auto",
         help='save directory (default: auto-generated, "none" to skip)',
@@ -72,5 +77,6 @@ def main():
         device=args.device,
         qep=not args.no_qep,
         evaluate=not args.no_eval,
+        eval_original_model=args.eval_original,
         save_dir=save_dir,
     )

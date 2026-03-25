@@ -25,6 +25,12 @@ Runner.auto_run(
     qep=False,
     evaluate=False,
 )
+
+# Also evaluate the original model for comparison
+Runner.auto_run(
+    model_id="meta-llama/Llama-2-7b-hf",
+    eval_original_model=True,
+)
 ```
 
 ## CLI
@@ -40,6 +46,9 @@ onecomp meta-llama/Llama-2-7b-hf --wbits 3 --save-dir ./llama2-7b-gptq-3bit
 
 # Without QEP, skip evaluation
 onecomp meta-llama/Llama-2-7b-hf --no-qep --no-eval
+
+# Also evaluate the original model
+onecomp meta-llama/Llama-2-7b-hf --eval-original
 
 # Skip saving
 onecomp meta-llama/Llama-2-7b-hf --save-dir none
@@ -67,8 +76,7 @@ gptq = GPTQ(wbits=3)
 runner = Runner(model_config=model_config, quantizer=gptq, qep=True)
 runner.run()
 
-original_ppl, quantized_ppl = runner.calculate_perplexity()
-print(f"Original model perplexity: {original_ppl}")
+_, _, quantized_ppl = runner.calculate_perplexity()
 print(f"Quantized model perplexity: {quantized_ppl}")
 ```
 

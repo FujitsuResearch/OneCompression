@@ -103,16 +103,27 @@ runner.run()
 
 ### Perplexity
 
+`calculate_perplexity()` returns a 3-tuple `(original, dequantized, quantized)`.
+By default, only the quantized model is evaluated:
+
 ```python
-original_ppl, quantized_ppl = runner.calculate_perplexity()
+_, _, quantized_ppl = runner.calculate_perplexity()
+print(f"Quantized: {quantized_ppl:.2f}")
+
+# To also evaluate the original model:
+original_ppl, _, quantized_ppl = runner.calculate_perplexity(original_model=True)
 print(f"Original:  {original_ppl:.2f}")
 print(f"Quantized: {quantized_ppl:.2f}")
 ```
 
+!!! note
+    - Evaluating the original or dequantized model requires loading the full model on GPU.
+    - Quantized-model evaluation is currently supported only for **GPTQ** and **DBF** quantizers. Support for other methods is planned.
+
 ### Zero-shot Accuracy
 
 ```python
-original_acc, quantized_acc = runner.calculate_accuracy()
+_, _, quantized_acc = runner.calculate_accuracy()
 ```
 
 ### Quantization Statistics

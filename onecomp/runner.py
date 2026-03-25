@@ -9,25 +9,22 @@ Author: Keiji Kimura
 # pylint: disable=too-many-arguments, too-many-positional-arguments
 
 import gc
-from logging import getLogger
 import json
 import os
 import time
+from logging import getLogger
+from pathlib import Path
 
 import torch
 
+from .__version__ import __version__
 from .model_config import ModelConfig
 from .qep import QEPConfig
-from .quantizer import Quantizer
-from .quantizer.dbf import DBF
-from .quantizer.gptq import GPTQ
-from .utils import calculate_perplexity
+from .quantizer import GPTQ, Quantizer
 from .utils import calculate_accuracy as calc_accuracy
+from .utils import calculate_perplexity as calc_perplexity
 from .utils import prepare_calibration_dataset as prepare_calib_dataset
-from .__version__ import __version__
 from .log import setup_logger
-
-from pathlib import Path
 
 
 class Runner:
@@ -352,6 +349,7 @@ class Runner:
         device: str = "cuda:0",
         qep: bool = True,
         evaluate: bool = True,
+        eval_original_model: bool = False,
         save_dir: str = "auto",
         **kwargs,
     ):
@@ -370,6 +368,8 @@ class Runner:
             qep (bool): Whether to use QEP (default: True).
             evaluate (bool): Whether to calculate perplexity and
                 accuracy after quantization (default: True).
+            eval_original_model (bool): Whether to also evaluate the
+                original (unquantized) model (default: False).
             save_dir (str or None): Directory to save the quantized model.
                 ``"auto"`` (default) derives the path from model_id
                 (e.g., ``"TinyLlama-1.1B-intermediate-step-1431k-3T-gptq-4bit"``).
@@ -402,6 +402,13 @@ class Runner:
             ...     model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
             ...     save_dir=None,
             ... )
+
+            Evaluate both original and quantized models:
+
+            >>> runner = Runner.auto_run(
+            ...     model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+            ...     eval_original_model=True,
+            ... )
         """
         setup_logger()
         logger = getLogger(__name__)
@@ -416,12 +423,18 @@ class Runner:
         runner.run()
 
         if evaluate:
-            original_ppl, quantized_ppl = runner.calculate_perplexity()
-            logger.info("Original model perplexity: %s", original_ppl)
+            original_ppl, _, quantized_ppl = runner.calculate_perplexity(
+                original_model=eval_original_model,
+            )
+            if eval_original_model:
+                logger.info("Original model perplexity: %s", original_ppl)
             logger.info("Quantized model perplexity: %s", quantized_ppl)
 
-            original_acc, quantized_acc = runner.calculate_accuracy()
-            logger.info("Original model accuracy: %s", original_acc)
+            original_acc, _, quantized_acc = runner.calculate_accuracy(
+                original_model=eval_original_model,
+            )
+            if eval_original_model:
+                logger.info("Original model accuracy: %s", original_acc)
             logger.info("Quantized model accuracy: %s", quantized_acc)
 
         if save_dir is not None:
@@ -872,9 +885,78 @@ class Runner:
 
         quantizer.save_results(path)
 
+    def _calculate_evaluation(
+        self,
+        original_model: bool,
+        dequantized_model: bool,
+        quantized_model: bool,
+        eval_name: str,
+        eval_function,
+        eval_args: dict,
+        quantizer: Quantizer | None,
+    ) -> tuple:
+        """Calculate the evaluation metric (perplexity or accuracy).
+
+        Each evaluation mode (original, dequantized, quantized) loads an
+        independent model instance to prevent state contamination between
+        evaluations.  This means multiple modes will trigger multiple
+        ``load_model()`` calls, and calling both ``calculate_perplexity()``
+        and ``calculate_accuracy()`` will load models independently as well.
+        This trade-off prioritises correctness over load-time efficiency.
+        """
+        logger = self.logger
+
+        if quantizer is None:
+            quantizer = self.quantizer
+        if quantizer is None:
+            logger.warning(
+                "calculate_%s: 'quantizer' is None. " "Please specify a quantizer explicitly.",
+                eval_name,
+            )
+            return None, None, None
+
+        original_result = None
+        dequantized_result = None
+        quantized_result = None
+
+        if original_model:
+            logger.info("Evaluating original model (%s)...", eval_name)
+            model = self.model_config.load_model()
+            tokenizer = self.model_config.load_tokenizer()
+            original_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
+            del model, tokenizer
+            torch.cuda.empty_cache()
+
+        if quantized_model:
+            try:
+                logger.info("Evaluating quantized model (%s)...", eval_name)
+                model, tokenizer = self._create_quantized_model(quantizer=quantizer)
+                model.to(self.model_config.device)
+                quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
+                del model, tokenizer
+                torch.cuda.empty_cache()
+            except NotImplementedError:
+                logger.warning(
+                    "This quantization method does not support creating a quantized model; "
+                    "evaluation will be performed using the dequantized model instead.",
+                )
+                dequantized_model = True
+
+        if dequantized_model:
+            logger.info("Evaluating dequantized model (%s)...", eval_name)
+            model = self.model_config.load_model()
+            tokenizer = self.model_config.load_tokenizer()
+            self.update_model_weights(model, quantizer=quantizer)
+            dequantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
+            del model, tokenizer
+            torch.cuda.empty_cache()
+
+        return original_result, dequantized_result, quantized_result
+
     def calculate_perplexity(
         self,
-        original_model=True,
+        original_model=False,
+        dequantized_model=False,
         quantized_model=True,
         dataset_name="wikitext",
         dataset_config="wikitext-2-raw-v1",
@@ -889,6 +971,8 @@ class Runner:
         Args:
             original_model (bool):
                 Whether to calculate the perplexity of the original model.
+            dequantized_model (bool):
+                Whether to calculate the perplexity of the dequantized model.
             quantized_model (bool):
                 Whether to calculate the perplexity of the quantized model.
             dataset_name (str):
@@ -911,66 +995,51 @@ class Runner:
                 Specify explicitly when using quantizers mode.
 
         Returns:
-            tuple: (original_ppl, quantized_ppl)
+            tuple: (original_ppl, dequantized_ppl, quantized_ppl)
+
+        Note:
+            Evaluating the original or dequantized model requires loading
+            the full model on GPU.
+
+            Quantized-model evaluation (``quantized_model=True``) is
+            currently supported only for GPTQ and DBF quantizers.
+            Support for other quantization methods is planned.
 
         Examples:
             Single quantizer mode:
 
-            >>> original_ppl, quantized_ppl = runner.calculate_perplexity()
+            >>> original_ppl, dequantized_ppl, quantized_ppl = runner.calculate_perplexity()
 
             Multiple quantizers mode:
 
-            >>> original_ppl, quantized_ppl = runner.calculate_perplexity(
+            >>> original_ppl, dequantized_ppl, quantized_ppl = runner.calculate_perplexity(
             ...     quantizer=gptq
             ... )
         """
+        calculate_perplexity_args = {
+            "dataset_name": dataset_name,
+            "dataset_config": dataset_config,
+            "split": split,
+            "max_samples": max_samples,
+            "max_length": max_length,
+            "stride": stride,
+        }
 
-        logger = self.logger
-
-        if quantizer is None:
-            quantizer = self.quantizer
-        if quantizer is None:
-            logger.warning(
-                "calculate_perplexity: 'quantizer' is None. "
-                "Please specify a quantizer explicitly."
-            )
-            return None, None
-
-        model = self.model_config.load_model()
-        tokenizer = self.model_config.load_tokenizer()
-        original_ppl = None
-        quantized_ppl = None
-
-        if original_model:
-            original_ppl = calculate_perplexity(
-                model=model,
-                tokenizer=tokenizer,
-                dataset_name=dataset_name,
-                dataset_config=dataset_config,
-                split=split,
-                max_samples=max_samples,
-                max_length=max_length,
-                stride=stride,
-            )
-
-        if quantized_model:
-            self.update_model_weights(model, quantizer=quantizer)
-            quantized_ppl = calculate_perplexity(
-                model=model,
-                tokenizer=tokenizer,
-                dataset_name=dataset_name,
-                dataset_config=dataset_config,
-                split=split,
-                max_samples=max_samples,
-                max_length=max_length,
-                stride=stride,
-            )
-
-        return original_ppl, quantized_ppl
+        return self._calculate_evaluation(
+            original_model=original_model,
+            dequantized_model=dequantized_model,
+            quantized_model=quantized_model,
+            eval_name="perplexity",
+            eval_function=calc_perplexity,
+            eval_args=calculate_perplexity_args,
+            quantizer=quantizer,
+        )
 
     def benchmark_perplexity(
         self,
         original_model=True,
+        dequantized_model=False,
+        quantized_model=True,
         dataset_name="wikitext",
         dataset_config="wikitext-2-raw-v1",
         split="test",
@@ -987,6 +1056,10 @@ class Runner:
         Args:
             original_model (bool):
                 Whether to calculate the perplexity of the original model.
+            dequantized_model (bool):
+                Whether to calculate the perplexity of the dequantized model.
+            quantized_model (bool):
+                Whether to calculate the perplexity of the quantized model.
             dataset_name (str):
                 The name of the dataset to use for calculating perplexity.
             dataset_config (str):
@@ -1009,7 +1082,10 @@ class Runner:
             dict: Dictionary of PPL values. Keys are as follows:
 
             - ``"original"``: PPL of the original model (not included if skipped)
-            - ``quantizer.name``: PPL for each quantizer
+            - ``quantizer.name``: PPL for each quantizer (quantized or
+              dequantized, with quantized taking precedence)
+            - ``quantizer.name + "_dequantized"``: PPL of the dequantized
+              model (only included when ``dequantized_model=True``)
 
         Examples:
             >>> runner.run()
@@ -1020,6 +1096,12 @@ class Runner:
             Specify quantizers explicitly:
 
             >>> ppl_dict = runner.benchmark_perplexity(quantizers=[gptq, jointq])
+
+            Include dequantized model PPL:
+
+            >>> ppl_dict = runner.benchmark_perplexity(dequantized_model=True)
+            >>> print(ppl_dict)
+            {'original': 5.47, 'GPTQ': 5.72, 'GPTQ_dequantized': 5.71}
         """
 
         logger = self.logger
@@ -1042,9 +1124,10 @@ class Runner:
             # Calculate original PPL only for the first quantizer
             calc_original = original_model and (i == 0)
 
-            orig_ppl, quant_ppl = self.calculate_perplexity(
+            orig_ppl, dequant_ppl, quant_ppl = self.calculate_perplexity(
                 original_model=calc_original,
-                quantized_model=True,
+                dequantized_model=dequantized_model,
+                quantized_model=quantized_model,
                 dataset_name=dataset_name,
                 dataset_config=dataset_config,
                 split=split,
@@ -1058,6 +1141,13 @@ class Runner:
                 ppl_dict["original"] = orig_ppl
                 logger.info("Original perplexity: %s", orig_ppl)
 
+            if dequantized_model:
+                ppl_dict[q.name + "_dequantized"] = dequant_ppl
+                logger.info("%s dequantized perplexity: %s", q.name, dequant_ppl)
+
+            # Fallback to dequantized PPL if quantized PPL is not available
+            if quant_ppl is None:
+                quant_ppl = dequant_ppl
             ppl_dict[q.name] = quant_ppl
             logger.info("%s perplexity: %s", q.name, quant_ppl)
 
@@ -1065,7 +1155,8 @@ class Runner:
 
     def calculate_accuracy(
         self,
-        original_model=True,
+        original_model=False,
+        dequantized_model=False,
         quantized_model=True,
         tasks=None,
         batch_size=8,
@@ -1078,6 +1169,8 @@ class Runner:
         Args:
             original_model (bool):
                 Whether to calculate the accuracy of the original model.
+            dequantized_model (bool):
+                Whether to calculate the accuracy of the dequantized model.
             quantized_model (bool):
                 Whether to calculate the accuracy of the quantized model.
             tasks (list):
@@ -1094,62 +1187,49 @@ class Runner:
                 Specify explicitly when using quantizers mode.
 
         Returns:
-            tuple: (original_acc, quantized_acc)
+            tuple: (original_acc, dequantized_acc, quantized_acc)
+
+        Note:
+            Evaluating the original or dequantized model requires loading
+            the full model on GPU.
+
+            Quantized-model evaluation (``quantized_model=True``) is
+            currently supported only for GPTQ and DBF quantizers.
+            Support for other quantization methods is planned.
 
         Examples:
             Single quantizer mode:
 
-            >>> original_acc, quantized_acc = runner.calculate_accuracy()
+            >>> original_acc, dequantized_acc, quantized_acc = runner.calculate_accuracy()
 
             Multiple quantizers mode:
 
-            >>> original_acc, quantized_acc = runner.calculate_accuracy(
+            >>> original_acc, dequantized_acc, quantized_acc = runner.calculate_accuracy(
             ...     quantizer=gptq
             ... )
         """
+        calculate_accuracy_args = {
+            "tasks": tasks,
+            "batch_size": batch_size,
+            "num_fewshot": num_fewshot,
+            "display_results": display_results,
+        }
 
-        logger = self.logger
-
-        if quantizer is None:
-            quantizer = self.quantizer
-        if quantizer is None:
-            logger.warning(
-                "calculate_accuracy: 'quantizer' is None. "
-                "Please specify a quantizer explicitly."
-            )
-            return None, None
-
-        model = self.model_config.load_model()
-        tokenizer = self.model_config.load_tokenizer()
-        original_acc = None
-        quantized_acc = None
-
-        if original_model:
-            original_acc = calc_accuracy(
-                model=model,
-                tokenizer=tokenizer,
-                tasks=tasks,
-                batch_size=batch_size,
-                num_fewshot=num_fewshot,
-                display_results=display_results,
-            )
-
-        if quantized_model:
-            self.update_model_weights(model, quantizer=quantizer)
-            quantized_acc = calc_accuracy(
-                model=model,
-                tokenizer=tokenizer,
-                tasks=tasks,
-                batch_size=batch_size,
-                num_fewshot=num_fewshot,
-                display_results=display_results,
-            )
-
-        return original_acc, quantized_acc
+        return self._calculate_evaluation(
+            original_model=original_model,
+            dequantized_model=dequantized_model,
+            quantized_model=quantized_model,
+            eval_name="accuracy",
+            eval_function=calc_accuracy,
+            eval_args=calculate_accuracy_args,
+            quantizer=quantizer,
+        )
 
     def benchmark_accuracy(
         self,
         original_model=True,
+        dequantized_model=False,
+        quantized_model=True,
         tasks=None,
         batch_size=8,
         num_fewshot=0,
@@ -1164,6 +1244,10 @@ class Runner:
         Args:
             original_model (bool):
                 Whether to calculate the accuracy of the original model.
+            dequantized_model (bool):
+                Whether to calculate the accuracy of the dequantized model.
+            quantized_model (bool):
+                Whether to calculate the accuracy of the quantized model.
             tasks (list):
                 The list of tasks to evaluate.
                 Default: ["arc_easy", "arc_challenge", "piqa", "winogrande"]
@@ -1181,7 +1265,10 @@ class Runner:
             dict: Dictionary of accuracy values. Keys are as follows:
 
             - ``"original"``: Accuracy of the original model (not included if skipped)
-            - ``quantizer.name``: Accuracy for each quantizer
+            - ``quantizer.name``: Accuracy for each quantizer (quantized or
+              dequantized, with quantized taking precedence)
+            - ``quantizer.name + "_dequantized"``: Accuracy of the dequantized
+              model (only included when ``dequantized_model=True``)
 
         Examples:
             >>> runner.run()
@@ -1192,6 +1279,10 @@ class Runner:
             Specify quantizers explicitly:
 
             >>> acc_dict = runner.benchmark_accuracy(quantizers=[gptq, jointq])
+
+            Include dequantized model accuracy:
+
+            >>> acc_dict = runner.benchmark_accuracy(dequantized_model=True)
         """
 
         logger = self.logger
@@ -1214,9 +1305,10 @@ class Runner:
             # Calculate original accuracy only for the first quantizer
             calc_original = original_model and (i == 0)
 
-            orig_acc, quant_acc = self.calculate_accuracy(
+            orig_acc, dequant_acc, quant_acc = self.calculate_accuracy(
                 original_model=calc_original,
-                quantized_model=True,
+                dequantized_model=dequantized_model,
+                quantized_model=quantized_model,
                 tasks=tasks,
                 batch_size=batch_size,
                 num_fewshot=num_fewshot,
@@ -1228,6 +1320,13 @@ class Runner:
                 acc_dict["original"] = orig_acc
                 logger.info("Original accuracy: %s", orig_acc)
 
+            if dequantized_model:
+                acc_dict[q.name + "_dequantized"] = dequant_acc
+                logger.info("%s dequantized accuracy: %s", q.name, dequant_acc)
+
+            # Fallback to dequantized accuracy if quantized accuracy is not available
+            if quant_acc is None:
+                quant_acc = dequant_acc
             acc_dict[q.name] = quant_acc
             logger.info("%s accuracy: %s", q.name, quant_acc)
 
@@ -1267,7 +1366,7 @@ class Runner:
 
         logger.info("Saving the dequantized model and tokenizer to %s", path)
 
-        model = self.model_config.load_model()
+        model = self.model_config.load_model(device_map="cpu")
         tokenizer = self.model_config.load_tokenizer()
 
         self.update_model_weights(model, quantizer=quantizer)
@@ -1296,35 +1395,39 @@ class Runner:
                 dtype = module.weight.data.dtype
                 device = module.weight.data.device
                 module.weight.data = (
-                    quantizer.results[name].dequantized_weight.to(device).to(dtype)
+                    quantizer.results[name].compute_dequantized_weight().to(device).to(dtype)
                 )
                 logger.debug("Updated the model weights for layer: %s", name)
 
-    # ========================================
-    # Unified Save/Load Methods (Using quantizer.results)
-    # ========================================
+    def _create_quantized_model(self, pack_weights: bool = True, quantizer=None):
+        """Create the quantized model.
 
-    def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
-        logger = self.logger
-        logger.info("Saving quantized model to %s", save_directory)
+        Args:
+            pack_weights (bool):
+                Whether to pack quantized weights.
+            quantizer (Quantizer, optional):
+                The quantizer to use. Uses self.quantizer if None.
+        """
+        if quantizer is None:
+            quantizer = self.quantizer
 
         # Delegate save config to quantizer (extensible via override)
-        quant_config = self.quantizer.get_quant_config()
+        quant_config = quantizer.get_quant_config()
 
-        # Load base model
-        model = self.model_config.load_model()
+        # Load base model on CPU (GPU is not needed for saving)
+        model = self.model_config.load_model(device_map="cpu")
         tokenizer = self.model_config.load_tokenizer()
 
         # Replace Linear layers with quantized layers using quantizer.results
-        logger.info("Replacing Linear layers with quantized inference layers...")
-        self.quantizer.apply_results_to_model(model, pack_weights=pack_weights)
+        self.logger.info("Replacing Linear layers with quantized inference layers...")
+        quantizer.apply_results_to_model(model, pack_weights=pack_weights)
 
         # Build modules_in_block_to_quantize from actually-quantized layer names.
-        quantized_names = sorted(self.quantizer.results.keys())
+        quantized_names = sorted(quantizer.results.keys())
         modules_in_block = list(quantized_names)
         quant_config["modules_in_block_to_quantize"] = modules_in_block
         quant_config["quantized_layer_names"] = modules_in_block
-        quant_config = self.quantizer.finalize_quant_config_for_save(
+        quant_config = quantizer.finalize_quant_config_for_save(
             quant_config=quant_config,
             quantized_layer_names=quantized_names,
             num_hidden_layers=(
@@ -1334,6 +1437,33 @@ class Runner:
         )
         # Add quantization config to model config
         model.config.quantization_config = quant_config
+
+        return model, tokenizer
+
+    # ========================================
+    # Unified Save/Load Methods (Using quantizer.results)
+    # ========================================
+
+    def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
+        """Save the quantized model to the specified directory
+
+        Args:
+            save_directory (str):
+                The path to save the quantized model.
+            pack_weights (bool):
+                Whether to pack quantized weights for more memory/storage-efficient
+                representation.
+
+        Examples:
+            Single quantizer mode:
+
+            >>> runner.save_quantized_model("./quantized_model")
+        """
+        logger = self.logger
+        logger.info("Saving quantized model to %s", save_directory)
+
+        # This will apply quantization to the model in-place
+        model, tokenizer = self._create_quantized_model(pack_weights=pack_weights)
 
         # Save model and tokenizer
         save_path = Path(save_directory)

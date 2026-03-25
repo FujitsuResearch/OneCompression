@@ -154,8 +154,8 @@ class TestQEPGeneralConsistency:
         Compares ||W_true - W_false||_F / ||W_true||_F for each layer.
         """
         for name in results_general_true:
-            w_true = results_general_true[name].dequantized_weight.float()
-            w_false = results_general_false[name].dequantized_weight.float()
+            w_true = results_general_true[name].compute_dequantized_weight().float()
+            w_false = results_general_false[name].compute_dequantized_weight().float()
 
             diff_norm = torch.norm(w_true - w_false).item()
             base_norm = torch.norm(w_true).item()

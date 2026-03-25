@@ -3,6 +3,8 @@ GPTQ-specific helpers for OneComp quantization_config schema.
 
 Resolves per-layer bit-width from quantization_config (e.g. when loading a model).
 Delegates the override priority (module_wbits > mlp_wbits > default) to GPTQ.
+
+Copyright 2025-2026 Fujitsu Ltd.
 """
 
 from __future__ import annotations

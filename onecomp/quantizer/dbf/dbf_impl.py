@@ -165,7 +165,6 @@ def run_dbf(  # pylint: disable=too-many-positional-arguments
 
     # Save as five-stage representation.
     results_5_stage = {
-        "dequantized_weight": results_3_stage["dequantized_weight"],
         # Stage 0: Input scaling (right singular vector of A).
         "dbf_Da": nn.Parameter(u_A.to(dtype=torch.float16, device="cpu"), requires_grad=False),
         # Stage 1: Binary A matrix.

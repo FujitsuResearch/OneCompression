@@ -65,6 +65,63 @@ class GPTQResult(QuantizationResult):
     qzeros: Optional[torch.Tensor] = None  # Zero points
     perm: Optional[torch.Tensor] = None  # Column permutation order (actorder=True)
 
+    def compute_dequantized_weight(self, device=None) -> torch.Tensor:
+        """Compute dequantized weight from quantized data and quantization parameters.
+
+        Args:
+            device (str or torch.device, optional): Device to compute on.
+
+        Returns:
+            Dequantized weight tensor (FP16, CPU).
+        """
+        if self.qweight is None or self.scales is None or self.qzeros is None:
+            raise ValueError(
+                "Quantized weights, scales, and zero points must be provided to compute dequantized weight."
+            )
+
+        compute_device = torch.device(device) if device is not None else torch.device("cpu")
+
+        qweight = self.qweight.to(torch.int32).to(compute_device)
+        out_features, in_features = qweight.shape
+
+        scales = self.scales.to(compute_device)
+        qzeros = self.qzeros.to(compute_device)
+
+        if self.groupsize == -1:
+            # Per-channel path (broadcast along in_features)
+            if scales.ndim == 1:
+                scales = scales.unsqueeze(1)
+            if qzeros.ndim == 1:
+                qzeros = qzeros.unsqueeze(1)
+            dequantized = dequantize(qweight, scales, qzeros.float(), maxq=2**self.wbits - 1)
+            return dequantized.to(torch.float16).cpu()
+
+        # Grouped path: expected shape is (num_groups, out_features)
+        num_groups = (in_features + self.groupsize - 1) // self.groupsize
+
+        # Normalize potential transposed storage to (num_groups, out_features)
+        if scales.shape[0] == out_features and scales.shape[1] == num_groups:
+            scales = scales.T
+        if qzeros.shape[0] == out_features and qzeros.shape[1] == num_groups:
+            qzeros = qzeros.T
+
+        # Reconstruct g_idx exactly as noted in GPTQResult docs.
+        if self.actorder and self.perm is not None:
+            perm = self.perm.to(torch.long).to(compute_device)
+            if perm.numel() != in_features:
+                raise ValueError(f"Invalid perm length: {perm.numel()}; expected {in_features}.")
+            g_idx = torch.empty(in_features, dtype=torch.long, device=compute_device)
+            g_idx[perm] = torch.arange(in_features, device=compute_device) // self.groupsize
+        else:
+            g_idx = torch.arange(in_features, device=compute_device) // self.groupsize
+
+        g_idx = g_idx.to(torch.long)
+        scale_expanded = scales[g_idx, :].T.to(torch.float16)  # (out_features, in_features)
+        zero_expanded = qzeros[g_idx, :].T.to(torch.float16)  # (out_features, in_features)
+        dequantized = dequantize(qweight, scale_expanded, zero_expanded, maxq=2**self.wbits - 1)
+
+        return dequantized.to(torch.float16).cpu()
+
 
 @dataclass
 class GPTQ(Quantizer):
@@ -268,7 +325,6 @@ class GPTQ(Quantizer):
         )
 
         return GPTQResult(
-            dequantized_weight=result_dict["dequantized_weight"],
             wbits=resolved_wbits,
             groupsize=resolved_groupsize,
             actorder=self.actorder,
@@ -440,7 +496,6 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
         hessian = hessian[perm][:, perm]
         invperm = torch.argsort(perm)
 
-    Q = torch.zeros_like(matrix_W)
     Q_int = torch.zeros_like(matrix_W, dtype=torch.int32)
 
     damp = percdamp * torch.mean(torch.diag(hessian))
@@ -472,7 +527,6 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
         #    print(f"[GPTQ Block {block_idx}/{total_blocks-1}] Processing columns {i1}-{i2-1}")
 
         W1 = matrix_W[:, i1:i2].clone()
-        Q1 = torch.zeros_like(W1)
         Q1_int = torch.zeros_like(W1, dtype=torch.int32)
         Err1 = torch.zeros_like(W1)
         Hinv1 = Hinv[i1:i2, i1:i2]
@@ -500,7 +554,6 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
                 w_expanded = w.unsqueeze(1)  # (out_features, 1)
                 q = quantize_trits(w_expanded, quantizer.scale, quantizer.zero).flatten()
 
-            Q1[:, i] = q
             if q_int is not None:
                 Q1_int[:, i] = q_int
 
@@ -508,21 +561,17 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
             W1[:, i:] -= err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
             Err1[:, i] = err1
 
-        Q[:, i1:i2] = Q1
         Q_int[:, i1:i2] = Q1_int
 
         matrix_W[:, i2:] -= Err1.matmul(Hinv[i1:i2, i2:])
 
     if actorder:
-        Q = Q[:, invperm]
         Q_int = Q_int[:, invperm]
 
     if isinstance(layer, Conv1D):
-        Q = Q.t()
         Q_int = Q_int.t()
 
     # layer.weight.data = Q.reshape(layer.weight.shape).to(layer.weight.data.dtype) # original code
-    dequantized_weight = Q.reshape(layer.weight.shape).to(layer.weight.data.dtype).cpu()
     quantized_weight = Q_int.reshape(layer.weight.shape).cpu()
 
     if groupsize != -1:
@@ -533,12 +582,11 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
         zero = quantizer.zero.to(dtype=torch.int32, device="cpu")
     perm = perm.cpu() if perm is not None else None
 
-    del hessian, Hinv, matrix_W, Q, Q_int
+    del hessian, Hinv, matrix_W, Q_int
     gc.collect()
     torch.cuda.empty_cache()
 
     return {
-        "dequantized_weight": dequantized_weight,
         "qweight": quantized_weight,
         "scales": scale,
         "qzeros": zero,

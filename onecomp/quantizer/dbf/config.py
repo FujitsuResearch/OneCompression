@@ -3,6 +3,8 @@ DBF-specific helpers for OneComp quantization_config schema.
 
 Resolves per-layer bit-width from quantization_config (e.g. when loading a model).
 Delegates the override priority (module_target_bits > mlp_target_bits > default) to DBF.
+
+Copyright 2025-2026 Fujitsu Ltd.
 """
 
 from __future__ import annotations

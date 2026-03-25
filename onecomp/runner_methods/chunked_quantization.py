@@ -349,7 +349,7 @@ def record_quantization_errors(quantizer, group, xtx_dict, nsamples):
 
     for module, name in group:
         result = quantizer.results[name]
-        dequantized_weight = result.dequantized_weight
+        dequantized_weight = result.compute_dequantized_weight()
 
         # Weight error: ||W - W_hat||^2_F
         (

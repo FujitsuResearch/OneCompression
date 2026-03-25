@@ -23,7 +23,6 @@ class JointQResult(QuantizationResult):
     Inherits from QuantizationResult and adds JointQ-specific parameters.
 
     Attributes:
-        dequantized_weight: Dequantized weight (FP16, CPU) - inherited from parent class
 
         [Quantization configuration parameters]
         bits: Number of quantization bits
@@ -67,7 +66,7 @@ class JointQResult(QuantizationResult):
                 If None, computation is performed on the device where the quantization parameters reside.
 
         Returns:
-            torch.Tensor: Dequantized weight, shape (out_features, in_features)
+            torch.Tensor: Dequantized weight tensor (FP16), shape (out_features, in_features)
 
         """
         # If a device is specified, compute on that device
@@ -98,7 +97,7 @@ class JointQResult(QuantizationResult):
         # Reshape to (out_features, num_groups * group_size) = (out_features, in_features)
         dequantized_weight = dequantized.reshape(out_features, -1)
 
-        return dequantized_weight
+        return dequantized_weight.to(torch.float16).cpu()
 
 
 @dataclass
@@ -273,20 +272,11 @@ class JointQ(Quantizer):
             **ils_kwargs,
         )
 
-        # Get dequantized weight
-        dequantized_weight = solution.get_dequantized_weight_matrix()
-
-        # Return the dequantized weight in the same shape and dtype as the original
-        dequantized_weight = (
-            dequantized_weight.reshape(module.weight.shape).to(module.weight.data.dtype).cpu()
-        )
-
         # Get quantized result (scale, assignment, zero_point)
         scale, assignment, zero_point = solution.get_quantized_result()
 
         # Create and return JointQResult object
         return JointQResult(
-            dequantized_weight=dequantized_weight,
             bits=self.bits,
             symmetric=self.symmetric,
             group_size=self.group_size,

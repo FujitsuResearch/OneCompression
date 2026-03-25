@@ -26,8 +26,8 @@ python -m onecomp --version
 
 ```
 onecomp [-h] [--wbits WBITS] [--groupsize GROUPSIZE] [--device DEVICE]
-        [--no-qep] [--no-eval] [--save-dir SAVE_DIR] [--version]
-        model_id
+        [--no-qep] [--no-eval] [--eval-original] [--save-dir SAVE_DIR]
+        [--version] model_id
 ```
 
 ### Positional Arguments
@@ -45,6 +45,7 @@ onecomp [-h] [--wbits WBITS] [--groupsize GROUPSIZE] [--device DEVICE]
 | `--device DEVICE`       | `cuda:0`   | Device to place the model on                             |
 | `--no-qep`              |            | Disable QEP (enabled by default)                         |
 | `--no-eval`             |            | Skip perplexity and accuracy evaluation                  |
+| `--eval-original`       |            | Also evaluate the original (unquantized) model           |
 | `--save-dir SAVE_DIR`   | `auto`     | Save directory (`auto` = derived from model name, `none` to skip) |
 | `--version`             |            | Show version and exit                                    |
 
@@ -92,6 +93,12 @@ onecomp meta-llama/Llama-2-7b-hf --save-dir ./my_quantized_model
 
 ```bash
 onecomp meta-llama/Llama-2-7b-hf --save-dir none
+```
+
+### Evaluate original model too
+
+```bash
+onecomp meta-llama/Llama-2-7b-hf --eval-original
 ```
 
 ### Use a specific GPU

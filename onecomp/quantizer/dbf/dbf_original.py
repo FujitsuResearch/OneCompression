@@ -677,7 +677,7 @@ def run_dbf_original(
             W_balanced = (A_store * mid_store).matmul(B_store)
         W_out = W_balanced
 
-        ## === Update layer weights ===
+        # === Update layer weights ===
         dequantized_weight = (
             W_out.reshape(layer.weight.shape).to(layer.weight.data.dtype).contiguous()
         )
@@ -767,7 +767,6 @@ def run_dbf_original(
 
         # Additional code
         weight_results = {
-            "dequantized_weight": dequantized_weight,
             "dbf_A": weight_A,
             "dbf_B": weight_B,
             "dbf_mid": weight_mid,

@@ -22,6 +22,40 @@
   - `Quantizer.finalize_quant_config_for_save()` hook added; subclasses (GPTQ/DBF) inject method-specific metadata (`onecomp/quantizer/_quantizer.py`)
   - `runner`: set `quantization_config` when saving (`onecomp/runner.py`)
 
+### Evaluation and benchmark (Runner and accuracy utils)
+
+- **Runner:** unified perplexity/accuracy evaluation via `_calculate_evaluation()` and added optional `dequantized_model` evaluation (`onecomp/runner.py`)
+- **BREAKING: `calculate_perplexity()` / `calculate_accuracy()` now return a 3-tuple `(original, dequantized, quantized)` instead of 2-tuple `(original, quantized)`.** Existing code using `orig, quant = runner.calculate_perplexity()` must be updated to unpack three values. (`onecomp/runner.py`)
+- **BREAKING: `calculate_perplexity()` / `calculate_accuracy()` default for `original_model` changed from `True` to `False`.** To evaluate the original model, pass `original_model=True` explicitly. (`onecomp/runner.py`)
+- **Benchmark:** `benchmark_perplexity()` / `benchmark_accuracy()` now accept `dequantized_model` and `quantized_model` arguments. When `dequantized_model=True`, the result dict includes `"{name}_dequantized"` keys. (`onecomp/runner.py`)
+- **lm_eval:** added helper to create `HFLM` while temporarily disabling `model.config.quantization_config` for compatibility (`onecomp/utils/accuracy.py`)
+
+### Dequantized-weight API and compatibility fixes
+
+- Implemented `compute_dequantized_weight()` for GPTQ and DBF quantizers (`onecomp/quantizer/gptq/_gptq.py`, `onecomp/quantizer/dbf/_dbf.py`)
+- Removed `dequantized_weight` from Result classes and switched call sites to compute it via `compute_dequantized_weight()` (`onecomp/quantizer/_quantizer.py`, `onecomp/runner_methods/*`)
+- Fixed compatibility for quantization methods other than DBF/GPTQ in runner and QEP paths (`onecomp/runner.py`, `onecomp/qep/_quantize_with_qep*.py`)
+- Updated unit tests accordingly (`tests/onecomp/test_qep_general_consistency.py`)
+
+### `auto_run` / CLI improvements
+
+- **`Runner.auto_run()`:** added `eval_original_model` parameter to optionally evaluate the original (unquantized) model's perplexity and accuracy (default: `False`) (`onecomp/runner.py`)
+- **`Runner.auto_run()`:** evaluation now only computes quantized model metrics by default; pass `eval_original_model=True` to include original model metrics
+- **CLI:** added `--eval-original` flag to `onecomp` command (`onecomp/cli.py`)
+
+### GPU memory optimization for model saving
+
+- **`save_quantized_model()` / `save_dequantized_model()`** now load the base model on CPU (`device_map="cpu"`) instead of GPU when building the save artifact (`onecomp/runner.py`). Previously the full original model was loaded onto GPU, which was unnecessary for saving and could cause OOM on memory-constrained setups.
+
+### Bug fix: Architecture-aware QEP group alignment
+
+- Fixed non-deterministic crash in `compute_hessian_and_crossterm` caused by `groups_q` and `groups_f` being ordered differently (`onecomp/qep/_quantize_with_qep_arch.py`). `make_grouped_module` groups modules by tensor identity (`id()` + `data_ptr()`), but after `copy.deepcopy` the CUDA memory allocator can assign different addresses, causing group misalignment between the quantized and full-precision blocks. Now `groups_f` is derived from `groups_q` by module name lookup instead of independent grouping.
+
+### Other fixes in this release
+
+- Refactored runner evaluation paths and fixed benchmark-based evaluation behavior (`onecomp/runner.py`, `onecomp/utils/accuracy.py`)
+- Examples: updated to pass `original_model=True` and `quantized_model=True` explicitly, and to unpack the new triple return value (`example/example1.py`, `example/example2.py`)
+
 ## [v0.4.0] 2026-03-20
 
 ### New Feature: `Runner.auto_run()` Classmethod

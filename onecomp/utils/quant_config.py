@@ -3,6 +3,8 @@ Shared helpers for OneComp quantization_config schema.
 
 OneComp convention:
 - quantization_config has all keys at top-level (quant_method, bits, group_size, ...).
+
+Copyright 2025-2026 Fujitsu Ltd.
 """
 
 from __future__ import annotations

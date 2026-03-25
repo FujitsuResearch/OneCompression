@@ -10,6 +10,8 @@ Task mapping (bits × group_size, product order):
     2: 3-bit, gs128
     3: 3-bit, per-channel
 
+Copyright 2025-2026 Fujitsu Ltd.
+
 Usage:
     python quant_benchmark.py task_id=0
 """

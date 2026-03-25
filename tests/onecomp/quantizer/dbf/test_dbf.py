@@ -90,7 +90,7 @@ class TestDBF(BaseQuantizeSpec):
 
     def check_equal_results(self, r1, r2):
         """Validate equality of quantization result objects."""
-        assert torch.equal(r1.dequantized_weight, r2.dequantized_weight)
+        assert torch.equal(r1.compute_dequantized_weight(), r2.compute_dequantized_weight())
         assert r1.is_dbf_quantized == r2.is_dbf_quantized
         assert torch.equal(r1.dbf_A, r2.dbf_A)
         assert torch.equal(r1.dbf_B, r2.dbf_B)
@@ -122,7 +122,8 @@ class TestDBF(BaseQuantizeSpec):
 
     def apply_quantized_weights(self, module, result, device):
         """Apply quantized weights to a module."""
-        module.weight.data = result.dequantized_weight.to(device)
+        dtype = module.weight.data.dtype
+        module.weight.data = result.compute_dequantized_weight().to(device).to(dtype)
         module.dbf_A = result.dbf_A.to(device)
         module.dbf_B = result.dbf_B.to(device)
         module.dbf_mid = result.dbf_mid.to(device)

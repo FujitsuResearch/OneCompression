@@ -366,7 +366,25 @@ def run_quantize_with_qep_arch(
         block_f = copy.deepcopy(block_q)
 
         groups_q = make_grouped_module(block_q, inps_q, kwargs, device)
-        groups_f = make_grouped_module(block_f, inps_f, kwargs, device)
+
+        # Build name→module map for block_f, then align groups_f to
+        # groups_q by module name.  Using make_grouped_module on
+        # block_f independently can produce a different group ordering
+        # because tensor identity (used for grouping) is
+        # non-deterministic across deepcopy + forward.
+        name_to_module_f = {
+            name: mod for name, mod in block_f.named_modules() if isinstance(mod, nn.Linear)
+        }
+        name_to_module_q = {
+            name: mod for name, mod in block_q.named_modules() if isinstance(mod, nn.Linear)
+        }
+        groups_f = [
+            [
+                name_to_module_f[next(n for n, m2 in name_to_module_q.items() if m2 is m)]
+                for m in gq
+            ]
+            for gq in groups_q
+        ]
 
         # 3. For each group of layers, perform the following sequentially
         for group_q, group_f in zip(groups_q, groups_f):
@@ -427,7 +445,7 @@ def run_quantize_with_qep_arch(
                 # Update the weights of the target layer
                 dtype = module.weight.data.dtype
                 module.weight.data = (
-                    quantizer.results[name].dequantized_weight.to(device).to(dtype)
+                    quantizer.results[name].compute_dequantized_weight().to(device).to(dtype)
                 )
 
         # forward input to the next block

@@ -36,8 +36,6 @@ class DBFResult(QuantizationResult):
     """DBF quantization result.
 
     Attributes:
-        dequantized_weight (torch.Tensor): Dequantized weights (FP16, CPU)
-            - inherited from parent class.
         target_bits (float): Target bit-width (e.g., 1.5).
         iters (int): Optimization iterations.
         reg (float): Regularization coefficient.
@@ -75,6 +73,37 @@ class DBFResult(QuantizationResult):
     dbf_mid: Optional[torch.Tensor] = None  # Middle scaling vector (mid_dim,)
     dbf_B: Optional[torch.Tensor] = None  # Binary B matrix (mid_dim, in_dim)
     dbf_Db: Optional[torch.Tensor] = None  # Scaling vector paired with B (in_dim,)
+
+    def compute_dequantized_weight(self, device=None) -> torch.Tensor:
+        """Compute dequantized weight from quantized data and quantization parameters.
+
+        Args:
+            device (str or torch.device, optional): Device to compute on.
+
+        Returns:
+            Dequantized weight tensor (FP16, CPU).
+        """
+        if (
+            self.dbf_Da is None
+            or self.dbf_A is None
+            or self.dbf_mid is None
+            or self.dbf_B is None
+            or self.dbf_Db is None
+        ):
+            raise ValueError("DBFResult is missing required data for dequantization")
+
+        compute_device = torch.device(device) if device is not None else torch.device("cpu")
+        Da = self.dbf_Da.float().to(compute_device)  # (out_dim,)
+        A = self.dbf_A.float().to(compute_device)  # (out_dim, mid_dim)
+        mid = self.dbf_mid.float().to(compute_device)  # (mid_dim,)
+        B = self.dbf_B.float().to(compute_device)  # (mid_dim, in_dim)
+        Db = self.dbf_Db.float().to(compute_device)  # (in_dim,)
+
+        # W = diag(Da) @ A @ diag(mid) @ B @ diag(Db)
+        # Derived from DoubleBinaryLinear.forward():
+        #   y = ((x * Db) @ B.T * mid) @ A.T * Da
+        W = Da[:, None] * (A @ (mid[:, None] * B)) * Db[None, :]
+        return W.to(torch.float16).cpu()
 
 
 @dataclass
@@ -240,7 +269,6 @@ class DBF(Quantizer):
             balance_mode=self.balance_mode,
             use_adaptive_rho=self.use_adaptive_rho,
             # DBF weight reconstruction data
-            dequantized_weight=weight_results["dequantized_weight"],
             is_dbf_quantized=weight_results["is_dbf_quantized"],
             dbf_Da=weight_results["dbf_Da"],
             dbf_A=weight_results["dbf_A"],

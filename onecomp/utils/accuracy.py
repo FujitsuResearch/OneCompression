@@ -8,8 +8,38 @@ Author: Keiji Kimura
 
 from logging import getLogger
 
-from lm_eval.models.huggingface import HFLM
 from lm_eval import evaluator
+from lm_eval.models.huggingface import HFLM
+
+logger = getLogger(__name__)
+
+
+def _create_eval_model(model, tokenizer, batch_size):
+    """Helper function to create an evaluation model for lm_eval."""
+    original_quantization_config = None
+    should_restore_quantization_config = False
+    if hasattr(model, "config") and getattr(model.config, "quantization_config", None) is not None:
+        original_quantization_config = model.config.quantization_config
+        model.config.quantization_config = None
+        should_restore_quantization_config = True
+        logger.debug(
+            "Temporarily disable model.config.quantization_config for lm_eval compatibility"
+        )
+    try:
+        eval_model = HFLM(
+            pretrained=model,
+            tokenizer=tokenizer,
+            batch_size=batch_size,
+            truncation=True,
+        )
+    except Exception:
+        eval_model = None
+    finally:
+        if should_restore_quantization_config:
+            model.config.quantization_config = original_quantization_config
+            logger.debug("Restored model.config.quantization_config")
+
+    return eval_model
 
 
 def calculate_accuracy(
@@ -60,6 +90,7 @@ def calculate_accuracy(
                 device=model_config.device,
                 dtype=model_config.dtype,
                 batch_size=batch_size,
+                truncation=True,
             )
             model = None  # Signal that eval_model is already created
 
@@ -68,7 +99,14 @@ def calculate_accuracy(
             if model_config is None:
                 raise ValueError("model_config must be provided if tokenizer is not provided")
             tokenizer = model_config.load_tokenizer()
-        eval_model = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=batch_size)
+        eval_model = _create_eval_model(model, tokenizer, batch_size)
+
+    # failed to create eval_model
+    if eval_model is None:
+        logger.error(
+            "Failed to create evaluation model. Please check the provided model and tokenizer."
+        )
+        return None
 
     # calculate the accuracy
     if tasks is None:
@@ -82,7 +120,6 @@ def calculate_accuracy(
     )
 
     if display_results:
-        logger = getLogger(__name__)
         logger.info("=" * 50)
         for task, metrics in results["results"].items():
             logger.info("Task: %s", task)

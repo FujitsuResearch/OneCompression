@@ -122,7 +122,9 @@ def run_quantize_with_qep(
         # 2-3. Update the weights of the target layer
         dtype = module.weight.data.dtype
         device = module.weight.data.device
-        module.weight.data = quantizer.results[name].dequantized_weight.to(device).to(dtype)
+        module.weight.data = (
+            quantizer.results[name].compute_dequantized_weight().to(device).to(dtype)
+        )
 
         # 2-4. Free memory
         del quant_input_activation

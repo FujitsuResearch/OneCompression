@@ -265,18 +265,19 @@ def run_quantization_phase(
         quant_result.quantization_time = layer_elapsed
 
         # Move dequantized_weight to CPU (if still on GPU)
-        if quant_result.dequantized_weight.is_cuda:
+        if quant_result.dequantized_weight is not None and quant_result.dequantized_weight.is_cuda:
             quant_result.dequantized_weight = quant_result.dequantized_weight.cpu()
 
         # Compute quantization error (if calc_quant_error=True)
         if quantizer.calc_quant_error:
+            # TODO: Cache the result to avoid recomputing dequantized weight twice.
             # Output quantization error
             (
                 quant_result.output_squared_error,
                 quant_result.mean_output_squared_error,
                 quant_result.relative_output_squared_error,
             ) = quantizer.calculate_output_quantization_error(
-                dummy_module, activation, quant_result.dequantized_weight
+                dummy_module, activation, quant_result.compute_dequantized_weight()
             )
 
             # Weight quantization error
@@ -285,7 +286,7 @@ def run_quantization_phase(
                 quant_result.mean_weight_squared_error,
                 quant_result.relative_weight_squared_error,
             ) = quantizer.calculate_weight_quantization_error(
-                dummy_module, quant_result.dequantized_weight
+                dummy_module, quant_result.compute_dequantized_weight()
             )
 
         with lock:

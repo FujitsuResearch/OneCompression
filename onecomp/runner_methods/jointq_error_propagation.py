@@ -155,6 +155,7 @@ def run_jointq_error_propagation(
                 name,
             )
             result = current_results[name]
+            # TODO: Migrate to compute_dequantized_weight() API
             current_results[name] = JointQErrorPropResult(
                 dequantized_weight=result.dequantized_weight,
                 quantization_time=result.quantization_time,
@@ -169,7 +170,9 @@ def run_jointq_error_propagation(
             )
             dtype = module.weight.data.dtype
             module_device = module.weight.data.device
-            module.weight.data = result.dequantized_weight.to(module_device).to(dtype)
+            module.weight.data = result.dequantized_weight.to(module_device).to(
+                dtype
+            )  # TODO: Migrate to compute_dequantized_weight()
             continue
 
         logger.info(
@@ -207,7 +210,9 @@ def run_jointq_error_propagation(
         # 2-3. Update the weights of the target layer
         dtype = module.weight.data.dtype
         module_device = module.weight.data.device
-        module.weight.data = current_results[name].dequantized_weight.to(module_device).to(dtype)
+        module.weight.data = (
+            current_results[name].dequantized_weight.to(module_device).to(dtype)
+        )  # TODO: Migrate to compute_dequantized_weight()
 
         del quant_input_activation
 
@@ -298,6 +303,7 @@ def quantize_layer_weights(
         logger=logger,
     )
     if skip:
+        # TODO: Migrate to compute_dequantized_weight() API
         return JointQErrorPropResult(
             dequantized_weight=current_result.dequantized_weight,
             quantization_time=current_result.quantization_time,

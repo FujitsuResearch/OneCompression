@@ -26,7 +26,8 @@ class QuantizationResult:
     method-specific parameters as fields.
 
     Attributes:
-        dequantized_weight: Dequantized weights (FP16) - required.
+        dequantized_weight: Dequantized weights (FP16).
+            None when compute_dequantized_weight() is overridden by subclass.
         quantization_time: Time taken for quantization (seconds).
         output_squared_error: Output squared error (when calc_quant_error=True).
         mean_output_squared_error: Output mean squared error (when calc_quant_error=True).
@@ -38,7 +39,7 @@ class QuantizationResult:
             ||W - Ŵ||²_F / ||W||²_F (when calc_quant_error=True).
     """
 
-    dequantized_weight: torch.Tensor
+    dequantized_weight: torch.Tensor = None
 
     # Quantization metadata
     quantization_time: float = None
@@ -63,15 +64,15 @@ class QuantizationResult:
                 quantization parameters reside.
 
         Returns:
-            torch.Tensor: Dequantized weight tensor.
-
-        Raises:
-            NotImplementedError: Not implemented in the base class.
+            torch.Tensor: Dequantized weight tensor (FP16, CPU).
         """
-        raise NotImplementedError(
-            "compute_dequantized_weight() is not implemented in the base class. "
-            "Subclasses should override this method."
-        )
+        if self.dequantized_weight is None:
+            raise NotImplementedError(
+                "compute_dequantized_weight() is not implemented. "
+                "Subclasses must override this method or set dequantized_weight."
+            )
+        # If not overridden, it returns the weight of the dequantized_weight field.
+        return self.dequantized_weight.to(torch.float16).cpu()
 
 
 @dataclass
@@ -283,7 +284,7 @@ class Quantizer(metaclass=ABCMeta):
             input (tuple or torch.Tensor): The input to the layer
             result (QuantizationResult): The quantization result
         """
-        dequantized_weight = result.dequantized_weight
+        dequantized_weight = result.compute_dequantized_weight()
 
         (
             result.output_squared_error,
