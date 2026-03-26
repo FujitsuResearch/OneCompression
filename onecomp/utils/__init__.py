@@ -21,3 +21,19 @@ from .activation_check import (
 from .activation_capture import (
     capture_input_activations,
 )
+
+from .vram_estimator import (
+    estimate_target_bitwidth,
+    estimate_wbits_from_vram,
+    effective_bits_per_param,
+    raw_bits_for_quantizer,
+    effective_bits_for_quantizer,
+    weight_memory_gb,
+    VRAMBitwidthEstimation,
+)
+
+from .blockwise import (
+    get_blocks_and_inputs,
+    forward_input,
+    move_kwargs_to_device,
+)

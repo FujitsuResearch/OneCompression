@@ -23,3 +23,13 @@
 ::: onecomp.utils.calibration.prepare_calibration_dataset
     options:
       show_source: false
+
+## VRAM Estimation
+
+::: onecomp.utils.vram_estimator.estimate_wbits_from_vram
+    options:
+      show_source: false
+
+::: onecomp.utils.vram_estimator.VRAMBitwidthEstimation
+    options:
+      show_source: false

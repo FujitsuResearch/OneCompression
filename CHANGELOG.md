@@ -1,5 +1,37 @@
 # Change log
 
+## [v0.4.3] 2026-03-26
+
+### Implement AutoBit to automatically determine bit-allocation
+
+- Add `AutoBitQuantizer` (`onecomp/quantizer/autobit/_autobit.py`) that automatically assigns optimal bit-width per module using ILP with considering activation-aware error (`onecomp/quantizer/autobit/ilp.py`)  and DBF fallback (`onecomp/quantizer/autobit/dbf_fallback.py`) for ultra-low-bit targets ( <= target bit 2bit) 
+  - [SCIP](https://www.scipopt.org) solver was utilized to solve ILP (`onecomp/quantizer/autobit/ilp.py`)
+  - Sequentially load and forward each layer to collect activation and curvature statistics (`onecomp/quantizer/autobit/activation_stats.py`, `onecomp/utils/blockwise.py`)
+  - Usage example is shown in (`example/example3.py`)
+- Add VRAM auto-estimation utility to derive target bit-width from available GPU memory (`onecomp/utils/vram_estimator.py`)
+
+### End-to-end CLI tests
+
+- Added `tests/onecomp/test_cli.py`: end-to-end tests that verify `onecomp TinyLlama/...` CLI runs without errors
+  - `test_default_full_run`: full default pipeline (AutoBit + QEP + eval + save) on GPU
+  - Variant tests for individual options (`--wbits`, `--no-qep`, `--total-vram-gb`, `--groupsize`, `--save-dir`, etc.) on CPU
+  - Variant tests are skipped by default; enable with `RUN_CLI_VARIANT_TESTS=1`
+  - Uses `python -m onecomp` to avoid implicit `uv sync` that could modify the environment
+
+### Fixes
+
+- Fixed GemLite import crash when PyTorch version is incompatible (`onecomp/quantizer/gemlite.py`)
+  - Broadened `except ImportError` to `except (ImportError, AttributeError)` so that GemLite gracefully falls back when `torch` lacks newer dtypes (e.g. `float8_e8m0fnu`)
+- Fixed `test_dbf_gemlite.py` to skip when GemLite is unavailable instead of crashing (`tests/vllm-plugins/dbf/test_dbf_gemlite.py`)
+
+### Dependency and documentation updates
+
+- Added `vllm` as an optional dependency (`--extra vllm`) in `pyproject.toml`
+  - Prevents environment corruption caused by `uv pip install vllm` being overwritten by subsequent `uv sync`/`uv run`
+- Added `torchvision` to CUDA extras and `[tool.uv.sources]` in `pyproject.toml` to prevent CUDA version mismatch
+- Updated installation docs to reflect new extras (`README.md`, `docs/getting-started/installation.md`, `docs/user-guide/vllm-inference.md`)
+- Updated `uv.lock`
+
 ## [v0.4.2] 2026-03-25
 
 ### Unit tests for additional quantizers
@@ -131,6 +163,7 @@
   - Aligns with the base `Quantizer.quantize_layer(self, module, input=None, hessian=None)` signature
   - Enables these quantizers to be used in `Runner(quantizers=[...])` via the chunked quantization path
 - Added `input=None, hessian=None` defaults to `Onebit.quantize_layer` for the same reason
+
 
 ## [v0.3.7] 2026-03-16
 

@@ -214,6 +214,11 @@ class GPTQ(Quantizer):
             return mlp_groupsize
         return default_groupsize
 
+    def __post_init__(self):
+        if self.name is None:
+            self.name = f"GPTQ_{self.wbits}bit"
+        super().__post_init__()
+
     def validate_params(self):
         """Validate GPTQ parameters once in setup()."""
         bad = []

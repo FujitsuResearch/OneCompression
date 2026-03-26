@@ -8,6 +8,7 @@ This package is currently under development (version 0) and may behave unstably.
 
 - **Quantization Error Propagation (QEP)**: A post-training quantization method that corrects quantization errors by propagating them to subsequent layers, improving the accuracy of quantized LLMs. See [Arai & Ichikawa, NeurIPS 2025](https://openreview.net/forum?id=a3l3K9khbL) for details.
 - **vLLM Plugin Integration**: Serve OneComp-quantized models with [vLLM](https://docs.vllm.ai/) via built-in plugins for DBF and Mixed-GPTQ quantization methods.
+- **AutoBit**: Mixed-precision quantization with ILP-based bitwidth assignment. Automatically estimates the target bitwidth from available VRAM and assigns per-layer bitwidths to minimize quantization error under the memory budget.
 - (TBD)
 
 ## 🔧 Installation
@@ -80,11 +81,19 @@ uv sync --extra cu128 --extra dev
 
 The `uv sync` command creates a Python virtual environment and installs all dependent libraries.
 
-The `--extra cu128` option installs the CUDA-enabled version of PyTorch.
+The `--extra cu128` option installs the CUDA-enabled version of PyTorch (along with `torchvision` from the same CUDA index).
 Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, or `cu128`.
 PyTorch will be automatically downloaded by `uv`, so you do not need to install it beforehand.
 
 Adding `--extra dev` installs additional packages for development.
+
+To use vLLM for serving quantized models, add `--extra vllm`:
+
+```bash
+uv sync --extra cu128 --extra dev --extra vllm
+```
+
+> **Note:** `--extra vllm` may take a long time on the first run if a pre-built `xformers` wheel is not available for your Python/CUDA combination (e.g. Python 3.13). Using Python 3.12 typically avoids this.
 
 #### Running commands (uv environment)
 
@@ -133,11 +142,23 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 
 ## 🚀 Example
 
-See [example/example1.py](./example/example1.py) and [example/example2.py](./example/example2.py) for more details.
+See [example/example1.py](./example/example1.py) and [example/example2.py](./example/example2.py) for step-by-step GPTQ + QEP examples.
+
+For AutoBit mixed-precision quantization, see [example/example3.py](./example/example3.py) and [example/example_auto_run.py](./example/example_auto_run.py).
 
 ## 🔌 vLLM Inference
 
-OneComp-quantized models can be served with [vLLM](https://docs.vllm.ai/) via built-in plugins (DBF, Mixed-GPTQ). Install vLLM separately (`pip install vllm`) and see the [vLLM Inference guide](https://FujitsuResearch.github.io/OneCompression/user-guide/vllm-inference/) for details.
+OneComp-quantized models can be served with [vLLM](https://docs.vllm.ai/) via built-in plugins (DBF, Mixed-GPTQ).
+
+```bash
+# uv users
+uv sync --extra cu128 --extra vllm
+
+# pip users
+pip install vllm
+```
+
+See the [vLLM Inference guide](https://FujitsuResearch.github.io/OneCompression/user-guide/vllm-inference/) for details.
 
 
 ## 📄 License

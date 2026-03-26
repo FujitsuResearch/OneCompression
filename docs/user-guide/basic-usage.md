@@ -4,7 +4,8 @@ This guide covers the core workflow of Fujitsu One Compression (OneComp): config
 
 ## Quick Path: `Runner.auto_run()`
 
-For the common case of GPTQ + QEP quantization, `auto_run` handles everything in one call:
+`auto_run` handles everything in one call -- VRAM-based bitwidth estimation,
+AutoBit mixed-precision quantization with QEP, evaluation, and saving:
 
 ```python
 from onecomp import Runner
@@ -15,9 +16,10 @@ runner = Runner.auto_run(model_id="meta-llama/Llama-2-7b-hf")
 This automatically:
 
 1. Loads the model and tokenizer
-2. Quantizes with GPTQ (4-bit, groupsize=128) + QEP
-3. Evaluates perplexity and zero-shot accuracy
-4. Saves the quantized model to disk
+2. Estimates the target bitwidth from available VRAM
+3. Quantizes with AutoBit (ILP-based mixed-precision) + QEP
+4. Evaluates perplexity and zero-shot accuracy
+5. Saves the quantized model to disk
 
 The returned `runner` instance gives access to quantization results for further analysis.
 See the [Quick Start](../getting-started/quickstart.md) for `auto_run` parameters, or use
@@ -72,12 +74,13 @@ gptq = GPTQ(wbits=4, groupsize=128)
 
 Available quantizers and their typical parameters:
 
-| Quantizer | Key Parameters               | Calibration Required |
-|-----------|------------------------------|----------------------|
-| `GPTQ`    | `wbits`, `groupsize`, `sym`  | Yes                  |
-| `RTN`     | `wbits`, `groupsize`, `sym`  | No                   |
-| `DBF`     | `target_bits`, `iters`       | Yes                  |
-| `JointQ`  | `bits`, `group_size`         | Yes                  |
+| Quantizer          | Key Parameters                          | Calibration Required |
+|--------------------|------------------------------------------|----------------------|
+| `AutoBitQuantizer` | `target_bit`, `assignment_strategy`      | Yes                  |
+| `GPTQ`             | `wbits`, `groupsize`, `sym`              | Yes                  |
+| `RTN`              | `wbits`, `groupsize`, `sym`              | No                   |
+| `DBF`              | `target_bits`, `iters`                   | Yes                  |
+| `JointQ`           | `bits`, `group_size`                     | Yes                  |
 
 All quantizers share common parameters:
 

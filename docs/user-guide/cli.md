@@ -25,9 +25,10 @@ python -m onecomp --version
 ## Usage
 
 ```
-onecomp [-h] [--wbits WBITS] [--groupsize GROUPSIZE] [--device DEVICE]
-        [--no-qep] [--no-eval] [--eval-original] [--save-dir SAVE_DIR]
-        [--version] model_id
+onecomp [-h] [--wbits WBITS] [--total-vram-gb GB] [--groupsize GROUPSIZE]
+        [--device DEVICE] [--no-qep] [--no-eval] [--eval-original]
+        [--save-dir SAVE_DIR] [--version]
+        model_id
 ```
 
 ### Positional Arguments
@@ -38,25 +39,38 @@ onecomp [-h] [--wbits WBITS] [--groupsize GROUPSIZE] [--device DEVICE]
 
 ### Options
 
-| Option                  | Default    | Description                                              |
-|-------------------------|------------|----------------------------------------------------------|
-| `--wbits WBITS`         | `4`        | Quantization bit width                                   |
-| `--groupsize GROUPSIZE` | `128`      | GPTQ group size (`-1` to disable grouping)               |
-| `--device DEVICE`       | `cuda:0`   | Device to place the model on                             |
-| `--no-qep`              |            | Disable QEP (enabled by default)                         |
-| `--no-eval`             |            | Skip perplexity and accuracy evaluation                  |
-| `--eval-original`       |            | Also evaluate the original (unquantized) model           |
-| `--save-dir SAVE_DIR`   | `auto`     | Save directory (`auto` = derived from model name, `none` to skip) |
-| `--version`             |            | Show version and exit                                    |
+| Option                    | Default      | Description                                              |
+|---------------------------|--------------|----------------------------------------------------------|
+| `--wbits WBITS`           | `None` (auto)| Target bitwidth. When omitted, estimated from VRAM       |
+| `--total-vram-gb GB`      | `None` (auto)| VRAM budget in GB for bitwidth estimation. When omitted, detected from GPU |
+| `--groupsize GROUPSIZE`   | `128`        | GPTQ group size (`-1` to disable grouping)               |
+| `--device DEVICE`         | `cuda:0`     | Device to place the model on                             |
+| `--no-qep`                |              | Disable QEP (enabled by default)                         |
+| `--no-eval`               |              | Skip perplexity and accuracy evaluation                  |
+| `--eval-original`         |              | Also evaluate the original (unquantized) model           |
+| `--save-dir SAVE_DIR`     | `auto`       | Save directory (`auto` = derived from model name, `none` to skip) |
+| `--version`               |              | Show version and exit                                    |
 
 ## Examples
 
-### Basic usage
+### Basic usage (AutoBit with VRAM auto-estimation)
 
-Quantize with defaults (QEP + GPTQ 4-bit, evaluate, auto-save):
+Quantize with defaults (AutoBit mixed-precision + QEP, evaluate, auto-save):
 
 ```bash
 onecomp TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T
+```
+
+### Specify VRAM budget
+
+```bash
+onecomp meta-llama/Llama-2-7b-hf --total-vram-gb 8
+```
+
+### Fixed bitwidth (skip VRAM estimation)
+
+```bash
+onecomp meta-llama/Llama-2-7b-hf --wbits 4
 ```
 
 ### 3-bit quantization
@@ -112,9 +126,10 @@ onecomp meta-llama/Llama-2-7b-hf --device cuda:1
 When run with no options, the `onecomp` command:
 
 1. Loads the model and tokenizer from Hugging Face Hub
-2. Quantizes with GPTQ (4-bit, groupsize=128) + QEP
-3. Evaluates perplexity (wikitext-2) and zero-shot accuracy
-4. Saves the quantized model to `<model_name>-gptq-4bit/`
+2. Estimates the target bitwidth from available VRAM
+3. Quantizes with AutoBit (ILP-based mixed-precision) + QEP
+4. Evaluates perplexity (wikitext-2) and zero-shot accuracy
+5. Saves the quantized model to `<model_name>-autobit-<X>bit/`
 
 ## Equivalent Python API
 

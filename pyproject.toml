@@ -22,18 +22,19 @@ dependencies = [
     "gemlite>=0.5.1",
     "hqq>=0.2.8",
     "safetensors",
+    "ortools>=9.15.6755",
 ]
 
 [project.scripts]
 onecomp = "onecomp.cli:main"
 
 [project.optional-dependencies]
-cpu = ["torch"]
-cu118 = ["torch"]
-cu121 = ["torch"]
-cu124 = ["torch"]
-cu126 = ["torch"]
-cu128 = ["torch"]
+cpu = ["torch", "torchvision"]
+cu118 = ["torch", "torchvision"]
+cu121 = ["torch", "torchvision"]
+cu124 = ["torch", "torchvision"]
+cu126 = ["torch", "torchvision"]
+cu128 = ["torch", "torchvision"]
 dev = [
     "black",
     "matplotlib>=3.10.8",
@@ -44,6 +45,7 @@ gemlite = [
     "gemlite @ git+https://github.com/mobiusml/gemlite.git",
     "hqq @ git+https://github.com/mobiusml/hqq.git",
 ]
+vllm = ["vllm"]
 docs = [
     "mkdocs-material",
     "mkdocstrings[python]",
@@ -62,6 +64,14 @@ conflicts = [
 
 [tool.uv.sources]
 torch = [
+    {index = "pytorch-cpu", extra = "cpu"},
+    {index = "pytorch-cu118", extra = "cu118"},
+    {index = "pytorch-cu121", extra = "cu121"},
+    {index = "pytorch-cu124", extra = "cu124"},
+    {index = "pytorch-cu126", extra = "cu126"},
+    {index = "pytorch-cu128", extra = "cu128"},
+]
+torchvision = [
     {index = "pytorch-cpu", extra = "cpu"},
     {index = "pytorch-cu118", extra = "cu118"},
     {index = "pytorch-cu121", extra = "cu121"},
@@ -99,6 +109,14 @@ explicit = true
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
+
+[tool.uv.extra-build-dependencies]
+xformers = ["torch"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 [tool.black]
 line-length = 99

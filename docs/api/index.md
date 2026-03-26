@@ -11,6 +11,7 @@ The following are available directly from `import onecomp`:
 | `Runner`               | Class    | Main entry point for quantization        |
 | `ModelConfig`          | Class    | Model and tokenizer configuration        |
 | `QEPConfig`            | Class    | QEP configuration                        |
+| `AutoBitQuantizer`     | Class    | AutoBit mixed-precision quantizer (ILP)  |
 | `GPTQ`                 | Class    | GPTQ quantizer                           |
 | `RTN`                  | Class    | RTN quantizer                            |
 | `DBF`                  | Class    | DBF quantizer                            |
@@ -36,6 +37,7 @@ onecomp/
         _qep_config.py     # QEPConfig dataclass
     quantizer/             # Quantizer implementations
         _quantizer.py      # Quantizer base class, QuantizationResult
+        autobit/           # AutoBit (ILP mixed-precision)
         gptq/              # GPTQ
         dbf/               # DBF
         rtn/               # RTN

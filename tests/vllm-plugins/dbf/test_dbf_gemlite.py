@@ -5,21 +5,28 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from gemlite.core import GemLiteLinearTriton
-from vllm_plugins.dbf.modules.gemlite_linear import (
-    GROUP_SIZE,
-    pad_to_multiple,
-    pad_cols_to_multiple,
-    unpack_sign_bits,
-    get_gemlite_linear,
-    DBFLinear_GEMLITE,
-    gemlitelinear_post_init,
+try:
+    from gemlite.core import GemLiteLinearTriton
+
+    _HAS_GEMLITE = True
+except (ImportError, AttributeError):
+    _HAS_GEMLITE = False
+
+pytestmark = pytest.mark.skipif(
+    not _HAS_GEMLITE or not torch.cuda.is_available(),
+    reason="GemLite unavailable or CUDA not available",
 )
 
-# Assumes gemlite and hqq are installed and CUDA is available
-pytestmark = pytest.mark.skipif(
-    not torch.cuda.is_available(), reason="CUDA is required for GemLite and HQQ tests"
-)
+if _HAS_GEMLITE:
+    from vllm_plugins.dbf.modules.gemlite_linear import (
+        GROUP_SIZE,
+        pad_to_multiple,
+        pad_cols_to_multiple,
+        unpack_sign_bits,
+        get_gemlite_linear,
+        DBFLinear_GEMLITE,
+        gemlitelinear_post_init,
+    )
 
 # Global device configuration
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

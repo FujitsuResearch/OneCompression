@@ -98,6 +98,7 @@ nav:
       - QEPConfig: api/qep_config.md
       - Quantizers:
           - Base Classes: api/quantizers/base.md
+          - AutoBit: api/quantizers/autobit.md
           - GPTQ: api/quantizers/gptq.md
           - DBF: api/quantizers/dbf.md
           - RTN: api/quantizers/rtn.md

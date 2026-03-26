@@ -12,14 +12,27 @@ The plugins are automatically registered via Python entry points when `onecomp` 
 
 ## Installation
 
-vLLM is not included in the `onecomp` dependencies and must be installed separately:
+vLLM is available as an optional dependency:
 
-```bash
-pip install vllm
-```
+=== "uv (recommended)"
+
+    ```bash
+    uv sync --extra cu128 --extra vllm
+    ```
+
+    Replace `cu128` with your CUDA variant (`cu118`, `cu121`, `cu124`, `cu126`, or `cu128`).
+
+=== "pip"
+
+    ```bash
+    pip install vllm
+    ```
 
 !!! note
     vLLM requires CUDA and a compatible GPU. See the [vLLM documentation](https://docs.vllm.ai/) for detailed installation instructions and system requirements.
+
+!!! warning
+    **uv users:** Do not install vLLM with `uv pip install vllm`. Packages installed via `uv pip` are not tracked by the lockfile and will be removed by subsequent `uv sync` or `uv run` commands. Always use `--extra vllm` instead.
 
 ## Usage
 

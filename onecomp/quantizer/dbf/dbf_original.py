@@ -230,8 +230,11 @@ def find_other2(
                     if rhs.dim() == 1
                     else torch.cholesky_solve(rhs, L)
                 )
-            except Exception:
-                B = torch.linalg.solve(lhs, rhs)
+            except torch.linalg.LinAlgError:
+                try:
+                    B = torch.linalg.solve(lhs, rhs)
+                except torch.linalg.LinAlgError:
+                    B = torch.linalg.lstsq(lhs, rhs).solution
 
             # Z-update: SVID projection
             Z = svd_abs(B + U)
@@ -259,8 +262,16 @@ def find_other2(
     else:
         # Use fixed ρ (pre-compute inverse for speedup)
         rho = 1.0
-        XXinv = torch.inverse(XX + torch.eye(XX.shape[0], device=XX.device) * rho)
-        XXinv_start = torch.inverse(XX + torch.eye(XX.shape[0], device=XX.device) * rho_start)
+        try:
+            XXinv = torch.inverse(XX + torch.eye(XX.shape[0], device=XX.device) * rho)
+        except (torch.linalg.LinAlgError, RuntimeError):
+            XXinv = torch.linalg.pinv(XX + torch.eye(XX.shape[0], device=XX.device) * rho)
+        try:
+            XXinv_start = torch.inverse(XX + torch.eye(XX.shape[0], device=XX.device) * rho_start)
+        except (torch.linalg.LinAlgError, RuntimeError):
+            XXinv_start = torch.linalg.pinv(
+                XX + torch.eye(XX.shape[0], device=XX.device) * rho_start
+            )
 
         # First B-update
         B = XXinv_start @ (XY + rho_start * (Z - U))
@@ -686,13 +697,15 @@ def run_dbf_original(
         if torch.isnan(dequantized_weight).any() or torch.isinf(dequantized_weight).any():
             logger.warning("[DBF] ERROR: NaN/Inf in weights. Reverting to original weights.")
             dequantized_weight = weight_backup.contiguous()
-            clear_dbf_meta(dequantized_weight)
             logger.warning(
                 "[DBF] ERROR Details: NaN count=%s, Inf count=%s",
                 torch.isnan(W_out).sum().item(),
                 torch.isinf(W_out).sum().item(),
             )
-            return dequantized_weight
+            return {
+                "dequantized_weight": dequantized_weight,
+                "is_dbf_quantized": False,
+            }
 
         # === Compute reconstruction error ===
         W_compare = W_balanced.t() if is_conv1d else W_balanced

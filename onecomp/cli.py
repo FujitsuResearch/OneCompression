@@ -14,7 +14,7 @@ from .__version__ import __version__
 def main():
     parser = argparse.ArgumentParser(
         prog="onecomp",
-        description="OneComp: One-liner LLM quantization (QEP + GPTQ)",
+        description="OneComp: One-liner LLM quantization (AutoBit + QEP)",
     )
     parser.add_argument(
         "model_id",
@@ -22,9 +22,15 @@ def main():
     )
     parser.add_argument(
         "--wbits",
-        type=int,
-        default=4,
-        help="quantization bit width (default: 4)",
+        type=float,
+        default=None,
+        help="target bitwidth (default: auto-estimated from VRAM)",
+    )
+    parser.add_argument(
+        "--total-vram-gb",
+        type=float,
+        default=None,
+        help="VRAM budget in GB for bitwidth estimation (default: auto-detect)",
     )
     parser.add_argument(
         "--groupsize",
@@ -73,6 +79,7 @@ def main():
     Runner.auto_run(
         model_id=args.model_id,
         wbits=args.wbits,
+        total_vram_gb=args.total_vram_gb,
         groupsize=args.groupsize,
         device=args.device,
         qep=not args.no_qep,

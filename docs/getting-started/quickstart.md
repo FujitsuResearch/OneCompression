@@ -4,8 +4,9 @@ This guide walks you through quantizing your first LLM with Fujitsu One Compress
 
 ## The Fastest Way: `auto_run`
 
-`Runner.auto_run` handles everything -- model loading, GPTQ quantization with QEP,
-evaluation (perplexity + zero-shot accuracy), and saving the quantized model:
+`Runner.auto_run` handles everything -- model loading, AutoBit mixed-precision
+quantization with QEP, evaluation (perplexity + zero-shot accuracy), and saving
+the quantized model:
 
 === "Python"
 
@@ -21,28 +22,35 @@ evaluation (perplexity + zero-shot accuracy), and saving the quantized model:
     onecomp TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T
     ```
 
-That's it. The quantized model is saved to
-`TinyLlama-1.1B-intermediate-step-1431k-3T-gptq-4bit/` by default.
+That's it. The target bitwidth is estimated from available VRAM, and the
+quantized model is saved to `TinyLlama-1.1B-...-autobit-<X>bit/` by default.
 
 ### `auto_run` Parameters
 
-| Parameter   | Default    | Description                                              |
-|-------------|------------|----------------------------------------------------------|
-| `model_id`  | (required) | Hugging Face model ID or local path                      |
-| `wbits`     | `4`        | Quantization bit width                                   |
-| `groupsize` | `128`      | GPTQ group size (`-1` to disable)                        |
-| `device`    | `"cuda:0"` | Device for computation                                   |
-| `qep`       | `True`     | Enable QEP (Quantization Error Propagation)              |
-| `evaluate`  | `True`     | Calculate perplexity and zero-shot accuracy              |
-| `eval_original_model` | `False` | Also evaluate the original (unquantized) model        |
-| `save_dir`  | `"auto"`   | Save directory (`"auto"` = derived from model name, `None` to skip) |
+| Parameter              | Default    | Description                                              |
+|------------------------|------------|----------------------------------------------------------|
+| `model_id`             | (required) | Hugging Face model ID or local path                      |
+| `wbits`                | `None`     | Target bitwidth. When `None`, estimated from VRAM        |
+| `total_vram_gb`        | `None`     | VRAM budget in GB. When `None`, detected from GPU        |
+| `groupsize`            | `128`      | GPTQ group size (`-1` to disable)                        |
+| `device`               | `"cuda:0"` | Device for computation                                   |
+| `qep`                  | `True`     | Enable QEP (Quantization Error Propagation)              |
+| `evaluate`             | `True`     | Calculate perplexity and zero-shot accuracy              |
+| `eval_original_model`  | `False`    | Also evaluate the original (unquantized) model           |
+| `save_dir`             | `"auto"`   | Save directory (`"auto"` = derived from model name, `None` to skip) |
 
 ### Examples
 
 ```python
 from onecomp import Runner
 
-# 3-bit quantization, no QEP, skip saving
+# AutoBit with VRAM auto-estimation (default)
+Runner.auto_run(model_id="meta-llama/Llama-2-7b-hf")
+
+# Specify VRAM budget
+Runner.auto_run(model_id="meta-llama/Llama-2-7b-hf", total_vram_gb=8)
+
+# Fixed 3-bit quantization, no QEP, skip saving
 Runner.auto_run(
     model_id="meta-llama/Llama-2-7b-hf",
     wbits=3,

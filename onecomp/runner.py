@@ -7,10 +7,11 @@ Author: Keiji Kimura
 """
 
 # pylint: disable=too-many-arguments, too-many-positional-arguments
-
+import math
 import gc
 import json
 import os
+from typing import Optional
 import time
 from logging import getLogger
 from pathlib import Path
@@ -90,6 +91,7 @@ class Runner:
 
         Args:
             model_config (ModelConfig):
+                Model configuration.  Required.
             calibration_dataset (datasets.Dataset):
             max_length (int):
                 The maximum length of the input sequence.
@@ -97,7 +99,7 @@ class Runner:
                 The number of calibration samples to use when loading default dataset.
             quantizer (Quantizer):
                 The quantizer to use. Specify either ``quantizer`` or
-                ``quantizers``, not both.
+                ``quantizers``, not both.  At least one must be given.
             quantizers (list[Quantizer]):
                 Specify multiple quantizers. When used with
                 calibration_batch_size, the X^T X accumulation is shared,
@@ -157,7 +159,13 @@ class Runner:
                 X^T X storage and the number of forward passes required.
                 Only used when calibration_batch_size is set.
 
+        Note:
+            For zero-config quantization (VRAM auto-estimation +
+            AutoBitQuantizer + QEP), use the class method
+            :meth:`auto_run` instead.
+
         Examples:
+
             Chunked calibration with GPTQ (large-scale calibration data):
 
             >>> from onecomp import Runner, ModelConfig
@@ -211,6 +219,7 @@ class Runner:
         self.max_length = max_length
         self.num_calibration_samples = num_calibration_samples
         self.logger = getLogger(__name__)
+
         self.quantizer = quantizer
         self.quantizers = quantizers
         self.qep = qep
@@ -344,7 +353,8 @@ class Runner:
     def auto_run(
         cls,
         model_id: str,
-        wbits: int = 4,
+        wbits: Optional[float] = None,
+        total_vram_gb: Optional[float] = None,
         groupsize: int = 128,
         device: str = "cuda:0",
         qep: bool = True,
@@ -355,13 +365,21 @@ class Runner:
     ):
         """One-liner quantization with sensible defaults.
 
-        Sets up ModelConfig, GPTQ quantizer, and QEP, then runs quantization.
+        Sets up ModelConfig, AutoBitQuantizer (ILP-based mixed-precision),
+        and QEP, then runs quantization.  When ``wbits`` is ``None``,
+        the target bitwidth is estimated automatically from available VRAM.
         Optionally evaluates perplexity and accuracy, and saves the
         quantized model.
 
         Args:
             model_id (str): Hugging Face model ID or local path.
-            wbits (int): Quantization bit width (default: 4).
+            wbits (float or None): Target quantization bitwidth.
+                When ``None`` (default), estimated from VRAM via
+                ``estimate_wbits_from_vram``.
+            total_vram_gb (float or None): Total VRAM budget in GB for
+                bitwidth estimation.  Only used when ``wbits`` is ``None``.
+                When ``None``, the installed GPU VRAM is detected
+                automatically.
             groupsize (int): GPTQ group size (default: 128).
                 Use -1 to disable grouping.
             device (str): Device to place the model on (default: "cuda:0").
@@ -372,7 +390,7 @@ class Runner:
                 original (unquantized) model (default: False).
             save_dir (str or None): Directory to save the quantized model.
                 ``"auto"`` (default) derives the path from model_id
-                (e.g., ``"TinyLlama-1.1B-intermediate-step-1431k-3T-gptq-4bit"``).
+                (e.g., ``"TinyLlama-1.1B-...-autobit-3.5bit"``).
                 Set to ``None`` to skip saving.
             **kwargs: Additional keyword arguments forwarded to the
                 ``GPTQ`` constructor (e.g., ``actorder``, ``sym``).
@@ -413,12 +431,40 @@ class Runner:
         setup_logger()
         logger = getLogger(__name__)
 
+        candidate_bits = (2, 3, 4, 8)
+
+        if wbits is None:
+            from .utils import estimate_wbits_from_vram
+
+            result = estimate_wbits_from_vram(
+                model_id,
+                total_vram_gb=total_vram_gb,
+                group_size=groupsize,
+                logger=logger,
+            )
+            wbits = math.floor(result.target_bitwidth * 100) / 100
+            logger.info(
+                "VRAM estimation → target wbits=%.2f (%.2f GB total, ratio=80%%)",
+                wbits,
+                result.total_vram_gb,
+            )
+
         if save_dir == "auto":
             model_name = model_id.rstrip("/").split("/")[-1]
-            save_dir = f"{model_name}-gptq-{wbits}bit"
+            save_dir = f"{model_name}-autobit-{wbits}bit"
+
+        from .quantizer.autobit import AutoBitQuantizer
 
         model_config = ModelConfig(model_id=model_id, device=device)
-        quantizer = GPTQ(wbits=wbits, groupsize=groupsize, **kwargs)
+        candidate_quantizers = [
+            GPTQ(wbits=b, groupsize=groupsize, **kwargs) for b in candidate_bits
+        ]
+        quantizer = AutoBitQuantizer(
+            assignment_strategy="activation_aware",
+            quantizers=candidate_quantizers,
+            target_bit=wbits,
+            save_path=save_dir if save_dir is not None else None,
+        )
         runner = cls(model_config=model_config, quantizer=quantizer, qep=qep)
         runner.run()
 

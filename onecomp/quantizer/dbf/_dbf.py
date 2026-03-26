@@ -163,6 +163,11 @@ class DBF(Quantizer):
             return mlp_bits
         return default_bits
 
+    def __post_init__(self):
+        if self.name is None:
+            self.name = f"DBF_{self.target_bits:g}bit"
+        super().__post_init__()
+
     def validate_params(self):
         """Validate DBF parameters once in setup()."""
         bad = []

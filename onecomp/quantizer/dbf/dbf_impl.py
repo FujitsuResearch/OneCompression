@@ -140,6 +140,9 @@ def run_dbf(  # pylint: disable=too-many-positional-arguments
         use_adaptive_rho=use_adaptive_rho,
     )
 
+    if not results_3_stage.get("is_dbf_quantized", True):
+        return results_3_stage
+
     dbf_A, dbf_B, dbf_mid = _get_dbf_meta_in_op_space(results_3_stage)
 
     # DBF factorization: W ≈ A × diag(mid) × B

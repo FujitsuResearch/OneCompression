@@ -85,10 +85,19 @@ cd OneCompression
 uv sync --extra cu128 --extra dev
 ```
 
-The `uv sync` command creates a virtual environment and installs all dependencies.
+The `uv sync` command creates a virtual environment and installs all dependencies (including `torchvision` from the same CUDA index as PyTorch).
 Replace `cu128` with the appropriate CUDA variant for your system: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, or `cu128`.
 
 Adding `--extra dev` installs development tools (black, pytest, pylint, matplotlib).
+
+To use vLLM for serving quantized models, add `--extra vllm`:
+
+```bash
+uv sync --extra cu128 --extra dev --extra vllm
+```
+
+!!! warning
+    Do **not** install vLLM with `uv pip install vllm` after `uv sync`. Packages installed via `uv pip` are not tracked by the lockfile and will be removed or overwritten by subsequent `uv sync` or `uv run` commands. Always use `--extra vllm` instead.
 
 ### Running Commands
 

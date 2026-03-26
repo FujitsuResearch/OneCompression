@@ -8,6 +8,7 @@ Author: Keiji Kimura
 
 from ._quantizer import Quantizer
 from ._quantizer import ResultLoader
+from .autobit import AutoBitQuantizer
 from .gptq import GPTQ
 from .onebit import Onebit
 from .dbf import DBF

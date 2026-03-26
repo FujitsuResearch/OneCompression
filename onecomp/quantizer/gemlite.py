@@ -20,7 +20,7 @@ try:
     from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
 
     HAS_GEMLITE = True
-except ImportError:
+except (ImportError, AttributeError):
     HAS_GEMLITE = False
 
 
