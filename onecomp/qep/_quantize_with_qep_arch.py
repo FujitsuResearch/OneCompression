@@ -3,7 +3,7 @@ Architecture-aware Quantization with QEP Module
 
 Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Yudai Fujimoto
+Author: Yudai Fujimoto, Yuma Ichikawa
 
 An architecture-aware implementation that exploits model structure to
 reduce redundant forward passes and memory consumption.
@@ -22,8 +22,6 @@ from collections import OrderedDict
 
 import torch
 from torch import nn
-from transformers.modeling_layers import GradientCheckpointingLayer
-
 from onecomp.model_config import ModelConfig
 from onecomp.qep._qep_config import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
@@ -32,6 +30,7 @@ from onecomp.utils.blockwise import (
     get_blocks_and_inputs,
     forward_input,
     move_kwargs_to_device,
+    expand_kwargs_batch,
 )
 
 logger = getLogger(__name__)
@@ -139,9 +138,10 @@ def compute_hessian_and_crossterm(
     # compute Hessian and crossterm in batches
     for first in range(0, N, batch_size):
         last = min(first + batch_size, N)
+        batch_kwargs = expand_kwargs_batch(kwargs, last - first)
 
-        _ = block_q(inps_q[first:last].to(device), **kwargs)
-        _ = block_f(inps_f[first:last].to(device), **kwargs)
+        _ = block_q(inps_q[first:last].to(device), **batch_kwargs)
+        _ = block_f(inps_f[first:last].to(device), **batch_kwargs)
 
         x_q = dest["q"].view(-1, hidden_dim).float()
         x_f = dest["f"].view(-1, hidden_dim).float()
@@ -229,6 +229,15 @@ def run_quantize_with_qep_arch(
 
     logger.info("Quantizing the model using %s", quantizer.name)
 
+    # Build set of remaining target names for early termination.
+    # Restrict to modules that actually reside within the language-model blocks so
+    # that VLM vision-encoder layers (registered by quantizer.setup but unreachable
+    # via the block loop) do not prevent early termination.
+    block_modules = {m for block in blocks for m in block.modules()}
+    remaining_targets = {
+        name for module, name in quantizer.module_to_name.items() if module in block_modules
+    }
+
     # 2. For each target transformer block, perform the following sequentially
     for block_idx, block in enumerate(blocks):
 
@@ -236,6 +245,11 @@ def run_quantize_with_qep_arch(
             "Processing : %2d-th Transformer Block -------------------------------------------------",
             block_idx + 1,
         )
+
+        # Early termination: stop once all target layers are quantized
+        if not remaining_targets:
+            logger.info("All target layers quantized -- skipping remaining blocks.")
+            break
 
         block_q = block.to(device)
         block_f = copy.deepcopy(block_q)
@@ -263,6 +277,10 @@ def run_quantize_with_qep_arch(
 
         # 3. For each group of layers, perform the following sequentially
         for group_q, group_f in zip(groups_q, groups_f):
+
+            # Skip groups that contain no quantization targets
+            if not any(m in quantizer.module_to_name for m in group_q):
+                continue
 
             logger.info(
                 "Processing group of layers: %s",
@@ -329,6 +347,7 @@ def run_quantize_with_qep_arch(
                         "Keeping original weights.",
                         name,
                     )
+                remaining_targets.discard(name)
 
         # forward input to the next block
         inps_q = forward_input(inps_q, block_q, kwargs, batch_size, device)

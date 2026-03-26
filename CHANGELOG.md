@@ -10,6 +10,23 @@
   - Usage example is shown in (`example/example3.py`)
 - Add VRAM auto-estimation utility to derive target bit-width from available GPU memory (`onecomp/utils/vram_estimator.py`)
 
+### VLM and Multi-Architecture Support for Architecture-aware QEP
+
+- Extended `_get_blocks` to detect `language_model` sub-module and restrict block search to the text decoder (`onecomp/qep/_quantize_with_qep_arch.py`)
+  - VLMs (Qwen3-VL, Gemma3, etc.) no longer return vision-encoder blocks
+  - CausalLM behaviour is unchanged (falls back to full-model search)
+- Added `__getattr__` proxy to `Catcher` to forward attribute access to the wrapped module (`onecomp/qep/_quantize_with_qep_arch.py`)
+  - Prevents `AttributeError` when model code reads decoder-layer attributes (e.g. `attention_type`) before `forward()`
+- Changed `get_blocks_and_inputs` to capture block-level kwargs with batch=1 (`onecomp/qep/_quantize_with_qep_arch.py`)
+  - Internally generated kwargs (position_embeddings, attention_mask, etc.) are now batch-size-independent
+  - Avoids shape mismatches when reused with varying batch sizes in downstream functions
+- Added `expand_kwargs_batch` helper to expand batch=1 kwargs via `Tensor.expand` (zero-copy view) (`onecomp/qep/_quantize_with_qep_arch.py`)
+  - Used in `compute_hessian_and_crossterm` and `forward_input` before each block forward call
+  - Resolves failures on models requiring exact batch-dimension matching (e.g. Gemma3 sliding-window attention)
+- Added early termination and group skipping to `run_quantize_with_qep_arch` (`onecomp/qep/_quantize_with_qep_arch.py`)
+  - Groups with no quantization targets are skipped (avoids unnecessary Hessian/cross-term computation)
+  - Block loop exits once all target layers are quantized
+
 ### End-to-end CLI tests
 
 - Added `tests/onecomp/test_cli.py`: end-to-end tests that verify `onecomp TinyLlama/...` CLI runs without errors

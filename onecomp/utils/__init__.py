@@ -36,4 +36,5 @@ from .blockwise import (
     get_blocks_and_inputs,
     forward_input,
     move_kwargs_to_device,
+    expand_kwargs_batch,
 )
