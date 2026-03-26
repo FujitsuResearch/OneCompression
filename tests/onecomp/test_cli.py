@@ -15,6 +15,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -30,14 +31,21 @@ _skip_variant = pytest.mark.skipif(
 )
 
 
+_PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
+
+
 def _run_onecomp(*args, timeout=TIMEOUT):
     """Run ``python -m onecomp`` in a subprocess.
 
     Uses the current interpreter directly to avoid ``uv run`` triggering
     an implicit ``uv sync`` that could modify the virtual environment.
+    ``cwd`` is set to the project root so that ``tests/onecomp/`` does not
+    shadow the real ``onecomp`` package on ``sys.path``.
     """
     cmd = [sys.executable, "-m", "onecomp", *args]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(
+        cmd, capture_output=True, text=True, timeout=timeout, cwd=_PROJECT_ROOT,
+    )
 
 
 # ------------------------------------------------------------------

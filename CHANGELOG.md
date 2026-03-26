@@ -20,6 +20,8 @@
 
 ### Fixes
 
+- Fixed crash when DBF quantization fails with NaN/Inf (`onecomp/quantizer/dbf/_dbf.py`, `onecomp/qep/_quantize_with_qep_arch.py`)
+  - `_quantize_with_qep_arch.py`: Catch `ValueError`/`NotImplementedError` from `compute_dequantized_weight()`, log the error, and keep QEP-adjusted weights for the failed layer
 - Fixed GemLite import crash when PyTorch version is incompatible (`onecomp/quantizer/gemlite.py`)
   - Broadened `except ImportError` to `except (ImportError, AttributeError)` so that GemLite gracefully falls back when `torch` lacks newer dtypes (e.g. `float8_e8m0fnu`)
 - Fixed `test_dbf_gemlite.py` to skip when GemLite is unavailable instead of crashing (`tests/vllm-plugins/dbf/test_dbf_gemlite.py`)

@@ -274,12 +274,12 @@ class DBF(Quantizer):
             balance_mode=self.balance_mode,
             use_adaptive_rho=self.use_adaptive_rho,
             # DBF weight reconstruction data
-            is_dbf_quantized=weight_results["is_dbf_quantized"],
-            dbf_Da=weight_results["dbf_Da"],
-            dbf_A=weight_results["dbf_A"],
-            dbf_mid=weight_results["dbf_mid"],
-            dbf_B=weight_results["dbf_B"],
-            dbf_Db=weight_results["dbf_Db"],
+            is_dbf_quantized=weight_results.get("is_dbf_quantized", False),
+            dbf_Da=weight_results.get("dbf_Da"),
+            dbf_A=weight_results.get("dbf_A"),
+            dbf_mid=weight_results.get("dbf_mid"),
+            dbf_B=weight_results.get("dbf_B"),
+            dbf_Db=weight_results.get("dbf_Db"),
         )
 
         return dbf_result

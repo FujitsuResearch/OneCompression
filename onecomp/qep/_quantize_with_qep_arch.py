@@ -318,10 +318,17 @@ def run_quantize_with_qep_arch(
                 )
 
                 # Update the weights of the target layer
-                dtype = module.weight.data.dtype
-                module.weight.data = (
-                    quantizer.results[name].compute_dequantized_weight().to(device).to(dtype)
-                )
+                try:
+                    dtype = module.weight.data.dtype
+                    module.weight.data = (
+                        quantizer.results[name].compute_dequantized_weight().to(device).to(dtype)
+                    )
+                except (ValueError, NotImplementedError):
+                    logger.error(
+                        "Failed to compute dequantized weight for %s. "
+                        "Keeping original weights.",
+                        name,
+                    )
 
         # forward input to the next block
         inps_q = forward_input(inps_q, block_q, kwargs, batch_size, device)
