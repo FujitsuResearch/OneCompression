@@ -1,9 +1,9 @@
 """
 
-Example: Quantize a model with OneComp and run inference with vLLM
+Example: Quantize a model with auto_run and run inference with vLLM
 
 Performs the following steps:
-  1. Quantize with GPTQ (4-bit, groupsize=128) + QEP using auto_run
+  1. Quantize with AutoBit (mixed-precision) + QEP using auto_run
   2. Load the quantized model with vLLM's offline LLM interface
   3. Generate text
 
@@ -25,12 +25,10 @@ from vllm import LLM, SamplingParams
 
 def main():
     # Step 1: Quantize and save the model
-    save_dir = "./TinyLlama-1.1B-gptq-4bit"
+    save_dir = "./TinyLlama-1.1B-autobit"
 
     runner = Runner.auto_run(
         model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
-        wbits=4,
-        groupsize=128,
         save_dir=save_dir,
         evaluate=False,
     )

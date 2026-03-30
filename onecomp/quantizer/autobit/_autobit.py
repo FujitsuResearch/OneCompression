@@ -6,9 +6,10 @@ Author: Akihiro Yoshida
 
 """
 
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Union
+from typing import Any, Optional, Union
 
 import torch
 
@@ -121,6 +122,16 @@ class AutoBitQuantizer(Quantizer):
     dbf_threshold: float = 2.0
     dbf_iters: int = None  # None → DBF default (600); set low (e.g. 10) for fast testing
 
+    # --- vLLM fused-layer constraints ---
+    # Groups of module suffixes that vLLM fuses into a single linear
+    fused_groups: list = field(
+        default_factory=lambda: [
+            ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj"],
+            ["mlp.gate_proj", "mlp.up_proj"],
+        ]
+    )
+    enable_fused_groups: bool = False
+
     # internal variables
     _module_to_quantizer: dict = field(default_factory=dict, repr=False, init=False)
     _name_to_quantizer: dict = field(default_factory=dict, repr=False, init=False)
@@ -130,13 +141,8 @@ class AutoBitQuantizer(Quantizer):
         if not isinstance(self.assignment_strategy, AssignmentStrategy):
             self.assignment_strategy = AssignmentStrategy(self.assignment_strategy)
         if not self.quantizers:
-            self.quantizers = self._default_quantizers()
+            raise ValueError("quantizers must be provided")
         self._sync_flags()
-
-    @staticmethod
-    def _default_quantizers():
-        """GPTQ candidates for 2–8 bit (auto-generated when ``quantizers=[]``)."""
-        return [GPTQ(wbits=b) for b in (2, 3, 4, 5, 6, 7, 8)]
 
     def validate_params(self):
         """Validate AutoBitQuantizer parameters."""
@@ -186,6 +192,23 @@ class AutoBitQuantizer(Quantizer):
                 q.validate_params()
             except (ValueError, TypeError) as e:
                 bad.append(f"quantizers[{i}] ({type(q).__name__}): {e}")
+
+        _VLLM_SUPPORTED_BITS = {2, 3, 4, 8}
+        if self.enable_fused_groups:
+            for i, q in enumerate(self.quantizers):
+                if not isinstance(q, GPTQ):
+                    bad.append(
+                        f"quantizers[{i}] ({type(q).__name__}): "
+                        f"enable_fused_groups=True requires all quantizers to be GPTQ"
+                    )
+                elif q.wbits not in _VLLM_SUPPORTED_BITS:
+                    bad.append(
+                        f"quantizers[{i}] (GPTQ wbits={q.wbits}): "
+                        f"vLLM only supports GPTQ bit-widths {sorted(_VLLM_SUPPORTED_BITS)}"
+                    )
+
+            if self.assignment_strategy == AssignmentStrategy.MANUAL:
+                bad.extend(self._validate_manual_fused_consistency())
 
         if bad:
             raise ValueError("; ".join(bad))
@@ -331,6 +354,47 @@ class AutoBitQuantizer(Quantizer):
             self.flag_hessian = any(q.flag_hessian for q in self.quantizers)
             self.flag_xtx = any(q.flag_xtx for q in self.quantizers)
 
+    def _validate_manual_fused_consistency(self):
+        """Check that manual keyword rules don't split fused groups."""
+        bad = []
+        for group in self.fused_groups:
+            bits_for_suffix = {}
+            for suffix in group:
+                for child_q in self.quantizers:
+                    if self._suffix_matches_quantizer(suffix, child_q):
+                        bits_for_suffix[suffix] = getattr(
+                            child_q, "wbits", getattr(child_q, "bits", None)
+                        )
+                        break
+            unique_bits = set(bits_for_suffix.values())
+            if len(unique_bits) > 1:
+                detail = ", ".join(f"{s}={b}bit" for s, b in bits_for_suffix.items())
+                bad.append(
+                    f"Fused group {group}: mixed bit-widths ({detail}). "
+                    f"vLLM requires identical bit-widths within each fused group"
+                )
+        return bad
+
+    @staticmethod
+    def _suffix_matches_quantizer(suffix, quantizer):
+        """Return True if quantizer's keyword/name rules would match suffix."""
+        include_names = getattr(quantizer, "include_layer_names", None)
+        include_kw = getattr(quantizer, "include_layer_keywords", None)
+        exclude_kw = getattr(quantizer, "exclude_layer_keywords", None)
+
+        if include_names is not None:
+            if not any(suffix in name for name in include_names):
+                return False
+        elif include_kw is not None:
+            if not any(kw in suffix for kw in include_kw):
+                return False
+
+        if exclude_kw is not None:
+            if any(kw in suffix for kw in exclude_kw):
+                return False
+
+        return True
+
     def _assign_layer(self, name, module, child_q):
         self.module_to_name[module] = name
         self._module_to_quantizer[module] = child_q
@@ -422,7 +486,15 @@ class AutoBitQuantizer(Quantizer):
         self.module_to_name = {}
         self._module_to_quantizer = {}
 
+    def _all_children_gptq(self) -> bool:
+        if not self._name_to_quantizer:
+            return False
+        return all(isinstance(q, GPTQ) for q in self._name_to_quantizer.values())
+
     def get_quant_config(self) -> dict:
+        if self._all_children_gptq():
+            return self._get_mixed_gptq_config()
+
         child_configs = []
         for child_q in self.quantizers:
             try:
@@ -438,6 +510,86 @@ class AutoBitQuantizer(Quantizer):
             "target_bit": self.target_bit,
             "quantizers": child_configs,
         }
+
+    def _get_mixed_gptq_config(self) -> dict:
+        unique_quantizers = list({id(q): q for q in self._name_to_quantizer.values()}.values())
+        dominant_q: GPTQ = max(
+            unique_quantizers,
+            key=lambda q: sum(1 for v in self._name_to_quantizer.values() if v is q),
+        )
+        result: dict = {
+            "quant_method": "mixed_gptq",
+            "bits": dominant_q.wbits,
+            "groupsize": dominant_q.groupsize,
+            "actorder": dominant_q.actorder,
+            "group_size": dominant_q.groupsize,
+            "desc_act": dominant_q.actorder,
+            "sym": dominant_q.sym,
+            "checkpoint_format": "gptq",
+        }
+        if dominant_q.mlp_wbits is not None:
+            result["mlp_wbits"] = dominant_q.mlp_wbits
+        if dominant_q.mlp_groupsize is not None:
+            result["mlp_groupsize"] = dominant_q.mlp_groupsize
+        if dominant_q.module_wbits:
+            result["module_wbits"] = dict(dominant_q.module_wbits)
+        return result
+
+    def _build_quantization_bits(
+        self,
+        num_layers: int,
+    ) -> list[dict[str, Any]]:
+        _LAYER_RE = re.compile(r"\.layers\.(\d+)\.(.*)")
+
+        skipped: list[str] = []
+        layer_modules: dict[int, dict[str, Any]] = {}
+        for name, child_q in self._name_to_quantizer.items():
+            m = _LAYER_RE.search(name)
+            if m is None:
+                skipped.append(name)
+                continue
+            layer_idx = int(m.group(1))
+            suffix = m.group(2)
+            layer_modules.setdefault(layer_idx, {})[suffix] = {
+                "bits": child_q.wbits,
+                "method": "gptq",
+                "params": {"group_size": child_q.groupsize},
+            }
+
+        if skipped:
+            self.logger.debug(
+                "Skipped %d module(s) not matching layer pattern: %s",
+                len(skipped),
+                skipped,
+            )
+
+        if not layer_modules:
+            return []
+
+        return [layer_modules.get(i, {}) for i in range(num_layers)]
+
+    def finalize_quant_config_for_save(
+        self,
+        quant_config: dict[str, Any],
+        quantized_layer_names: list[str],
+        num_hidden_layers: Optional[int] = None,
+    ) -> dict[str, Any]:
+        if quant_config.get("quant_method") != "mixed_gptq":
+            return quant_config
+
+        if num_hidden_layers is None:
+            raise ValueError(
+                "num_hidden_layers is required for mixed_gptq quantization_bits "
+                "(Runner passes model.config.num_hidden_layers)"
+            )
+
+        quant_config["quantization_bits"] = self._build_quantization_bits(
+            num_layers=num_hidden_layers,
+        )
+
+        # TODO : DBF fallback is not supported yet
+
+        return quant_config
 
     def create_inference_layer(self, result, linear_module, **kwargs):
         for name, stored_result in self.results.items():

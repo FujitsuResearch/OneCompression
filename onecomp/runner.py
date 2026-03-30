@@ -476,6 +476,7 @@ class Runner:
             quantizers=candidate_quantizers,
             target_bit=wbits,
             save_path=save_dir if save_dir is not None else None,
+            enable_fused_groups=True,
         )
         runner = cls(model_config=model_config, quantizer=quantizer, qep=qep)
         runner.run()

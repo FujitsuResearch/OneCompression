@@ -120,7 +120,7 @@ print(outputs[0].outputs[0].text)
     When combining quantization and vLLM inference in a single script, you **must** wrap your code in `if __name__ == "__main__":`. vLLM spawns worker processes that re-import the script, so without this guard the quantization step will run again in each child process.
 
 A complete working example (quantization + vLLM inference) is available at
-[`example/example_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/example_vllm_inference.py).
+[`example/vllm_inference/example_gptq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_gptq_vllm_inference.py).
 
 ### Environment Variables
 

@@ -42,6 +42,12 @@ SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error 
   - Tikhonov regularization for over-fitting (X^T X + nλI)
   - Three initialization strategies: Clip-Optimize, Clip-Optimize with Error Propagation, and GPTQ
 
+### AutoBitQuantizer vLLM-compatible quantization_config
+
+- `AutoBitQuantizer` now emits `mixed_gptq`-compatible `quantization_config` (`onecomp/quantizer/autobit/_autobit.py`)
+- ILP solver now enforces fused-layer equality constraints (`onecomp/quantizer/autobit/ilp.py`)
+  - vLLM fuses q/k/v → `qkv_proj` and gate/up → `gate_up_proj`
+
 ### API changes
 
 - Made `Runner.create_quantized_model()` a public method (renamed from `_create_quantized_model`)
@@ -75,6 +81,8 @@ SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error 
 - Added `example/example_jointq.py`: JointQ 4-bit (groupsize=128) quantization example with dequantized model PPL evaluation
 - Added `example/pre_process/example_llama_preprocess_rtn.py`: Rotation preprocessing + RTN quantization (TinyLlama-1.1B)
 - Added `example/pre_process/example_preprocess_save_load.py`: Rotation preprocessing + GPTQ quantization → save → load → PPL verification
+- Added `example/vllm_inference/example_gptq_vllm_inference.py`: GPTQ + QEP quantization and vLLM inference end-to-end example
+- Added `example/vllm_inference/example_autobit_vllm_inference.py`: AutoBit mixed-precision quantization and vLLM inference example
 
 ### Documentation
 

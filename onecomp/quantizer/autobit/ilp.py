@@ -6,6 +6,8 @@ Author: Akihiro Yoshida
 
 """
 
+import re
+
 import torch
 import torch.nn.functional as F
 from ortools.linear_solver import pywraplp
@@ -90,12 +92,18 @@ def assign_by_ilp(quantizer, model, *, use_activation=False):
     )
 
     # 3. solve ILP
+    fused_groups = (
+        _build_fused_groups(candidates, quantizer.fused_groups)
+        if quantizer.enable_fused_groups
+        else []
+    )
     chosen = _solve_ilp(
         errors,
         params_per_module,
         eff_matrix,
         quantizer.target_bit,
         logger,
+        fused_groups=fused_groups,
     )
 
     # 4. build assignments
@@ -139,6 +147,24 @@ def _find_candidates(quantizer, model):
             f"Expected {quantizer.num_layers} layers, " f"but found {len(candidates)}"
         )
     return candidates
+
+
+def _build_fused_groups(candidates, fused_suffixes):
+    """Build groups of candidate indices that must share the same quantizer."""
+    _LAYER_RE = re.compile(r"\.layers\.(\d+)\.(.*)")
+    fused_sets = [set(g) for g in fused_suffixes]
+    groups: dict[tuple[int, int], list[int]] = {}
+    for i, (name, _) in enumerate(candidates):
+        m = _LAYER_RE.search(name)
+        if m is None:
+            continue
+        layer_idx = int(m.group(1))
+        suffix = m.group(2)
+        for g_idx, fused_set in enumerate(fused_sets):
+            if suffix in fused_set:
+                groups.setdefault((layer_idx, g_idx), []).append(i)
+                break
+    return [indices for indices in groups.values() if len(indices) >= 2]
 
 
 def _effective_bits_matrix(quantizers, candidates):
@@ -215,7 +241,7 @@ def _rtn_errors(weight, candidate_bits, *, a_diag=None, b_diag=None):
     return errors
 
 
-def _solve_ilp(errors, params_per_module, eff_matrix, target_bit, logger):
+def _solve_ilp(errors, params_per_module, eff_matrix, target_bit, logger, *, fused_groups=None):
     """Solve the assignment ILP via OR-Tools SCIP solver.
 
     Args:
@@ -225,6 +251,8 @@ def _solve_ilp(errors, params_per_module, eff_matrix, target_bit, logger):
             (each entry includes the per-module scale/zero overhead).
         target_bit: target average effective bpw.
         logger: logger instance.
+        fused_groups: list of groups of module indices that must share
+            the same candidate (e.g. vLLM fused q/k/v).
     """
     n_modules = len(errors)
     n_bits = len(eff_matrix[0])
@@ -259,6 +287,17 @@ def _solve_ilp(errors, params_per_module, eff_matrix, target_bit, logger):
 
     for m in range(n_modules):
         solver.Add(sum(x[m][b] for b in range(n_bits)) == 1)
+
+    if fused_groups:
+        n_tied = 0
+        for group in fused_groups:
+            for m0, m1 in zip(group, group[1:]):
+                for b in range(n_bits):
+                    solver.Add(x[m0][b] == x[m1][b])
+                n_tied += 1
+        logger.info(
+            "ILP: added %d fused-group tie constraints (%d groups)", n_tied, len(fused_groups)
+        )
 
     budget_expr = sum(
         eff_matrix[m][b] * params_per_module[m] * x[m][b]

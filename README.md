@@ -157,7 +157,8 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 | | [example_preprocess_save_load.py](./example/pre_process/example_preprocess_save_load.py) | Save and load rotation-preprocessed quantized models |
 | Post-Process | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
 | | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
-| vLLM | [example_vllm_inference.py](./example/example_vllm_inference.py) | Serve quantized models with vLLM |
+| vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
+| | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
 
 ## 🔌 vLLM Inference
 
