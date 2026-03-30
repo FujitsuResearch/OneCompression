@@ -1,0 +1,4 @@
+{"text": "The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet at least once."}
+{"text": "Language models learn statistical patterns from large text corpora and generate coherent text by predicting the next token."}
+{"text": "Quantization reduces model size by representing weights with fewer bits while preserving accuracy as much as possible."}
+{"text": "Low-rank adaptation is a parameter-efficient fine-tuning method that adds trainable rank decomposition matrices to frozen weights."}

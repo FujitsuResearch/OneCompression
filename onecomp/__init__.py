@@ -15,5 +15,7 @@ from .quantizer import *
 from .log import setup_logger
 from .utils import *
 from .quantized_model_loader import QuantizedModelLoader
+from .post_process import *
 
 load_quantized_model = QuantizedModelLoader.load_quantized_model
+load_quantized_model_pt = QuantizedModelLoader.load_quantized_model_pt

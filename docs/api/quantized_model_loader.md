@@ -6,13 +6,16 @@ Loader for quantized models saved by OneComp.
     options:
       show_source: false
 
-## Convenience Function
+## Convenience Functions
 
-The top-level `load_quantized_model` is a shortcut:
+The top-level aliases provide shortcuts for both formats:
 
 ```python
-from onecomp import load_quantized_model
+from onecomp import load_quantized_model, load_quantized_model_pt
 
-# Equivalent to QuantizedModelLoader.load_quantized_model(...)
+# Load a safetensors model (standard quantized, no LoRA)
 model, tokenizer = load_quantized_model("./saved_model")
+
+# Load a PyTorch .pt model (post-processed, e.g. LoRA-applied)
+model, tokenizer = load_quantized_model_pt("./saved_model_lora")
 ```

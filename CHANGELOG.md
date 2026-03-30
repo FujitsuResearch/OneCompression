@@ -2,8 +2,45 @@
 
 ## [v0.4.4] 2026-03-27
 
-### Unit test updates for DBF and GPTQ
+### New Feature: Post-quantization Workflow
 
+- Added `PostQuantizationProcess` abstract base class (`onecomp/post_process/_base.py`)
+  - Defines the interface for post-quantization operations (e.g. block-wise PTQ, fine-tuning)
+- Added `post_processes` parameter to `Runner.__init__`
+  - Accepts a list of `PostQuantizationProcess` instances
+  - After quantization, builds a quantized model on CPU and executes each process in order
+  - The processed model is stored as `self.quantized_model`
+- Updated `Runner.calculate_perplexity` and `Runner.calculate_accuracy` to use `self.quantized_model` if available (GPU transfer is handled automatically; `device="auto"` is resolved to `"cuda"`)
+- Added LoRA SFT post-process implementation (`onecomp/post_process/post_process_lora_sft.py`)
+  - Provides learning-based post-quantization fine-tuning for GPTQ-quantized models
+  - Public API is exposed as `PostProcessLoraSFT`
+
+### API changes
+
+- Made `Runner.create_quantized_model()` a public method (renamed from `_create_quantized_model`)
+  - Builds a quantized model with quantized inference layers from `quantizer.results`
+  - Returns `(model, tokenizer)` for use in evaluation, saving, and post-process workflows
+- Added `Runner.save_quantized_model_pt()` for saving post-processed models (e.g. LoRA-applied) as PyTorch `.pt` files
+  - Uses `torch.save` to preserve custom module types such as `LoRAGPTQLinear`
+  - Saves tokenizer files alongside the model
+- Added `QuantizedModelLoader.load_quantized_model_pt()` for loading `.pt`-format models
+  - Counterpart to `save_quantized_model_pt`; uses `torch.load` to restore models with custom modules
+  - Also available as `onecomp.load_quantized_model_pt()` convenience alias
+
+### Examples
+
+- Added `example/post_process/example_lora_sft.py`: End-to-end demo — GPTQ 4-bit quantization + LoRA SFT (WikiText-2) + PPL evaluation + save/load with `save_quantized_model_pt` / `load_quantized_model_pt`
+- Added `example/post_process/example_lora_sft_knowledge.py`: Knowledge injection demo — teaches the quantized model about "OneCompression" via LoRA SFT and compares generation before/after
+- Added `example/post_process/onecomp_knowledge.jsonl`: Training data describing OneCompression for the knowledge injection example
+
+### Documentation
+
+### Tests
+
+- Added smoke test for `PostProcessLoraSFT` (`tests/onecomp/post_process/test_post_process_lora_sft.py`)
+  - Verifies that `PostProcessLoraSFT.run()` completes without error on TinyLlama with minimal settings
+  - Checks LoRA layer injection, CPU placement, and eval mode after run
+  - Includes Runner end-to-end integration test with `post_processes` parameter
 - Expanded and updated unit tests for DBF quantizer (`tests/onecomp/quantizer/dbf/test_dbf.py`)
   - Extended boundary and abnormal parameter cases; aligned with `BaseQuantizeSpec` and current DBF API
 - Expanded and updated unit tests for GPTQ quantizer (`tests/onecomp/quantizer/gptq/test_gptq.py`)
@@ -283,4 +320,3 @@
 
 - Based on v0.3.4 codebase
 - Difference from v0.3.4: Changed comments to English
-

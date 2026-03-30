@@ -37,7 +37,7 @@ class QuantizedModelLoader:
         trust_remote_code: bool = True,
         local_files_only: bool = True,
     ) -> Tuple[Any, Any]:
-        """Load a quantized model and tokenizer from a directory saved by onecomp.
+        """Load a quantized model and tokenizer from a safetensors directory.
 
         The directory must contain:
         - config.json (with quantization_config)
@@ -47,6 +47,9 @@ class QuantizedModelLoader:
         Quantization parameters (quant_method, bits, group_size, etc.) are read from
         config.json and quantized layers are reconstructed directly from the safetensors
         state_dict. No quantization_results.pt is needed.
+
+        For models saved with post-processing modifications (e.g. LoRA adapters),
+        use :meth:`load_quantized_model_pt` instead.
 
         Args:
             save_directory: Path to the saved model directory.
@@ -78,6 +81,68 @@ class QuantizedModelLoader:
         model.load_state_dict(state_dict, strict=False, assign=True)
 
         # Device placement
+        if device_map:
+            try:
+                from accelerate import dispatch_model, infer_auto_device_map
+
+                device_map_resolved = infer_auto_device_map(model)
+                model = dispatch_model(model, device_map=device_map_resolved)
+            except ImportError:
+                model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            save_directory,
+            local_files_only=local_files_only,
+        )
+
+        return model, tokenizer
+
+    @classmethod
+    def load_quantized_model_pt(
+        cls,
+        save_directory: str,
+        *,
+        device_map: str = "auto",
+        local_files_only: bool = True,
+    ) -> Tuple[Any, Any]:
+        """Load a quantized model and tokenizer saved as a PyTorch .pt file.
+
+        Use this method to load models saved by
+        :meth:`Runner.save_quantized_model_pt`, which preserves custom
+        module types (e.g. ``LoRAGPTQLinear`` from LoRA post-processing).
+
+        The directory must contain:
+        - ``model.pt`` (serialized with ``torch.save``)
+        - Tokenizer files
+
+        Args:
+            save_directory: Path to the saved model directory.
+            device_map: Device placement (default: ``"auto"``).
+                Set to ``""`` or ``None`` to skip device placement.
+            local_files_only: Passed to ``AutoTokenizer.from_pretrained``.
+
+        Returns:
+            (model, tokenizer)
+
+        Example:
+            >>> model, tokenizer = QuantizedModelLoader.load_quantized_model_pt(
+            ...     "./quantized_model_lora"
+            ... )
+        """
+        save_directory = os.path.abspath(save_directory)
+        if not os.path.isdir(save_directory):
+            raise FileNotFoundError(f"Saved model directory not found: {save_directory}")
+
+        model_path = os.path.join(save_directory, "model.pt")
+        if not os.path.isfile(model_path):
+            raise FileNotFoundError(
+                f"model.pt not found in {save_directory}. "
+                "This directory may have been saved with save_quantized_model() "
+                "(safetensors format); use load_quantized_model() instead."
+            )
+
+        model = torch.load(model_path, map_location="cpu", weights_only=False)
+
         if device_map:
             try:
                 from accelerate import dispatch_model, infer_auto_device_map

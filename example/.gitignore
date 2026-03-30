@@ -1,2 +1,3 @@
 buf*.py
-tinyllama_gptq4/
+run_*.sh
+tinyllama_gptq4_*/

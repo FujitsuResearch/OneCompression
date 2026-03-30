@@ -13,3 +13,6 @@ md/*.md
 example/run_example.sh
 work/issue-*
 site/
+debug_code/
+.pytest_cache/
+*.pt

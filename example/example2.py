@@ -34,6 +34,6 @@ original_ppl, dequantized_ppl, quantized_ppl = runner.calculate_perplexity(
 )
 
 # Display perplexity
-print(f"Original model perplexity: {original_ppl}")
+print(f"Original model perplexity: {original_ppl}")  # 7.77
 print(f"Dequantized model perplexity: {dequantized_ppl}")
-print(f"Quantized model perplexity: {quantized_ppl}")
+print(f"Quantized model perplexity: {quantized_ppl}")  # 53.8

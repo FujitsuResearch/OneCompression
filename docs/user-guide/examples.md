@@ -193,6 +193,92 @@ outputs = model.generate(**inputs, max_new_tokens=50)
 print(tokenizer.decode(outputs[0], skip_special_tokens=True))
 ```
 
+## LoRA SFT: Accuracy Recovery
+
+Quantize a model and apply LoRA SFT to recover accuracy lost during quantization:
+
+```python
+from onecomp import GPTQ, ModelConfig, Runner, PostProcessLoraSFT, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=4, groupsize=128)
+
+post_process = PostProcessLoraSFT(
+    dataset_name="wikitext",
+    dataset_config_name="wikitext-2-raw-v1",
+    train_split="train",
+    text_column="text",
+    max_train_samples=256,
+    max_length=512,
+    epochs=2,
+    batch_size=2,
+    gradient_accumulation_steps=4,
+    lr=1e-4,
+    lora_r=16,
+    lora_alpha=32,
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    post_processes=[post_process],
+)
+runner.run()
+
+original_ppl, _, quantized_ppl = runner.calculate_perplexity(
+    original_model=True, quantized_model=True,
+)
+print(f"Original PPL:              {original_ppl:.4f}")
+print(f"Quantized + LoRA SFT PPL:  {quantized_ppl:.4f}")
+```
+
+## LoRA SFT: Knowledge Injection
+
+Inject custom knowledge into a quantized model using a JSONL file:
+
+```python
+from onecomp import GPTQ, ModelConfig, Runner, PostProcessLoraSFT
+
+model_config = ModelConfig(model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T", device="cuda:0")
+gptq = GPTQ(wbits=4, groupsize=128)
+
+post_process = PostProcessLoraSFT(
+    data_files="./my_knowledge.jsonl",
+    max_length=256,
+    epochs=20,
+    batch_size=2,
+    lr=3e-4,
+    lora_r=16,
+    lora_alpha=32,
+)
+
+runner = Runner(model_config=model_config, quantizer=gptq, post_processes=[post_process])
+runner.run()
+```
+
+See [Post-Process (LoRA SFT)](post-process.md) for the full guide including teacher distillation and save/load.
+
+## Saving and Loading LoRA Models
+
+LoRA-applied models use a dedicated save/load API:
+
+```python
+# Save after LoRA SFT
+runner.save_quantized_model_pt("./my_model_lora")
+
+# Load
+from onecomp import load_quantized_model_pt
+model, tokenizer = load_quantized_model_pt("./my_model_lora")
+```
+
+!!! note
+    For standard quantized models (without LoRA), use `save_quantized_model()` / `load_quantized_model()` instead.
+
 ## Analyzing Cumulative Error
 
 Analyze how quantization error accumulates across layers:

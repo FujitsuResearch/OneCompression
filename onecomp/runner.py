@@ -86,6 +86,7 @@ class Runner:
         gpu_ids=None,
         calibration_batch_size=None,
         num_layers_per_group=7,
+        post_processes=None,
     ):
         """__init__ method
 
@@ -158,6 +159,12 @@ class Runner:
                 Controls the trade-off between CPU memory usage for
                 X^T X storage and the number of forward passes required.
                 Only used when calibration_batch_size is set.
+            post_processes (list[PostQuantizationProcess] or None):
+                Optional list of post-quantization processes to execute
+                after the main quantization step.  Each process receives
+                a quantized model on CPU (built via
+                ``create_quantized_model``) and may modify it in-place.
+                Processes are executed in order.  Default is None.
 
         Note:
             For zero-config quantization (VRAM auto-estimation +
@@ -229,6 +236,8 @@ class Runner:
         self.gpu_ids = gpu_ids
         self.calibration_batch_size = calibration_batch_size
         self.num_layers_per_group = num_layers_per_group
+        self.post_processes = post_processes or []
+        self.quantized_model = None
         if qep:
             self.qep_config = qep_config if qep_config is not None else QEPConfig()
 
@@ -322,6 +331,9 @@ class Runner:
         else:
             logger.info("Start quantization")
             self.quantize()
+
+        if self.post_processes:
+            self.run_post_processes()
 
         elapsed_time = time.time() - start_time
         logger.info(
@@ -746,6 +758,40 @@ class Runner:
             exclude_layer_keywords=exclude_layer_keywords,
         )
 
+    def run_post_processes(self):
+        """Execute post-quantization processes.
+
+        Builds a quantized model on CPU from ``quantizer.results`` and
+        passes it to each :class:`PostQuantizationProcess` in order.
+
+        Raises:
+            ValueError: If ``self.quantizer`` is ``None``
+                (``quantizers`` mode is not yet supported).
+        """
+        logger = self.logger
+
+        if self.quantizer is None:
+            raise ValueError(
+                "post_processes requires a single 'quantizer'. "
+                "'quantizers' (multiple) is not yet supported with post_processes."
+            )
+
+        logger.info("Building quantized model for post-quantization processes...")
+        # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
+        # LoRA SFT runs with bfloat16 autocast.  Plain buffers (qweight/scales) are
+        # needed so training can call base_layer.forward() without dtype mismatch.
+        quantized_model, _ = self.create_quantized_model(
+            pack_weights=False,
+            use_gemlite=False,
+        )
+
+        for process in self.post_processes:
+            logger.info("Start post-quantization process: %s", process.name)
+            process.run(quantized_model, self.model_config)
+            logger.info("Finished post-quantization process: %s", process.name)
+
+        self.quantized_model = quantized_model
+
     def prepare_calibration_dataset(self, device):
         """Prepare calibration data for quantization methods such as GPTQ.
 
@@ -976,10 +1022,18 @@ class Runner:
         if quantized_model:
             try:
                 logger.info("Evaluating quantized model (%s)...", eval_name)
-                model, tokenizer = self._create_quantized_model(quantizer=quantizer)
-                model.to(self.model_config.device)
-                quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
-                del model, tokenizer
+                if self.quantized_model is not None:
+                    model = self.quantized_model
+                    model.to(self.model_config.device)
+                    tokenizer = self.model_config.load_tokenizer()
+                    quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
+                    model.to("cpu")
+                    del tokenizer
+                else:
+                    model, tokenizer = self.create_quantized_model(quantizer=quantizer)
+                    model.to(self.model_config.device)
+                    quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
+                    del model, tokenizer
                 torch.cuda.empty_cache()
             except NotImplementedError:
                 logger.warning(
@@ -1445,17 +1499,41 @@ class Runner:
                 )
                 logger.debug("Updated the model weights for layer: %s", name)
 
-    def _create_quantized_model(self, pack_weights: bool = True, quantizer=None, use_gemlite=None):
-        """Create the quantized model.
+    def create_quantized_model(self, pack_weights: bool = True, quantizer=None, use_gemlite=None):
+        """Create a quantized model from quantization results.
+
+        Loads the base model on CPU, replaces Linear layers with quantized
+        inference layers (e.g. ``GPTQLinear``), and attaches quantization
+        config to ``model.config``.
+
+        Must be called after ``run()`` (i.e., ``quantizer.results`` must
+        be populated).
 
         Args:
             pack_weights (bool):
-                Whether to pack quantized weights.
+                Whether to pack quantized weights for memory-efficient
+                representation. Default is True.
             quantizer (Quantizer, optional):
                 The quantizer to use. Uses self.quantizer if None.
+                Specify explicitly when using quantizers mode.
             use_gemlite (bool or None):
                 Whether to use GemLite for inference layers.
-                Set to False when saving to avoid extra params in safetensors.
+                Set to False when saving to avoid extra params in
+                safetensors. Default is None (uses quantizer default).
+
+        Returns:
+            tuple[nn.Module, PreTrainedTokenizer]:
+                (quantized_model, tokenizer)
+
+        Examples:
+            >>> runner.run()
+            >>> model, tokenizer = runner.create_quantized_model()
+
+            With post-process:
+
+            >>> model, tokenizer = runner.create_quantized_model(pack_weights=False)
+            >>> post_process = PostProcessLoraSFT(data_files="train.jsonl")
+            >>> post_process.run(model, runner.model_config)
         """
         if quantizer is None:
             quantizer = self.quantizer
@@ -1512,7 +1590,7 @@ class Runner:
         logger.info("Saving quantized model to %s", save_directory)
 
         # Disable GemLite when saving to avoid extra params in safetensors
-        model, tokenizer = self._create_quantized_model(
+        model, tokenizer = self.create_quantized_model(
             pack_weights=pack_weights, use_gemlite=False
         )
 
@@ -1524,6 +1602,54 @@ class Runner:
         tokenizer.save_pretrained(save_directory)
 
         logger.info(f"Quantized model saved to {save_directory}")
+        return save_directory
+
+    def save_quantized_model_pt(self, save_directory: str):
+        """Save the quantized model as a PyTorch .pt file.
+
+        Use this method to save models that include post-processing
+        modifications (e.g. LoRA adapters from ``PostProcessLoraSFT``).
+        The entire model object is serialized with ``torch.save``,
+        preserving custom module types such as ``LoRAGPTQLinear``.
+
+        For models without post-processing, prefer
+        ``save_quantized_model`` which uses the HF-compatible
+        safetensors format.
+
+        The saved directory contains:
+        - ``model.pt``: The model (``torch.save``)
+        - Tokenizer files (via ``save_pretrained``)
+
+        Args:
+            save_directory (str):
+                The path to save the model.
+
+        See Also:
+            :func:`onecomp.load_quantized_model_pt` to load models
+            saved by this method.
+
+        Examples:
+            >>> runner.run()  # with post_processes=[PostProcessLoraSFT(...)]
+            >>> runner.save_quantized_model_pt("./quantized_model_lora")
+        """
+        logger = self.logger
+
+        if self.quantized_model is not None:
+            model = self.quantized_model
+        else:
+            model, _ = self.create_quantized_model(pack_weights=False, use_gemlite=False)
+
+        tokenizer = self.model_config.load_tokenizer()
+
+        save_path = Path(save_directory)
+        save_path.mkdir(parents=True, exist_ok=True)
+
+        model_path = save_path / "model.pt"
+        logger.info("Saving quantized model (torch.save) to %s", model_path)
+        torch.save(model, str(model_path))
+        tokenizer.save_pretrained(save_directory)
+
+        logger.info("Quantized model saved to %s", save_directory)
         return save_directory
 
     def analyze_cumulative_error(
@@ -1581,6 +1707,16 @@ class Runner:
         from .analyzer.cumulative_error import plot_cumulative_error as _plot
 
         logger = self.logger
+
+        # TODO: Support analyze_cumulative_error with self.quantized_model
+        #       (use post-processed quantized model instead of quantizer.results)
+        if self.quantized_model is not None:
+            logger.error(
+                "analyze_cumulative_error is not yet supported when "
+                "post_processes have been applied (self.quantized_model is set). "
+                "This will be implemented in a future version."
+            )
+            return {}
 
         if quantizer is None:
             quantizer = self.quantizer

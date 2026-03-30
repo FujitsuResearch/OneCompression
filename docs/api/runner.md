@@ -19,5 +19,7 @@ The `Runner` class is the main entry point for executing quantization pipelines 
         - save_quantization_results
         - save_dequantized_model
         - save_quantized_model
+        - create_quantized_model
+        - save_quantized_model_pt
         - analyze_cumulative_error
         - prepare_calibration_dataset

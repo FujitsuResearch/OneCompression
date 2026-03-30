@@ -83,6 +83,7 @@ nav:
       - Basic Usage: user-guide/basic-usage.md
       - CLI: user-guide/cli.md
       - Configuration: user-guide/configuration.md
+      - Post-Process (LoRA SFT): user-guide/post-process.md
       - vLLM Inference: user-guide/vllm-inference.md
       - Examples: user-guide/examples.md
   - Algorithms:
@@ -104,6 +105,7 @@ nav:
           - RTN: api/quantizers/rtn.md
           - JointQ: api/quantizers/jointq.md
       - QuantizedModelLoader: api/quantized_model_loader.md
+      - Post-Process: api/post_process.md
       - Utilities: api/utilities.md
   - Contributing: contributing.md
   - Changelog: changelog.md

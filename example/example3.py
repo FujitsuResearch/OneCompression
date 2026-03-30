@@ -22,7 +22,7 @@ target_bit = result.target_bitwidth
 quantizer = AutoBitQuantizer(
     assignment_strategy="activation_aware",
     target_bit=target_bit,
-    quantizers=[GPTQ(wbits=b) for b in (2, 3, 4, 5)],
+    quantizers=[GPTQ(wbits=b) for b in (2, 3, 4, 8)],
     save_path="./results/vram_0.8",
 )
 
@@ -34,8 +34,12 @@ runner = Runner(
 runner.run()
 
 # Calculate perplexity
-original_ppl, quantized_ppl = runner.calculate_perplexity()
+# Set True for models to evaluate, False returns None
+original_ppl, dequantized_ppl, quantized_ppl = runner.calculate_perplexity(
+    original_model=True, dequantized_model=False, quantized_model=True
+)
 
 # Display perplexity
 print(f"Original model perplexity: {original_ppl}")
+print(f"Dequantized model perplexity: {dequantized_ppl}")
 print(f"Quantized model perplexity: {quantized_ppl}")
