@@ -11,6 +11,7 @@ This package is currently under development (version 0) and may behave unstably.
 - **AutoBit**: Mixed-precision quantization with ILP-based bitwidth assignment. Automatically estimates the target bitwidth from available VRAM and assigns per-layer bitwidths to minimize quantization error under the memory budget.
 - **JointQ**: Joint quantization method that optimizes weight assignments and scale parameters simultaneously for improved quantization accuracy. Supports group-wise quantization (e.g., 4-bit, groupsize=128).
 - **LoRA SFT Post-Process**: Fine-tune quantized models with LoRA adapters for accuracy recovery or domain-specific knowledge injection. Supports SFT loss, teacher distillation, and intermediate block alignment.
+- **Rotation Preprocessing**: SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Rotation/scaling matrices are absorbed into model weights, with online Hadamard hooks automatically registered at load time. Supports Llama and Qwen3 architectures.
 - (TBD)
 
 ## 🔧 Installation
@@ -142,11 +143,21 @@ uv run mkdocs serve
 
 Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 
-## 🚀 Example
+## 🚀 Examples
 
-See [example/example1.py](./example/example1.py) and [example/example2.py](./example/example2.py) for step-by-step GPTQ + QEP examples.
-
-For AutoBit mixed-precision quantization, see [example/example3.py](./example/example3.py) and [example/example_auto_run.py](./example/example_auto_run.py).
+| Category | Script | Description |
+|----------|--------|-------------|
+| Quantization | [example_gptq.py](./example/example_gptq.py) | GPTQ quantization |
+| | [example_qep_gptq.py](./example/example_qep_gptq.py) | GPTQ + QEP (error propagation) |
+| | [example_jointq.py](./example/example_jointq.py) | JointQ quantization |
+| | [example_autobit.py](./example/example_autobit.py) | AutoBit mixed-precision quantization |
+| | [example_auto_run.py](./example/example_auto_run.py) | AutoBit with automatic VRAM estimation |
+| Save / Load | [example_save_load.py](./example/example_save_load.py) | Save and load quantized models |
+| Rotation Preprocessing | [example_llama_preprocess_rtn.py](./example/pre_process/example_llama_preprocess_rtn.py) | Rotation preprocessing + RTN (TinyLlama) |
+| | [example_preprocess_save_load.py](./example/pre_process/example_preprocess_save_load.py) | Save and load rotation-preprocessed quantized models |
+| Post-Process | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
+| | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
+| vLLM | [example_vllm_inference.py](./example/example_vllm_inference.py) | Serve quantized models with vLLM |
 
 ## 🔌 vLLM Inference
 

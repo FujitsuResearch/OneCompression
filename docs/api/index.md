@@ -21,8 +21,11 @@ The following are available directly from `import onecomp`:
 | `CQ`                   | Class    | CQ quantizer                             |
 | `QBB`                  | Class    | QBB quantizer                            |
 | `Onebit`               | Class    | 1-bit quantizer                          |
+| `RotatedModelConfig`   | Class    | ModelConfig for rotation-preprocessed models |
 | `QuantizedModelLoader` | Class    | Loader for saved quantized models        |
 | `load_quantized_model` | Function | Shortcut for `QuantizedModelLoader.load_quantized_model` |
+| `load_quantized_model_pt` | Function | Shortcut for `QuantizedModelLoader.load_quantized_model_pt` |
+| `prepare_rotated_model`| Function | Rotation preprocessing pipeline          |
 | `setup_logger`         | Function | Configure logging output                 |
 
 ## Module Structure
@@ -33,6 +36,9 @@ onecomp/
     cli.py                 # CLI entry point (onecomp command)
     __main__.py            # python -m onecomp support
     model_config.py        # ModelConfig class
+    rotated_model_config.py # RotatedModelConfig class
+    pre_process/           # Rotation preprocessing pipeline
+        prepare_rotated_model.py  # prepare_rotated_model()
     qep/                   # QEP module
         _qep_config.py     # QEPConfig dataclass
     quantizer/             # Quantizer implementations

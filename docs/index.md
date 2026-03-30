@@ -10,11 +10,12 @@ It implements state-of-the-art quantization algorithms including GPTQ, DBF, RTN,
 
 ## Key Features
 
-- **Multiple quantization algorithms** -- GPTQ, DBF (Double Binary Factorization), RTN (Round-To-Nearest), JointQ, QuIP, and more
-- **Quantization Error Propagation (QEP)** -- A novel method that adjusts weights before quantization to compensate for error propagation across layers
-- **Simple, unified API** -- Configure model, quantizer, and runner in a few lines of code
-- **Save/Load pipeline** -- Save quantized models in a format compatible with Hugging Face Transformers and vLLM
-- **Evaluation tools** -- Built-in perplexity and zero-shot accuracy benchmarks
+- **Quantization Error Propagation (QEP)** -- A post-training quantization method that corrects quantization errors by propagating them to subsequent layers, improving the accuracy of quantized LLMs. See [Arai & Ichikawa, NeurIPS 2025](https://openreview.net/forum?id=a3l3K9khbL) for details.
+- **vLLM Plugin Integration** -- Serve OneComp-quantized models with [vLLM](https://docs.vllm.ai/) via built-in plugins for DBF and Mixed-GPTQ quantization methods.
+- **AutoBit** -- Mixed-precision quantization with ILP-based bitwidth assignment. Automatically estimates the target bitwidth from available VRAM and assigns per-layer bitwidths to minimize quantization error under the memory budget.
+- **JointQ** -- Joint quantization method that optimizes weight assignments and scale parameters simultaneously for improved quantization accuracy. Supports group-wise quantization (e.g., 4-bit, groupsize=128).
+- **LoRA SFT Post-Process** -- Fine-tune quantized models with LoRA adapters for accuracy recovery or domain-specific knowledge injection. Supports SFT loss, teacher distillation, and intermediate block alignment.
+- **Rotation Preprocessing** -- SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Rotation/scaling matrices are absorbed into model weights, with online Hadamard hooks automatically registered at load time. Supports Llama and Qwen3 architectures.
 
 ## Quick Example
 

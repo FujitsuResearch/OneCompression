@@ -15,6 +15,24 @@
   - Provides learning-based post-quantization fine-tuning for GPTQ-quantized models
   - Public API is exposed as `PostProcessLoraSFT`
 
+### New Feature: Rotation Preprocessing Pipeline (`onecomp/pre_process/`)
+
+SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Supports Llama and Qwen3 architectures.
+
+- Added `prepare_rotated_model()` (`onecomp/pre_process/prepare_rotated_model.py`): End-to-end pipeline — model loading → rotation/scaling training → rotation application → saving
+  - Memory-optimized: moves model between CPU/GPU to reduce peak memory (e.g. Qwen3-32B: ~128GB → ~64GB)
+- Added `RotatedModelConfig` (`onecomp/rotated_model_config.py`): `ModelConfig` subclass that automatically registers Hadamard hooks on `down_proj` layers during `load_model()`
+- Added `onecomp/pre_process/` package:
+  - `train_rotation.py`: Training pipeline with `PreprocessManager` (R1/R2/S_* tensor management), HF `Trainer` subclass, `apply_preprocess_train` / `apply_preprocess_eval`
+  - `optimizer.py`: `SGDG` — SGD on the Stiefel manifold with Cayley-retraction orthogonal updates (ported from SpinQuant)
+  - `quant_models.py`: `WeightQuantizer` (RTN proxy) with per-channel / per-tensor / group-wise quantization; quantized decoder layers for Llama and Qwen3
+  - `rotation_utils.py`: `fuse_layer_norms`, `rotate_model`, `register_online_hadamard_hooks`
+  - `hadamard_utils.py`: Hadamard transform utilities and pre-computed matrices (ported from QuIP#)
+  - `modeling_llama.py` / `modeling_qwen3.py`: Custom `ForCausalLM` classes that propagate R1 through the forward pass during training
+  - `preprocess_args.py`: `TrainingArguments` subclass with SGDG-specific LR/momentum fields
+- Fixed `_PreprocessTrainer` to override `create_optimizer()` instead of `create_optimizer_and_scheduler()` for transformers >= 5.x compatibility (SGDG optimizer was silently replaced by AdamW)
+- Updated `Runner.save_dequantized_model()` and `Runner.save_quantized_model()` to warn when saving models loaded with additional preprocessing (e.g., Hadamard hooks)
+
 ### Added JointQ Quantizer
 
 - **Added new `JointQ` quantizer (`onecomp/quantizer/jointq/`)**
@@ -55,6 +73,8 @@
 - Added `example/post_process/example_lora_sft_knowledge.py`: Knowledge injection demo — teaches the quantized model about "OneCompression" via LoRA SFT and compares generation before/after
 - Added `example/post_process/onecomp_knowledge.jsonl`: Training data describing OneCompression for the knowledge injection example
 - Added `example/example_jointq.py`: JointQ 4-bit (groupsize=128) quantization example with dequantized model PPL evaluation
+- Added `example/pre_process/example_llama_preprocess_rtn.py`: Rotation preprocessing + RTN quantization (TinyLlama-1.1B)
+- Added `example/pre_process/example_preprocess_save_load.py`: Rotation preprocessing + GPTQ quantization → save → load → PPL verification
 
 ### Documentation
 
@@ -64,6 +84,11 @@
 - Updated `docs/api/runner.md` to include `create_quantized_model` and `save_quantized_model_pt`
 - Updated `docs/api/quantized_model_loader.md` to include `load_quantized_model_pt`
 - Updated `mkdocs.yml` navigation with new post-process pages
+- Added `docs/user-guide/pre-process.md`: Rotation preprocessing user guide covering workflow, key parameters, save/load, and limitations
+- Added `docs/api/pre_process.md`: API reference for `prepare_rotated_model` and `RotatedModelConfig`
+- Updated `docs/user-guide/examples.md` with rotation preprocessing code examples (RTN, GPTQ with save/load)
+- Updated `docs/api/index.md` with `RotatedModelConfig`, `prepare_rotated_model`, and `pre_process/` module structure
+- Updated `docs/index.md` Key Features with rotation preprocessing
 
 ### Tests
 

@@ -10,6 +10,7 @@ import glob
 import json
 import os
 import re
+from logging import getLogger
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -22,6 +23,8 @@ from .quantizer.dbf.dbf_layer import DoubleBinaryLinear
 from .quantizer.gptq.config import resolve_gptq_layer_wbits, resolve_gptq_layer_group_size
 from .quantizer.gptq.gptq_layer import GPTQLinear
 from .utils.quant_config import get_quant_param
+
+logger = getLogger(__name__)
 
 
 class QuantizedModelLoader:
@@ -79,6 +82,34 @@ class QuantizedModelLoader:
 
         # Load all weights (quantized + non-quantized) in one go
         model.load_state_dict(state_dict, strict=False, assign=True)
+
+        # Register Hadamard hooks for rotation-preprocessed models
+        if quant_config.get("rotated", False):
+            from .pre_process.rotation_utils import register_online_hadamard_hooks
+
+            fp32_had = quant_config.get("fp32_had", False)
+            quant_method = quant_config.get("quant_method", "")
+            effective_method = (
+                quant_method[len("mixed_") :]
+                if quant_method.startswith("mixed_")
+                else quant_method
+            )
+            if effective_method == "gptq":
+                layers_cls = [GPTQLinear]
+            elif effective_method == "dbf":
+                layers_cls = [DoubleBinaryLinear]
+            else:
+                layers_cls = None
+            hooks = register_online_hadamard_hooks(
+                model,
+                layers_cls=layers_cls,
+                fp32_had=fp32_had,
+            )
+            logger.info(
+                "Registered Hadamard pre-hooks on %d down_proj layers (fp32_had=%s)",
+                len(hooks),
+                fp32_had,
+            )
 
         # Device placement
         if device_map:

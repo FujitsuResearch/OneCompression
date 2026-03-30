@@ -1474,6 +1474,19 @@ class Runner:
         model.save_pretrained(path)
         tokenizer.save_pretrained(path)
 
+        if self.model_config.has_additional_data():
+            config_class = type(self.model_config).__name__
+            logger.warning(
+                "This model was loaded with '%s', which registers "
+                "additional preprocessing (e.g., forward hooks). "
+                "The saved model does NOT include these hooks. "
+                "Please use '%s' (not ModelConfig) when "
+                "loading the saved model from '%s'.",
+                config_class,
+                config_class,
+                path,
+            )
+
     def update_model_weights(self, model, quantizer=None):
         """Update the model weights"""
 
@@ -1549,6 +1562,29 @@ class Runner:
         self.logger.info("Replacing Linear layers with quantized inference layers...")
         quantizer.apply_results_to_model(model, pack_weights=pack_weights, use_gemlite=use_gemlite)
 
+        # Re-register Hadamard hooks for rotation-preprocessed models.
+        # apply_results replaces nn.Linear with quantized modules (e.g. GPTQLinear),
+        # which discards hooks registered by RotatedModelConfig.load_model().
+        fp32_had = getattr(self.model_config, "fp32_had", False)
+        if self.model_config.has_additional_data():
+            from .pre_process.rotation_utils import register_online_hadamard_hooks
+
+            sample_layer = next(
+                (m for n, m in model.named_modules() if "down_proj" in n),
+                None,
+            )
+            if sample_layer is not None:
+                hooks = register_online_hadamard_hooks(
+                    model,
+                    layers_cls=[type(sample_layer)],
+                    fp32_had=fp32_had,
+                )
+                self.logger.info(
+                    "Re-registered Hadamard pre-hooks on %d down_proj layers (fp32_had=%s)",
+                    len(hooks),
+                    fp32_had,
+                )
+
         # Build modules_in_block_to_quantize from actually-quantized layer names.
         quantized_names = sorted(quantizer.results.keys())
         modules_in_block = list(quantized_names)
@@ -1562,6 +1598,9 @@ class Runner:
                 or getattr(getattr(model.config, "text_config", None), "num_hidden_layers", None)
             ),
         )
+        quant_config["rotated"] = self.model_config.has_additional_data()
+        quant_config["fp32_had"] = fp32_had
+
         # Add quantization config to model config
         model.config.quantization_config = quant_config
 

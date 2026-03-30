@@ -193,6 +193,81 @@ print(ppl_dict)
 # {'original': 5.47, 'GPTQ': 5.72, 'JointQ': 5.68}
 ```
 
+## Rotation Preprocessing + RTN
+
+Apply SpinQuant-style rotation preprocessing before quantization to reduce quantization error:
+
+```python
+from onecomp import ModelConfig, Runner, RTN, prepare_rotated_model, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="cuda:0",
+)
+
+# Step 1: Rotation preprocessing
+rotated_config = prepare_rotated_model(
+    model_config=model_config,
+    save_directory="./rotated_model",
+    seed=0,
+    wbits=3,
+    groupsize=-1,
+    sym=False,
+)
+
+# Step 2: Quantize the rotated model (wbits/groupsize/sym must match Step 1)
+rtn = RTN(wbits=3, groupsize=-1, sym=False)
+runner = Runner(model_config=rotated_config, quantizer=rtn)
+runner.run()
+
+original_ppl, dequantized_ppl, _ = runner.calculate_perplexity(
+    original_model=True, dequantized_model=True, quantized_model=False
+)
+print(f"Original model perplexity: {original_ppl}")
+print(f"Dequantized model perplexity: {dequantized_ppl}")
+```
+
+## Rotation Preprocessing + GPTQ with Save/Load
+
+Full pipeline including save and load of rotation-preprocessed quantized models:
+
+```python
+from onecomp import (
+    ModelConfig, Runner, GPTQ,
+    prepare_rotated_model, load_quantized_model, setup_logger,
+)
+
+setup_logger()
+
+# Step 1: Rotation preprocessing
+model_config = ModelConfig(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="cuda:0",
+)
+rotated_config = prepare_rotated_model(
+    model_config=model_config,
+    save_directory="./rotated_model",
+    seed=0,
+    wbits=4,
+    groupsize=128,
+)
+
+# Step 2: Quantize and save
+gptq = GPTQ(wbits=4, groupsize=128)
+runner = Runner(model_config=rotated_config, quantizer=gptq)
+runner.run()
+runner.save_quantized_model("./quantized_model")
+
+# Step 3: Load (Hadamard hooks are auto-registered via "rotated: true" in config.json)
+model, tokenizer = load_quantized_model("./quantized_model")
+```
+
+See [Pre-Process API](../api/pre_process.md) for full parameter documentation.
+
+---
+
 ## Saving and Loading Quantized Models
 
 ### Save the quantized model
