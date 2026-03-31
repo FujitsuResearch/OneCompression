@@ -1,0 +1,4792 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Open-source Python library for post-training quantization of Large Language Models">
+      
+      
+      
+        <link rel="canonical" href="https://FujitsuResearch.github.io/OneCompression/api/runner/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../model_config/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Runner - Fujitsu One Compression</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#runner" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Fujitsu One Compression" class="md-header__button md-logo" aria-label="Fujitsu One Compression" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Fujitsu One Compression
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Runner
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/FujitsuResearch/OneCompression" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    FujitsuResearch/OneCompression
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user-guide/basic-usage/" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../algorithms/overview/" class="md-tabs__link">
+          
+  
+  
+  Algorithms
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Fujitsu One Compression" class="md-nav__button md-logo" aria-label="Fujitsu One Compression" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Fujitsu One Compression
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/FujitsuResearch/OneCompression" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    FujitsuResearch/OneCompression
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/basic-usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/pre-process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-Process (Rotation)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/post-process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Process (LoRA SFT)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/vllm-inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vLLM Inference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/qep/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QEP (Quantization Error Propagation)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/gptq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPTQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/dbf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DBF (Double Binary Factorization)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../algorithms/rtn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RTN (Round-To-Nearest)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runner
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runner
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Runner">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.auto_run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auto_run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.calculate_perplexity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        calculate_perplexity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.benchmark_perplexity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        benchmark_perplexity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.calculate_accuracy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        calculate_accuracy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.benchmark_accuracy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        benchmark_accuracy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.print_quantization_results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        print_quantization_results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_quantization_statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_quantization_statistics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_quantization_results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_quantization_results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_dequantized_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_dequantized_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_quantized_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_quantized_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.create_quantized_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_quantized_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_quantized_model_pt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_quantized_model_pt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.analyze_cumulative_error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analyze_cumulative_error
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.prepare_calibration_dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prepare_calibration_dataset
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ModelConfig
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../qep_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QEPConfig
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_5" id="__nav_5_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantizers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Quantizers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quantizers/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Base Classes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quantizers/autobit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AutoBit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quantizers/gptq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPTQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quantizers/dbf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DBF
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quantizers/rtn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RTN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quantizers/jointq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JointQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quantized_model_loader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QuantizedModelLoader
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pre_process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../post_process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runner
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Runner">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.auto_run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        auto_run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.calculate_perplexity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        calculate_perplexity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.benchmark_perplexity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        benchmark_perplexity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.calculate_accuracy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        calculate_accuracy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.benchmark_accuracy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        benchmark_accuracy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.print_quantization_results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        print_quantization_results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_quantization_statistics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_quantization_statistics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_quantization_results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_quantization_results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_dequantized_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_dequantized_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_quantized_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_quantized_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.create_quantized_model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_quantized_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.save_quantized_model_pt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_quantized_model_pt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.analyze_cumulative_error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        analyze_cumulative_error
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#onecomp.runner.Runner.prepare_calibration_dataset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prepare_calibration_dataset
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="runner">Runner<a class="headerlink" href="#runner" title="Permanent link">&para;</a></h1>
+<p>The <code>Runner</code> class is the main entry point for executing quantization pipelines in OneComp.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="onecomp.runner.Runner" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">Runner</span>
+
+
+<a href="#onecomp.runner.Runner" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">Runner</span><span class="p">(</span><span class="n">model_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">calibration_dataset</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_length</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span> <span class="n">num_calibration_samples</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">quantizers</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">qep</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">qep_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">calibration_strategy</span><span class="o">=</span><span class="s1">&#39;drop_rand&#39;</span><span class="p">,</span> <span class="n">calibration_seed</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">multi_gpu</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">gpu_ids</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">calibration_batch_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">num_layers_per_group</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span> <span class="n">post_processes</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Runner class for model quantization</p>
+<p>Runner class for executing quantization.
+Supports quantization using calibration data and parallel quantization on multiple GPUs.</p>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Single GPU quantization (default):</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">onecomp</span><span class="w"> </span><span class="kn">import</span> <span class="n">Runner</span><span class="p">,</span> <span class="n">ModelConfig</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">onecomp.quantizer.gptq</span><span class="w"> </span><span class="kn">import</span> <span class="n">GPTQ</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">model_config</span> <span class="o">=</span> <span class="n">ModelConfig</span><span class="p">(</span><span class="n">model_id_or_path</span><span class="o">=</span><span class="s2">&quot;meta-llama/Llama-2-7b-hf&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">quantizer</span> <span class="o">=</span> <span class="n">GPTQ</span><span class="p">(</span><span class="n">wbits</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">groupsize</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span> <span class="o">=</span> <span class="n">Runner</span><span class="p">(</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="gp">... </span>    <span class="n">model_config</span><span class="o">=</span><span class="n">model_config</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="gp">... </span>    <span class="n">quantizer</span><span class="o">=</span><span class="n">quantizer</span><span class="p">,</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="gp">... </span><span class="p">)</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</span></code></pre></div>
+    <p>Multi-GPU quantization (layer-wise parallel):</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">onecomp.quantizer.jointq</span><span class="w"> </span><span class="kn">import</span> <span class="n">JointQ</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">quantizer</span> <span class="o">=</span> <span class="n">JointQ</span><span class="p">(</span><span class="n">bits</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Use all available GPUs</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span> <span class="o">=</span> <span class="n">Runner</span><span class="p">(</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="gp">... </span>    <span class="n">model_config</span><span class="o">=</span><span class="n">model_config</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="gp">... </span>    <span class="n">quantizer</span><span class="o">=</span><span class="n">quantizer</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="gp">... </span>    <span class="n">multi_gpu</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="gp">... </span><span class="p">)</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</span></code></pre></div>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Use specific GPUs (e.g., GPU 0, 2, 3)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span> <span class="o">=</span> <span class="n">Runner</span><span class="p">(</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">... </span>    <span class="n">model_config</span><span class="o">=</span><span class="n">model_config</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">... </span>    <span class="n">quantizer</span><span class="o">=</span><span class="n">quantizer</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="gp">... </span>    <span class="n">multi_gpu</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="gp">... </span>    <span class="n">gpu_ids</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="gp">... </span><span class="p">)</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</span></code></pre></div>
+
+        <p><strong>init</strong> method</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>model_config</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="ModelConfig (onecomp.model_config.ModelConfig)" href="../model_config/#onecomp.model_config.ModelConfig">ModelConfig</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Model configuration.  Required.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>calibration_dataset</code>
+            </td>
+            <td>
+                  <code><span title="datasets.Dataset">Dataset</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_length</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The maximum length of the input sequence.</p>
+              </div>
+            </td>
+            <td>
+                  <code>2048</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>num_calibration_samples</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The number of calibration samples to use when loading default dataset.</p>
+              </div>
+            </td>
+            <td>
+                  <code>512</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizer</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The quantizer to use. Specify either <code>quantizer</code> or
+<code>quantizers</code>, not both.  At least one must be given.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizers</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Specify multiple quantizers. When used with
+calibration_batch_size, the X^T X accumulation is shared,
+reducing the forward pass to a single execution.
+Specify either <code>quantizer</code> or <code>quantizers</code>, not both.
+Currently, this is only available when
+<code>calibration_batch_size</code> is set and <code>qep=False</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qep</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use QEP.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qep_config</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="QEPConfig
+
+
+  
+      dataclass
+   (onecomp.qep.QEPConfig)" href="../qep_config/#onecomp.qep._qep_config.QEPConfig">QEPConfig</a> or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Configuration for QEP. If None and <code>qep=True</code>,
+a default <code>QEPConfig()</code> is used.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>calibration_strategy</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Strategy for preparing calibration inputs.
+Default is "drop_rand".</p>
+<p>Available strategies:
+- "concat_chunk":
+    Concatenate all texts, tokenize once, and split into
+    fixed-length chunks (max_length).
+    Creates as many chunks as possible from the data.
+- "concat_chunk_align":
+    Same as concat_chunk, but adjusts the number of loaded
+    samples so that num_chunks == num_calibration_samples.
+    This ensures consistent token counts across experiments.
+- "drop_head":
+    No cross-document mixing. Tokenize each document
+    independently; drop samples with token length &lt; max_length;
+    take the head window (first max_length tokens).
+- "drop_rand":
+    Same as above, but take a random window of length max_length
+    from each long document (reproducible with calibration_seed).</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;drop_rand&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>calibration_seed</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Random seed used by some calibration strategies
+(e.g., "drop_rand").</p>
+              </div>
+            </td>
+            <td>
+                  <code>0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>multi_gpu</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use multi-GPU for layer-wise parallel quantization.
+Default is False.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>gpu_ids</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<span title="int">int</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of GPU IDs to use for multi-GPU quantization.
+If None and multi_gpu is True, all available GPUs will be used.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>calibration_batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Batch size (number of sentences) for chunked calibration
+forward passes. Default is None (all calibration data in
+a single forward pass).
+When set to a positive integer (e.g., 128), calibration
+data is split into chunks of this size and forwarded in
+multiple passes to reduce GPU memory usage. The necessary
+statistics (e.g., X^T X for Hessian-based methods) are
+accumulated across chunks. This is mathematically exact,
+not an approximation.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>num_layers_per_group</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of layers to process simultaneously in chunked
+calibration mode. Default is 7 (one Transformer block
+for Llama-like architectures: q,k,v,o,gate,up,down).
+Controls the trade-off between CPU memory usage for
+X^T X storage and the number of forward passes required.
+Only used when calibration_batch_size is set.</p>
+              </div>
+            </td>
+            <td>
+                  <code>7</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>post_processes</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="PostQuantizationProcess
+
+
+  
+      dataclass
+   (onecomp.post_process.PostQuantizationProcess)" href="../post_process/#onecomp.post_process.PostQuantizationProcess">PostQuantizationProcess</a>] or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional list of post-quantization processes to execute
+after the main quantization step.  Each process receives
+a quantized model on CPU (built via
+<code>create_quantized_model</code>) and may modify it in-place.
+Processes are executed in order.  Default is None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="note" open>
+  <summary>Note</summary>
+  <p>For zero-config quantization (VRAM auto-estimation +
+AutoBitQuantizer + QEP), use the class method
+:meth:<code>auto_run</code> instead.</p>
+</details>        <p>Examples:</p>
+<div class="language-text highlight"><pre><span></span><code>Chunked calibration with GPTQ (large-scale calibration data):
+
+&gt;&gt;&gt; from onecomp import Runner, ModelConfig
+&gt;&gt;&gt; from onecomp.quantizer.gptq import GPTQ
+&gt;&gt;&gt; model_config = ModelConfig(
+...     model_id_or_path=&quot;meta-llama/Llama-2-7b-hf&quot;
+... )
+&gt;&gt;&gt; quantizer = GPTQ(wbits=4, groupsize=128)
+&gt;&gt;&gt; runner = Runner(
+...     model_config=model_config,
+...     quantizer=quantizer,
+...     max_length=2048,
+...     num_calibration_samples=1024,
+...     calibration_batch_size=128,  # Forward 128 sentences at a time
+... )
+&gt;&gt;&gt; runner.run()
+
+With custom num_layers_per_group:
+
+&gt;&gt;&gt; # When memory is sufficient: process 2 blocks (14 layers) simultaneously
+&gt;&gt;&gt; runner = Runner(
+...     model_config=model_config,
+...     quantizer=quantizer,
+...     max_length=2048,
+...     num_calibration_samples=1024,
+...     calibration_batch_size=128,
+...     num_layers_per_group=14,
+... )
+&gt;&gt;&gt; runner.run()
+
+Multiple quantizers (benchmark comparison):
+
+&gt;&gt;&gt; from onecomp.quantizer.gptq import GPTQ
+&gt;&gt;&gt; from onecomp.quantizer.jointq import JointQ
+&gt;&gt;&gt; gptq = GPTQ(wbits=4, groupsize=128, calc_quant_error=True)
+&gt;&gt;&gt; jointq = JointQ(bits=4, group_size=128, calc_quant_error=True,
+...                 device=torch.device(0))
+&gt;&gt;&gt; runner = Runner(
+...     model_config=model_config,
+...     quantizers=[gptq, jointq],
+...     max_length=2048,
+...     num_calibration_samples=1024,
+...     calibration_batch_size=128,
+... )
+&gt;&gt;&gt; runner.run()
+&gt;&gt;&gt; # Results are stored in gptq.results and jointq.results respectively
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.auto_run" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">auto_run</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+<a href="#onecomp.runner.Runner.auto_run" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">auto_run</span><span class="p">(</span><span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">wbits</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">total_vram_gb</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span><span class="p">,</span> <span class="n">device</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;cuda:0&#39;</span><span class="p">,</span> <span class="n">qep</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">evaluate</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">eval_original_model</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">save_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;auto&#39;</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>One-liner quantization with sensible defaults.</p>
+<p>Sets up ModelConfig, AutoBitQuantizer (ILP-based mixed-precision),
+and QEP, then runs quantization.  When <code>wbits</code> is <code>None</code>,
+the target bitwidth is estimated automatically from available VRAM.
+Optionally evaluates perplexity and accuracy, and saves the
+quantized model.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>model_id</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Hugging Face model ID or local path.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>wbits</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span> or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Target quantization bitwidth.
+When <code>None</code> (default), estimated from VRAM via
+<code>estimate_wbits_from_vram</code>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>total_vram_gb</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span> or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Total VRAM budget in GB for
+bitwidth estimation.  Only used when <code>wbits</code> is <code>None</code>.
+When <code>None</code>, the installed GPU VRAM is detected
+automatically.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>groupsize</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>GPTQ group size (default: 128).
+Use -1 to disable grouping.</p>
+              </div>
+            </td>
+            <td>
+                  <code>128</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>device</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Device to place the model on (default: "cuda:0").</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;cuda:0&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qep</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use QEP (default: True).</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>evaluate</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate perplexity and
+accuracy after quantization (default: True).</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>eval_original_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to also evaluate the
+original (unquantized) model (default: False).</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_dir</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Directory to save the quantized model.
+<code>"auto"</code> (default) derives the path from model_id
+(e.g., <code>"TinyLlama-1.1B-...-autobit-3.5bit"</code>).
+Set to <code>None</code> to skip saving.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;auto&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>**kwargs</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Additional keyword arguments forwarded to the
+<code>GPTQ</code> constructor (e.g., <code>actorder</code>, <code>sym</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>{}</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>Runner</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The configured Runner instance (with quantization</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>results accessible via <code>runner.quantizer.results</code>).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Minimal usage (QEP + GPTQ 4-bit, groupsize=128, auto-save):</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">onecomp</span><span class="w"> </span><span class="kn">import</span> <span class="n">Runner</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span> <span class="o">=</span> <span class="n">Runner</span><span class="o">.</span><span class="n">auto_run</span><span class="p">(</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s2">&quot;TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T&quot;</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">... </span><span class="p">)</span>
+</span></code></pre></div>
+    <p>Custom save directory:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span> <span class="o">=</span> <span class="n">Runner</span><span class="o">.</span><span class="n">auto_run</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s2">&quot;TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T&quot;</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">... </span>    <span class="n">save_dir</span><span class="o">=</span><span class="s2">&quot;./my_quantized_model&quot;</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">... </span><span class="p">)</span>
+</span></code></pre></div>
+    <p>Skip saving:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span> <span class="o">=</span> <span class="n">Runner</span><span class="o">.</span><span class="n">auto_run</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s2">&quot;TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T&quot;</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">... </span>    <span class="n">save_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">... </span><span class="p">)</span>
+</span></code></pre></div>
+    <p>Evaluate both original and quantized models:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span> <span class="o">=</span> <span class="n">Runner</span><span class="o">.</span><span class="n">auto_run</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s2">&quot;TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T&quot;</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">... </span>    <span class="n">eval_original_model</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="gp">... </span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.run" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run</span>
+
+
+<a href="#onecomp.runner.Runner.run" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">run</span><span class="p">()</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Execute quantization (and related) processing</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.check" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">check</span>
+
+
+<a href="#onecomp.runner.Runner.check" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">check</span><span class="p">()</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Check the settings</p>
+<p>Performs the following checks:</p>
+<ol>
+<li><code>model_config</code> is a <code>ModelConfig</code> instance</li>
+<li>Mutual exclusion check for <code>quantizer</code> and <code>quantizers</code> (cannot specify both)</li>
+<li>Type check for <code>quantizer</code> / <code>quantizers</code> (must be <code>Quantizer</code> instances)</li>
+<li>At least one of them must be specified</li>
+<li>Parameter combination consistency check (see table below)</li>
+<li>When <code>multi_gpu=True</code>, <code>quantizer.flag_calibration=True</code> must hold</li>
+</ol>
+<p>Valid parameter combinations:</p>
+<p>===========  ====  ==========  ======================
+quantizers   qep   multi_gpu   calibration_batch_size
+===========  ====  ==========  ======================
+Specified    False False       Specified
+None         True  False       None
+None         False True        None
+None         False False       Specified
+None         False False       None
+===========  ====  ==========  ======================</p>
+
+
+<details class="note" open>
+  <summary>Note</summary>
+  <p><code>multi_gpu=True</code> requires a quantizer with <code>flag_calibration=True</code>.</p>
+</details>
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="TypeError">TypeError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Invalid type for <code>model_config</code>, <code>quantizer</code>, or <code>quantizers</code></p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Invalid parameter combination</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.calculate_perplexity" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">calculate_perplexity</span>
+
+
+<a href="#onecomp.runner.Runner.calculate_perplexity" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">calculate_perplexity</span><span class="p">(</span><span class="n">original_model</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">dequantized_model</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">quantized_model</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">dataset_name</span><span class="o">=</span><span class="s1">&#39;wikitext&#39;</span><span class="p">,</span> <span class="n">dataset_config</span><span class="o">=</span><span class="s1">&#39;wikitext-2-raw-v1&#39;</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s1">&#39;test&#39;</span><span class="p">,</span> <span class="n">max_samples</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_length</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Calculate the perplexity of the model</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>original_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the perplexity of the original model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dequantized_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the perplexity of the dequantized model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantized_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the perplexity of the quantized model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dataset_name</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The name of the dataset to use for calculating perplexity.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;wikitext&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dataset_config</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The configuration of the dataset.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;wikitext-2-raw-v1&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>split</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The split of the dataset to use.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;test&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_samples</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The maximum number of samples to use.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_length</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Maximum length of the sliding window.
+Uses model.config.max_position_embeddings if None.
+2048 is recommended to match standard paper values.</p>
+              </div>
+            </td>
+            <td>
+                  <code>2048</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>stride</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Stride of the sliding window.
+Same as max_length (no overlap) if None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>2048</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizer</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The quantizer. Uses self.quantizer if None.
+Specify explicitly when using quantizers mode.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>tuple</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>(original_ppl, dequantized_ppl, quantized_ppl)</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="note" open>
+  <summary>Note</summary>
+  <p>Evaluating the original or dequantized model requires loading
+the full model on GPU.</p>
+<p>Quantized-model evaluation (<code>quantized_model=True</code>) is
+currently supported only for GPTQ and DBF quantizers.
+Support for other quantization methods is planned.</p>
+</details>
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Single quantizer mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">original_ppl</span><span class="p">,</span> <span class="n">dequantized_ppl</span><span class="p">,</span> <span class="n">quantized_ppl</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">calculate_perplexity</span><span class="p">()</span>
+</span></code></pre></div>
+    <p>Multiple quantizers mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">original_ppl</span><span class="p">,</span> <span class="n">dequantized_ppl</span><span class="p">,</span> <span class="n">quantized_ppl</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">calculate_perplexity</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">... </span>    <span class="n">quantizer</span><span class="o">=</span><span class="n">gptq</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">... </span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.benchmark_perplexity" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">benchmark_perplexity</span>
+
+
+<a href="#onecomp.runner.Runner.benchmark_perplexity" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">benchmark_perplexity</span><span class="p">(</span><span class="n">original_model</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">dequantized_model</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">quantized_model</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">dataset_name</span><span class="o">=</span><span class="s1">&#39;wikitext&#39;</span><span class="p">,</span> <span class="n">dataset_config</span><span class="o">=</span><span class="s1">&#39;wikitext-2-raw-v1&#39;</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s1">&#39;test&#39;</span><span class="p">,</span> <span class="n">max_samples</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_length</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span> <span class="n">stride</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span> <span class="n">quantizers</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Calculate perplexity for all quantizers at once</p>
+<p>Internally calls calculate_perplexity for each quantizer.
+The original model PPL is calculated only once (on the first iteration).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>original_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the perplexity of the original model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dequantized_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the perplexity of the dequantized model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantized_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the perplexity of the quantized model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dataset_name</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The name of the dataset to use for calculating perplexity.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;wikitext&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dataset_config</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The configuration of the dataset.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;wikitext-2-raw-v1&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>split</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The split of the dataset to use.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;test&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_samples</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The maximum number of samples to use.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_length</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Maximum length of the sliding window.
+Uses model.config.max_position_embeddings if None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>2048</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>stride</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Stride of the sliding window.
+Same as max_length (no overlap) if None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>2048</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizers</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of quantizers. Uses self.quantizers or
+[self.quantizer] if None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>dict</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Dictionary of PPL values. Keys are as follows:</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <ul>
+<li><code>"original"</code>: PPL of the original model (not included if skipped)</li>
+</ul>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <ul>
+<li><code>quantizer.name</code>: PPL for each quantizer (quantized or
+dequantized, with quantized taking precedence)</li>
+</ul>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <ul>
+<li><code>quantizer.name + "_dequantized"</code>: PPL of the dequantized
+model (only included when <code>dequantized_model=True</code>)</li>
+</ul>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">ppl_dict</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">benchmark_perplexity</span><span class="p">()</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">ppl_dict</span><span class="p">)</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="go">{&#39;original&#39;: 5.47, &#39;GPTQ&#39;: 5.72, &#39;JointQ&#39;: 5.68}</span>
+</span></code></pre></div>
+    <p>Specify quantizers explicitly:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">ppl_dict</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">benchmark_perplexity</span><span class="p">(</span><span class="n">quantizers</span><span class="o">=</span><span class="p">[</span><span class="n">gptq</span><span class="p">,</span> <span class="n">jointq</span><span class="p">])</span>
+</span></code></pre></div>
+    <p>Include dequantized model PPL:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">ppl_dict</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">benchmark_perplexity</span><span class="p">(</span><span class="n">dequantized_model</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">ppl_dict</span><span class="p">)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="go">{&#39;original&#39;: 5.47, &#39;GPTQ&#39;: 5.72, &#39;GPTQ_dequantized&#39;: 5.71}</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.calculate_accuracy" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">calculate_accuracy</span>
+
+
+<a href="#onecomp.runner.Runner.calculate_accuracy" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">calculate_accuracy</span><span class="p">(</span><span class="n">original_model</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">dequantized_model</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">quantized_model</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">tasks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">num_fewshot</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">display_results</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Calculate the zero-shot accuracy of the model</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>original_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the accuracy of the original model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dequantized_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the accuracy of the dequantized model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantized_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the accuracy of the quantized model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>tasks</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The list of tasks to evaluate.
+Default: ["arc_easy", "arc_challenge", "piqa", "winogrande"]</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for evaluation.</p>
+              </div>
+            </td>
+            <td>
+                  <code>8</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>num_fewshot</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The number of few-shot examples.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>display_results</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to display the results.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizer</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The quantizer. Uses self.quantizer if None.
+Specify explicitly when using quantizers mode.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>tuple</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>(original_acc, dequantized_acc, quantized_acc)</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="note" open>
+  <summary>Note</summary>
+  <p>Evaluating the original or dequantized model requires loading
+the full model on GPU.</p>
+<p>Quantized-model evaluation (<code>quantized_model=True</code>) is
+currently supported only for GPTQ and DBF quantizers.
+Support for other quantization methods is planned.</p>
+</details>
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Single quantizer mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">original_acc</span><span class="p">,</span> <span class="n">dequantized_acc</span><span class="p">,</span> <span class="n">quantized_acc</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">calculate_accuracy</span><span class="p">()</span>
+</span></code></pre></div>
+    <p>Multiple quantizers mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">original_acc</span><span class="p">,</span> <span class="n">dequantized_acc</span><span class="p">,</span> <span class="n">quantized_acc</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">calculate_accuracy</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">... </span>    <span class="n">quantizer</span><span class="o">=</span><span class="n">gptq</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">... </span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.benchmark_accuracy" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">benchmark_accuracy</span>
+
+
+<a href="#onecomp.runner.Runner.benchmark_accuracy" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">benchmark_accuracy</span><span class="p">(</span><span class="n">original_model</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">dequantized_model</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">quantized_model</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">tasks</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">num_fewshot</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">display_results</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">quantizers</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Calculate accuracy for all quantizers at once</p>
+<p>Internally calls calculate_accuracy for each quantizer.
+The original model accuracy is calculated only once (on the first iteration).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>original_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the accuracy of the original model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dequantized_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the accuracy of the dequantized model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantized_model</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to calculate the accuracy of the quantized model.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>tasks</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The list of tasks to evaluate.
+Default: ["arc_easy", "arc_challenge", "piqa", "winogrande"]</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The batch size for evaluation.</p>
+              </div>
+            </td>
+            <td>
+                  <code>8</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>num_fewshot</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The number of few-shot examples.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>display_results</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to display the results.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizers</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span>[<a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of quantizers. Uses self.quantizers or
+[self.quantizer] if None.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>dict</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Dictionary of accuracy values. Keys are as follows:</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <ul>
+<li><code>"original"</code>: Accuracy of the original model (not included if skipped)</li>
+</ul>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <ul>
+<li><code>quantizer.name</code>: Accuracy for each quantizer (quantized or
+dequantized, with quantized taking precedence)</li>
+</ul>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <ul>
+<li><code>quantizer.name + "_dequantized"</code>: Accuracy of the dequantized
+model (only included when <code>dequantized_model=True</code>)</li>
+</ul>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">acc_dict</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">benchmark_accuracy</span><span class="p">()</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">acc_dict</span><span class="p">)</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="go">{&#39;original&#39;: {...}, &#39;GPTQ&#39;: {...}, &#39;JointQ&#39;: {...}}</span>
+</span></code></pre></div>
+    <p>Specify quantizers explicitly:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">acc_dict</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">benchmark_accuracy</span><span class="p">(</span><span class="n">quantizers</span><span class="o">=</span><span class="p">[</span><span class="n">gptq</span><span class="p">,</span> <span class="n">jointq</span><span class="p">])</span>
+</span></code></pre></div>
+    <p>Include dequantized model accuracy:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">acc_dict</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">benchmark_accuracy</span><span class="p">(</span><span class="n">dequantized_model</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.print_quantization_results" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">print_quantization_results</span>
+
+
+<a href="#onecomp.runner.Runner.print_quantization_results" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">print_quantization_results</span><span class="p">(</span><span class="n">quantizer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Log quantization results.</p>
+<p>Formats and logs the quantizer results.
+The following information is output for each layer:</p>
+<ul>
+<li>Quantization time (seconds)</li>
+<li>Output squared error (only if value exists)</li>
+<li>Mean output squared error (only if value exists)</li>
+<li>Weight squared error (only if value exists)</li>
+<li>Mean weight squared error (only if value exists)</li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizer</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The quantizer. Uses self.quantizer if None.
+Specify explicitly when using quantizers mode.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Single quantizer mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">print_quantization_results</span><span class="p">()</span>
+</span></code></pre></div>
+    <p>Multiple quantizers mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">print_quantization_results</span><span class="p">(</span><span class="n">quantizer</span><span class="o">=</span><span class="n">gptq</span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.save_quantization_statistics" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">save_quantization_statistics</span>
+
+
+<a href="#onecomp.runner.Runner.save_quantization_statistics" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">save_quantization_statistics</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Save the quantization statistics</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>path</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>File path to save to</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizer</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Quantizer whose statistics to save.
+Uses self.quantizer if None.
+Specify explicitly when using quantizers mode.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Single quantizer mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_quantization_statistics</span><span class="p">(</span><span class="s2">&quot;stats.json&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+    <p>Multiple quantizers mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">quantizers</span> <span class="o">=</span> <span class="p">[</span><span class="n">gptq</span><span class="p">,</span> <span class="n">jointq</span><span class="p">]</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_quantization_statistics</span><span class="p">(</span><span class="s2">&quot;gptq_stats.json&quot;</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="n">gptq</span><span class="p">)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_quantization_statistics</span><span class="p">(</span><span class="s2">&quot;jointq_stats.json&quot;</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="n">jointq</span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.save_quantization_results" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">save_quantization_results</span>
+
+
+<a href="#onecomp.runner.Runner.save_quantization_results" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">save_quantization_results</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Save the quantization results to a file</p>
+<p>Save quantization results (QuantizationResult objects) to a file.
+The saved data includes dequantized weights, scales, zero points,
+integer assignments, and other quantization parameters.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>path</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The path to save the quantization results.
+The .pt extension is recommended.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizer</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Quantizer whose results to save.
+Uses self.quantizer if None.
+Specify explicitly when using quantizers mode.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Single quantizer mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_quantization_results</span><span class="p">(</span><span class="s2">&quot;results.pt&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+    <p>Multiple quantizers mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">quantizers</span> <span class="o">=</span> <span class="p">[</span><span class="n">gptq</span><span class="p">,</span> <span class="n">jointq</span><span class="p">]</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_quantization_results</span><span class="p">(</span><span class="s2">&quot;gptq_results.pt&quot;</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="n">gptq</span><span class="p">)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_quantization_results</span><span class="p">(</span><span class="s2">&quot;jointq_results.pt&quot;</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="n">jointq</span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.save_dequantized_model" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">save_dequantized_model</span>
+
+
+<a href="#onecomp.runner.Runner.save_dequantized_model" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">save_dequantized_model</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Save the dequantized model to the specified path</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>path</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The path to save the dequantized model.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizer</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The quantizer. Uses self.quantizer if None.
+Specify explicitly when using quantizers mode.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Single quantizer mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_dequantized_model</span><span class="p">(</span><span class="s2">&quot;./dequantized_model&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+    <p>Multiple quantizers mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_dequantized_model</span><span class="p">(</span><span class="s2">&quot;./gptq_model&quot;</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="n">gptq</span><span class="p">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_dequantized_model</span><span class="p">(</span><span class="s2">&quot;./jointq_model&quot;</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="n">jointq</span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.save_quantized_model" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">save_quantized_model</span>
+
+
+<a href="#onecomp.runner.Runner.save_quantized_model" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">save_quantized_model</span><span class="p">(</span><span class="n">save_directory</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pack_weights</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Save the quantized model to the specified directory</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_directory</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The path to save the quantized model.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pack_weights</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to pack quantized weights for more memory/storage-efficient
+representation.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Single quantizer mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_quantized_model</span><span class="p">(</span><span class="s2">&quot;./quantized_model&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.create_quantized_model" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">create_quantized_model</span>
+
+
+<a href="#onecomp.runner.Runner.create_quantized_model" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">create_quantized_model</span><span class="p">(</span><span class="n">pack_weights</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">use_gemlite</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Create a quantized model from quantization results.</p>
+<p>Loads the base model on CPU, replaces Linear layers with quantized
+inference layers (e.g. <code>GPTQLinear</code>), and attaches quantization
+config to <code>model.config</code>.</p>
+<p>Must be called after <code>run()</code> (i.e., <code>quantizer.results</code> must
+be populated).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>pack_weights</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to pack quantized weights for memory-efficient
+representation. Default is True.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizer</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The quantizer to use. Uses self.quantizer if None.
+Specify explicitly when using quantizers mode.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>use_gemlite</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span> or None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Whether to use GemLite for inference layers.
+Set to False when saving to avoid extra params in
+safetensors. Default is None (uses quantizer default).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>tuple[nn.Module, PreTrainedTokenizer]:
+(quantized_model, tokenizer)</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">create_quantized_model</span><span class="p">()</span>
+</span></code></pre></div>
+    <p>With post-process:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">create_quantized_model</span><span class="p">(</span><span class="n">pack_weights</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">post_process</span> <span class="o">=</span> <span class="n">PostProcessLoraSFT</span><span class="p">(</span><span class="n">data_files</span><span class="o">=</span><span class="s2">&quot;train.jsonl&quot;</span><span class="p">)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">post_process</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">runner</span><span class="o">.</span><span class="n">model_config</span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.save_quantized_model_pt" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">save_quantized_model_pt</span>
+
+
+<a href="#onecomp.runner.Runner.save_quantized_model_pt" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">save_quantized_model_pt</span><span class="p">(</span><span class="n">save_directory</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Save the quantized model as a PyTorch .pt file.</p>
+<p>Use this method to save models that include post-processing
+modifications (e.g. LoRA adapters from <code>PostProcessLoraSFT</code>).
+The entire model object is serialized with <code>torch.save</code>,
+preserving custom module types such as <code>LoRAGPTQLinear</code>.</p>
+<p>For models without post-processing, prefer
+<code>save_quantized_model</code> which uses the HF-compatible
+safetensors format.</p>
+<p>The saved directory contains:
+- <code>model.pt</code>: The model (<code>torch.save</code>)
+- Tokenizer files (via <code>save_pretrained</code>)</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>save_directory</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The path to save the model.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="see-also" open>
+  <summary>See Also</summary>
+  <p>:func:<code>onecomp.load_quantized_model_pt</code> to load models
+saved by this method.</p>
+</details>
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>  <span class="c1"># with post_processes=[PostProcessLoraSFT(...)]</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">runner</span><span class="o">.</span><span class="n">save_quantized_model_pt</span><span class="p">(</span><span class="s2">&quot;./quantized_model_lora&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.analyze_cumulative_error" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">analyze_cumulative_error</span>
+
+
+<a href="#onecomp.runner.Runner.analyze_cumulative_error" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">analyze_cumulative_error</span><span class="p">(</span><span class="n">layer_keywords</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">plot_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">json_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">batch_keywords</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">quantizer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Analyze cumulative quantization error for each linear layer.</p>
+<p>Cumulative error: ||W_orig X_orig - W_quant X_quant||^2_F</p>
+
+
+<details class="note" open>
+  <summary>Note</summary>
+  <p>Must be used after calling the run() method.</p>
+</details>
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>layer_keywords</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of keywords to filter layers.
+Each keyword is analyzed and plotted separately.
+Default: ["mlp.down_proj"]
+Example: ["q_proj", "k_proj"]</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>plot_path</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Base path to save plots. Keyword is inserted before extension.
+Example: "error.png" -&gt; "error_mlp.down_proj.png"</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>json_path</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to save results as JSON file.
+Example: "cumulative_error.json"</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>batch_keywords</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, process all keywords in a single forward pass.
+This is faster but uses more CPU memory because all target layers'
+outputs are stored simultaneously.
+If False (default), process each keyword separately with
+model reload per keyword. This uses less CPU memory but
+incurs overhead from repeated model loading and forward passes.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>quantizer</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="Quantizer
+
+
+  
+      dataclass
+   (onecomp.quantizer.Quantizer)" href="../quantizers/base/#onecomp.quantizer._quantizer.Quantizer">Quantizer</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The quantizer. Uses self.quantizer if None.
+Specify explicitly when using quantizers mode.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>dict</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>keyword -&gt; {layer_name -&gt; cumulative squared error}</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Single quantizer mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">analyze_cumulative_error</span><span class="p">()</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">analyze_cumulative_error</span><span class="p">(</span><span class="n">plot_path</span><span class="o">=</span><span class="s2">&quot;cumulative_error.png&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+    <p>Multiple quantizers mode:</p>
+    <div class="language-pycon highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">runner</span><span class="o">.</span><span class="n">analyze_cumulative_error</span><span class="p">(</span><span class="n">quantizer</span><span class="o">=</span><span class="n">gptq</span><span class="p">)</span>
+</span></code></pre></div>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="onecomp.runner.Runner.prepare_calibration_dataset" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">prepare_calibration_dataset</span>
+
+
+<a href="#onecomp.runner.Runner.prepare_calibration_dataset" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">prepare_calibration_dataset</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Prepare calibration data for quantization methods such as GPTQ.</p>
+<p>See utils.calibration.prepare_calibration_dataset for details.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>device</code>
+            </td>
+            <td>
+                  <code><span title="torch.device">device</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Device to place tensors on (CPU or GPU)</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>dict</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Input dictionary for the model
+- "input_ids": tensor of shape (num_chunks, max_length)
+- "attention_mask": tensor of shape (num_chunks, max_length)</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.code.annotate", "navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
