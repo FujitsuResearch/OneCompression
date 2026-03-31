@@ -181,8 +181,7 @@ class WeightQuantizer(nn.Module):
             self.zero = torch.round(q_min - x_min / self.scale).clamp(q_min, q_max)
 
         if self.weight_groupsize > 0:
-            self.scale = self.scale.repeat(1, 1, self.weight_groupsize).reshape(shape)
-            self.zero = self.zero.repeat(1, 1, self.weight_groupsize).reshape(shape)
+            pass
         elif self.perchannel:
             s = [-1] + [1] * (len(shape) - 1)
             self.scale = self.scale.reshape(s)
@@ -203,6 +202,14 @@ class WeightQuantizer(nn.Module):
         """
         x_dtype = x.dtype
         if self.ready() and self.bits < 16:
+            if self.weight_groupsize > 0:
+                orig_shape = x.shape
+                x = x.reshape(-1, x.shape[-1] // self.weight_groupsize, self.weight_groupsize)
+                if self.sym:
+                    x = STEQuantize.apply(x, self.scale, self.maxq)
+                else:
+                    x = AsymSTEQuantize.apply(x, self.scale, self.zero, self.maxq)
+                return x.reshape(orig_shape).to(x_dtype)
             if self.sym:
                 return STEQuantize.apply(x, self.scale, self.maxq).to(x_dtype)
             return AsymSTEQuantize.apply(x, self.scale, self.zero, self.maxq).to(x_dtype)
