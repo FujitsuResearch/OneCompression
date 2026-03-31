@@ -1,5 +1,14 @@
 # Change log
 
+## [v1.0.1] 2026-03-31
+
+### Packaging
+
+- Moved `matplotlib` from `dev` extra to new `visualize` extra in `pyproject.toml`
+- Made `visualize_bit_assignment` import lazy in `onecomp/quantizer/autobit/__init__.py` to avoid requiring matplotlib at import time
+- Updated installation instructions in `README.md` and `docs/getting-started/installation.md` to reflect the new `visualize` extra
+- Updated `uv.lock`
+
 ## [v1.0.0] 2026-03-31
 
 ### PyPI Publishing Setup

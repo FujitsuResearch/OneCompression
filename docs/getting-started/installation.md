@@ -67,7 +67,13 @@ print(torch.cuda.is_available())
 ### Step 2: Install OneComp
 
 ```bash
-pip install git+https://github.com/FujitsuResearch/OneCompression.git
+pip install onecomp
+```
+
+To enable visualization features (matplotlib), install with the `visualize` extra:
+
+```bash
+pip install onecomp[visualize]
 ```
 
 ## For Developers (uv -- recommended)
@@ -82,18 +88,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Clone and set up
 git clone https://github.com/FujitsuResearch/OneCompression.git
 cd OneCompression
-uv sync --extra cu128 --extra dev
+uv sync --extra cu128 --extra dev --extra visualize
 ```
 
 The `uv sync` command creates a virtual environment and installs all dependencies (including `torchvision` from the same CUDA index as PyTorch).
 Replace `cu128` with the appropriate CUDA variant for your system: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, or `cu128`.
 
-Adding `--extra dev` installs development tools (black, pytest, pylint, matplotlib).
+Adding `--extra dev` installs development tools (black, pytest, pylint).
+Adding `--extra visualize` installs matplotlib for visualization features.
 
 To use vLLM for serving quantized models, add `--extra vllm`:
 
 ```bash
-uv sync --extra cu128 --extra dev --extra vllm
+uv sync --extra cu128 --extra dev --extra visualize --extra vllm
 ```
 
 !!! warning

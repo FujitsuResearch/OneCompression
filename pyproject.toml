@@ -54,9 +54,11 @@ cu126 = ["torch", "torchvision"]
 cu128 = ["torch", "torchvision"]
 dev = [
     "black",
-    "matplotlib>=3.10.8",
     "pylint",
     "pytest",
+]
+visualize = [
+    "matplotlib>=3.10.8",
 ]
 vllm = ["vllm"]
 docs = [

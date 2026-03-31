@@ -89,9 +89,9 @@ With its Rust-based dependency resolver and the `uv.lock` lockfile, uv provides 
 # install uv (for macOS or Linux)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-git clone <git repository URL>
+git clone https://github.com/FujitsuResearch/OneCompression.git
 cd OneCompression
-uv sync --extra cu128 --extra dev
+uv sync --extra cu128 --extra dev --extra visualize
 ```
 
 The `uv sync` command creates a Python virtual environment and installs all dependent libraries.
@@ -100,12 +100,13 @@ The `--extra cu128` option installs the CUDA-enabled version of PyTorch (along w
 Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, or `cu128`.
 PyTorch will be automatically downloaded by `uv`, so you do not need to install it beforehand.
 
-Adding `--extra dev` installs additional packages for development.
+Adding `--extra dev` installs development tools (black, pytest, pylint).
+Adding `--extra visualize` installs matplotlib for visualization features.
 
 To use vLLM for serving quantized models, add `--extra vllm`:
 
 ```bash
-uv sync --extra cu128 --extra dev --extra vllm
+uv sync --extra cu128 --extra dev --extra visualize --extra vllm
 ```
 
 > **Note:** `--extra vllm` may take a long time on the first run if a pre-built `xformers` wheel is not available for your Python/CUDA combination (e.g. Python 3.13). Using Python 3.12 typically avoids this.
