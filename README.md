@@ -2,7 +2,9 @@
 
 Fujitsu One Compression (OneComp) is a Python package for LLM compression.
 
-This package is currently under development (version 0) and may behave unstably.
+## 📖 Documentation
+
+Full documentation is available at **[https://FujitsuResearch.github.io/OneCompression/](https://FujitsuResearch.github.io/OneCompression/)**.
 
 ## 📦 Features
 
@@ -70,8 +72,6 @@ print(torch.cuda.is_available())
 #### 2. Install `onecomp`
 
 Once PyTorch is installed, you can install `onecomp`:
-
-**for users**
 
 ```bash
 pip install git+<git repository URL>
