@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.0.2] 2026-03-31
+
+### Bug Fix
+
+- Fixed `ImportError` when running `onecomp` CLI without matplotlib installed; `AutoBitQuantizer._visualize()` now catches the import error and logs a warning instead of crashing
+
 ## [v1.0.1] 2026-03-31
 
 ### Packaging

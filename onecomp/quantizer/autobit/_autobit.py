@@ -402,7 +402,14 @@ class AutoBitQuantizer(Quantizer):
         child_q.module_to_name[module] = name
 
     def _visualize(self, assignments):
-        from .visualize import visualize_bit_assignment  # lazy: heavy matplotlib dep
+        try:
+            from .visualize import visualize_bit_assignment
+        except ImportError:
+            self.logger.warning(
+                "matplotlib is not installed; skipping visualization. "
+                "Install with: pip install onecomp[visualize]"
+            )
+            return
 
         layer_names = [name for name, _, _ in assignments]
         layer_bits = [
