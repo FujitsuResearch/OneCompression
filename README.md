@@ -74,7 +74,7 @@ print(torch.cuda.is_available())
 Once PyTorch is installed, you can install `onecomp`:
 
 ```bash
-pip install git+<git repository URL>
+pip install onecomp
 ```
 
 ### for developers (uv : recommended)
@@ -90,7 +90,7 @@ With its Rust-based dependency resolver and the `uv.lock` lockfile, uv provides 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 git clone <git repository URL>
-cd onecomp
+cd OneCompression
 uv sync --extra cu128 --extra dev
 ```
 
@@ -135,8 +135,8 @@ black --check onecomp/
 
 ```bash
 git clone <git repository URL>
+cd OneCompression
 
-cd onecomp
 # First, install PyTorch with CUDA support for your environment
 pip install torch --index-url https://download.pytorch.org/whl/cu128
 # Then install onecomp with development dependencies

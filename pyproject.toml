@@ -12,6 +12,16 @@ authors = [
     {name = "Keiji Kimura"},
 ]
 requires-python = ">=3.12, <3.14"
+keywords = ["llm", "quantization", "compression", "post-training-quantization", "gptq"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Intended Audience :: Science/Research",
+]
 dependencies = [
     "transformers >= 5.3.0",
     "accelerate",
@@ -24,6 +34,13 @@ dependencies = [
     "safetensors",
     "ortools>=9.15.6755",
 ]
+
+[project.urls]
+Homepage = "https://github.com/FujitsuResearch/OneCompression"
+Documentation = "https://FujitsuResearch.github.io/OneCompression/"
+Repository = "https://github.com/FujitsuResearch/OneCompression"
+"Bug Tracker" = "https://github.com/FujitsuResearch/OneCompression/issues"
+Changelog = "https://github.com/FujitsuResearch/OneCompression/blob/main/CHANGELOG.md"
 
 [project.scripts]
 onecomp = "onecomp.cli:main"
@@ -40,10 +57,6 @@ dev = [
     "matplotlib>=3.10.8",
     "pylint",
     "pytest",
-]
-gemlite = [
-    "gemlite @ git+https://github.com/mobiusml/gemlite.git",
-    "hqq @ git+https://github.com/mobiusml/hqq.git",
 ]
 vllm = ["vllm"]
 docs = [

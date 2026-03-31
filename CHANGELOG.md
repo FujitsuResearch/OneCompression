@@ -2,6 +2,15 @@
 
 ## [v1.0.0] 2026-03-31
 
+### PyPI Publishing Setup
+
+- Added PyPI metadata to `pyproject.toml`: `keywords`, `classifiers`, and `project.urls` (Homepage, Documentation, Repository, Bug Tracker, Changelog)
+- Removed `gemlite` optional-dependency extra that used direct git URLs (PEP 440 violation); equivalent packages are already in main `dependencies`
+- Added `.github/workflows/publish.yml`: automated PyPI publishing via Trusted Publishers (OIDC) on GitHub Release
+- Updated `README.md`: installation command changed from `pip install git+<URL>` to `pip install onecomp`
+- Added `dist/` and `build/` to `.gitignore`
+- Updated `uv.lock`
+
 ### Default Parameter Changes
 
 - Changed `Runner.__init__` default values for calibration parameters:
