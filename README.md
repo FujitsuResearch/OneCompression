@@ -194,14 +194,17 @@ See [LICENSE](./LICENSE) for more details.
 
 ## Citation
 
-OneComp technical report (coming soon on ArXiv):
+OneComp technical report:
 
 ```
-@misc{onecomp2026,
-  title={TBD},
-  author={TBD},
-  year={2026},
-  note={arXiv preprint coming soon}
+@misc{ichikawa2026onecomponelinerevolutiongenerative,
+      title={OneComp: One-Line Revolution for Generative AI Model Compression}, 
+      author={Yuma Ichikawa and Keiji Kimura and Akihiro Yoshida and Yudai Fujimoto and Hiroki Tokura and Yamato Arai and Yoshiyuki Ishii and Yusei Kawakami and Genki Shikada and Achille Jacquemond and Yoshihiko Fujisawa and Katsuki Fujisawa and Takumi Honda and Akira Sakai},
+      year={2026},
+      eprint={2603.28845},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2603.28845}, 
 }
 ```
 
