@@ -19,8 +19,9 @@ import torch
 from torch import nn
 from transformers import Conv1D
 
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+from onecomp.quantizer._quantizer import Quantizer, QuantizationResult, _safe_cholesky, _safe_cholesky_inverse
 from onecomp.utils.quant_config import get_quant_param
+from onecomp.utils.device import empty_cache
 
 
 @dataclass
@@ -517,9 +518,9 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
     damp = percdamp * torch.mean(torch.diag(hessian))
     diag = torch.arange(hessian.shape[0], device=hessian.device)
     hessian[diag, diag] += damp
-    hessian = torch.linalg.cholesky(hessian)
-    hessian = torch.cholesky_inverse(hessian)
-    hessian = torch.linalg.cholesky(hessian, upper=True)
+    hessian = _safe_cholesky(hessian)
+    hessian = _safe_cholesky_inverse(hessian)
+    hessian = _safe_cholesky(hessian, upper=True)
     Hinv = hessian
 
     # Accumulate per-group scale/zero for grouped quantization
@@ -598,9 +599,10 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
         zero = quantizer.zero.to(dtype=torch.int32, device="cpu")
     perm = perm.cpu() if perm is not None else None
 
+    _device = quantized_weight.device
     del hessian, Hinv, matrix_W, Q_int
     gc.collect()
-    torch.cuda.empty_cache()
+    empty_cache(_device)
 
     return {
         "qweight": quantized_weight,

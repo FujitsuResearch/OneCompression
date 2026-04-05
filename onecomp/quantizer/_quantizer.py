@@ -17,6 +17,26 @@ import math
 import torch
 from torch.nn import Linear, Conv2d, Conv1d
 
+from onecomp.utils.device import empty_cache
+
+
+def _safe_cholesky(tensor, **kwargs):
+    if tensor.device.type == "mps":
+        return torch.linalg.cholesky(tensor.cpu(), **kwargs).to(tensor.device)
+    return torch.linalg.cholesky(tensor, **kwargs)
+
+
+def _safe_cholesky_inverse(tensor):
+    if tensor.device.type == "mps":
+        return torch.cholesky_inverse(tensor.cpu()).to(tensor.device)
+    return torch.cholesky_inverse(tensor)
+
+
+def _safe_cholesky_solve(b, u):
+    if b.device.type == "mps":
+        return torch.cholesky_solve(b.cpu(), u.cpu()).to(b.device)
+    return torch.cholesky_solve(b, u)
+
 
 @dataclass
 class QuantizationResult:
@@ -202,7 +222,7 @@ class Quantizer(metaclass=ABCMeta):
         result.quantization_time = end_time - start_time
 
         self.results[name] = result
-        torch.cuda.empty_cache()
+        empty_cache()
 
         if self.calc_quant_error:
             # Record quantization error
@@ -248,7 +268,7 @@ class Quantizer(metaclass=ABCMeta):
                 percdamp=percdamp,
                 perccorr=perccorr,
             )
-            torch.cuda.empty_cache()
+            empty_cache()
 
         self.logger.info("Quantizing layer: %s", name)
         result = self.quantize_layer(module, quant_input_activation, hessian=hessian)
@@ -262,7 +282,7 @@ class Quantizer(metaclass=ABCMeta):
         result.quantization_time = end_time - start_time
 
         self.results[name] = result
-        torch.cuda.empty_cache()
+        empty_cache()
 
         if self.calc_quant_error:
             # Record quantization error
@@ -298,7 +318,7 @@ class Quantizer(metaclass=ABCMeta):
             result.relative_weight_squared_error,
         ) = self.calculate_weight_quantization_error(module, dequantized_weight)
 
-        torch.cuda.empty_cache()
+        empty_cache()
 
     def adjust_weight(
         self,
@@ -343,9 +363,9 @@ class Quantizer(metaclass=ABCMeta):
         damp = percdamp * torch.mean(torch.diag(hessian))
         diag = torch.arange(hessian.shape[0], device=hessian.device)
         hessian[diag, diag] += damp
-        cholesky = torch.linalg.cholesky(hessian)
+        cholesky = _safe_cholesky(hessian)
         rhs = weight @ delta_hatX
-        delta_weight = torch.cholesky_solve(rhs.t(), cholesky).t()
+        delta_weight = _safe_cholesky_solve(rhs.t(), cholesky).t()
         weight = weight + (perccorr * delta_weight)
 
         if isinstance(module, Conv1d):
@@ -847,7 +867,7 @@ class Quantizer(metaclass=ABCMeta):
 
             del batch_diff, batch_X_T
 
-        torch.cuda.empty_cache()
+        empty_cache()
 
         # MSE = output_squared_error / (out_features * total_samples)
         mean_output_squared_error = output_squared_error / num_elements
