@@ -19,7 +19,7 @@ import torch
 from torch import nn
 from transformers import Conv1D
 
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult, _safe_cholesky, _safe_cholesky_inverse
+from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
 from onecomp.utils.quant_config import get_quant_param
 from onecomp.utils.device import empty_cache
 
@@ -493,6 +493,11 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
     )
 
     matrix_W = layer.weight.data.clone()
+
+    if hessian.device.type == "mps":
+        hessian = hessian.cpu()
+        matrix_W = matrix_W.to("cpu")
+
     if isinstance(layer, nn.Conv2d):
         matrix_W = matrix_W.flatten(1)
     if isinstance(layer, Conv1D):
@@ -518,10 +523,9 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
     damp = percdamp * torch.mean(torch.diag(hessian))
     diag = torch.arange(hessian.shape[0], device=hessian.device)
     hessian[diag, diag] += damp
-    hessian = _safe_cholesky(hessian)
-    hessian = _safe_cholesky_inverse(hessian)
-    hessian = _safe_cholesky(hessian, upper=True)
-    Hinv = hessian
+    hessian = torch.linalg.cholesky(hessian)
+    hessian = torch.cholesky_inverse(hessian)
+    Hinv = torch.linalg.cholesky(hessian, upper=True)
 
     # Accumulate per-group scale/zero for grouped quantization
     if groupsize != -1:

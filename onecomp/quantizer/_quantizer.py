@@ -20,22 +20,16 @@ from torch.nn import Linear, Conv2d, Conv1d
 from onecomp.utils.device import empty_cache
 
 
-def _safe_cholesky(tensor, **kwargs):
-    if tensor.device.type == "mps":
-        return torch.linalg.cholesky(tensor.cpu(), **kwargs).to(tensor.device)
-    return torch.linalg.cholesky(tensor, **kwargs)
-
-
-def _safe_cholesky_inverse(tensor):
-    if tensor.device.type == "mps":
-        return torch.cholesky_inverse(tensor.cpu()).to(tensor.device)
-    return torch.cholesky_inverse(tensor)
-
-
-def _safe_cholesky_solve(b, u):
-    if b.device.type == "mps":
-        return torch.cholesky_solve(b.cpu(), u.cpu()).to(b.device)
-    return torch.cholesky_solve(b, u)
+def _safe_cholesky_and_solve(hessian, rhs):
+    if hessian.device.type == "mps":
+        hessian_cpu = hessian.cpu()
+        rhs_cpu = rhs.cpu()
+        cholesky = torch.linalg.cholesky(hessian_cpu)
+        delta_weight = torch.cholesky_solve(rhs_cpu.t(), cholesky).to(hessian.device)
+    else:
+        cholesky = torch.linalg.cholesky(hessian)
+        delta_weight = torch.cholesky_solve(rhs.t(), cholesky)
+    return delta_weight
 
 
 @dataclass
@@ -363,9 +357,8 @@ class Quantizer(metaclass=ABCMeta):
         damp = percdamp * torch.mean(torch.diag(hessian))
         diag = torch.arange(hessian.shape[0], device=hessian.device)
         hessian[diag, diag] += damp
-        cholesky = _safe_cholesky(hessian)
         rhs = weight @ delta_hatX
-        delta_weight = _safe_cholesky_solve(rhs.t(), cholesky).t()
+        delta_weight = _safe_cholesky_and_solve(hessian, rhs).t()
         weight = weight + (perccorr * delta_weight)
 
         if isinstance(module, Conv1d):
