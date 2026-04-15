@@ -12,6 +12,7 @@ from .autobit import AutoBitQuantizer
 from .gptq import GPTQ
 from .onebit import Onebit
 from .dbf import DBF
+from .mdbf import MDBF
 from .jointq import JointQ
 from .rtn import RTN
 from .quip import QUIP
