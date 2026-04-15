@@ -51,8 +51,15 @@ class QuantizedModelLoader:
         config.json and quantized layers are reconstructed directly from the safetensors
         state_dict. No quantization_results.pt is needed.
 
-        For models saved with post-processing modifications (e.g. LoRA adapters),
-        use :meth:`load_quantized_model_pt` instead.
+        If the directory additionally contains a PEFT-format LoRA adapter
+        sidecar (``adapter_model.safetensors`` + ``adapter_config.json``), the
+        matching ``GPTQLinear`` layers are automatically re-wrapped with
+        ``LoRAGPTQLinear`` populated from the sidecar. This lets
+        ``runner.save_quantized_model`` → ``load_quantized_model`` round-trip
+        models produced by a LoRA post-process such as ``PostProcessLoraSFT``.
+
+        For legacy models saved via ``torch.save`` (``.pt`` format), use
+        :meth:`load_quantized_model_pt` instead.
 
         Args:
             save_directory: Path to the saved model directory.
@@ -110,6 +117,11 @@ class QuantizedModelLoader:
                 len(hooks),
                 fp32_had,
             )
+
+        # Re-apply LoRA adapter from PEFT-format sidecar if present.
+        # This must run while the model is still on CPU, before dispatch_model,
+        # so LoRA wrappers are included in the device map traversal below.
+        cls._maybe_wrap_lora_adapters(model, save_directory)
 
         # Device placement
         if device_map:
@@ -372,3 +384,129 @@ class QuantizedModelLoader:
                 )
 
             QuantizedModelLoader._set_module_by_name(model, name, quantized_module)
+
+    LORA_ADAPTER_SUBDIR = "lora_adapter"
+ 
+    @staticmethod
+    def _maybe_wrap_lora_adapters(model, save_directory: str) -> int:
+        """Re-wrap GPTQLinear layers with LoRAGPTQLinear from a PEFT-format sidecar.
+ 
+        Looks for ``adapter_model.safetensors`` + ``adapter_config.json`` under
+        ``save_directory/lora_adapter/``. If both are present, each referenced
+        GPTQLinear layer is replaced in-place with a ``LoRAGPTQLinear`` wrapper
+        populated with the saved LoRA weights.
+ 
+        For backward compatibility, also checks the legacy top-level layout
+        (``save_directory/adapter_model.safetensors``) used by an earlier
+        version of :meth:`Runner.save_quantized_model`.
+ 
+        Returns:
+            int: Number of layers wrapped (0 if no adapter sidecar was found).
+        """
+        adapter_dir = os.path.join(
+            save_directory, QuantizedModelLoader.LORA_ADAPTER_SUBDIR
+        )
+        adapter_weights_path = os.path.join(adapter_dir, "adapter_model.safetensors")
+        adapter_config_path = os.path.join(adapter_dir, "adapter_config.json")
+        if not (
+            os.path.isfile(adapter_weights_path)
+            and os.path.isfile(adapter_config_path)
+        ):
+            # Fallback to legacy top-level layout.
+            legacy_weights = os.path.join(save_directory, "adapter_model.safetensors")
+            legacy_config = os.path.join(save_directory, "adapter_config.json")
+            if os.path.isfile(legacy_weights) and os.path.isfile(legacy_config):
+                adapter_weights_path = legacy_weights
+                adapter_config_path = legacy_config
+            else:
+                return 0
+ 
+        with open(adapter_config_path, "r", encoding="utf-8") as f:
+            adapter_config = json.load(f)
+ 
+        lora_r = int(adapter_config["r"])
+        lora_alpha = int(adapter_config["lora_alpha"])
+        lora_dropout = float(adapter_config.get("lora_dropout", 0.0))
+ 
+        adapter_sd = load_file(adapter_weights_path)
+ 
+        peft_prefix = "base_model.model."
+        per_layer: Dict[str, Dict[str, torch.Tensor]] = {}
+ 
+        for key, tensor in adapter_sd.items():
+            if not key.startswith(peft_prefix):
+                logger.warning("Skipping unexpected adapter key %s", key)
+                continue
+            body = key[len(peft_prefix):]
+            # Support both the plain form "<path>.lora_A.weight" and PEFT's
+            # adapter-name form "<path>.lora_A.default.weight".
+            if body.endswith(".lora_A.weight"):
+                layer_path = body[: -len(".lora_A.weight")]
+                per_layer.setdefault(layer_path, {})["A"] = tensor
+            elif body.endswith(".lora_B.weight"):
+                layer_path = body[: -len(".lora_B.weight")]
+                per_layer.setdefault(layer_path, {})["B"] = tensor
+            elif body.endswith(".lora_A.default.weight"):
+                layer_path = body[: -len(".lora_A.default.weight")]
+                per_layer.setdefault(layer_path, {})["A"] = tensor
+            elif body.endswith(".lora_B.default.weight"):
+                layer_path = body[: -len(".lora_B.default.weight")]
+                per_layer.setdefault(layer_path, {})["B"] = tensor
+            else:
+                logger.warning("Skipping unrecognized adapter key %s", key)
+ 
+        if not per_layer:
+            return 0
+ 
+        # Inline import to avoid pulling post_process into module-import time
+        # and to sidestep any circular-import risk.
+        from .post_process.post_process_lora_sft import LoRAGPTQLinear
+ 
+        name_to_module = dict(model.named_modules())
+        wrapped = 0
+        for layer_path, ab in per_layer.items():
+            if "A" not in ab or "B" not in ab:
+                logger.warning(
+                    "Adapter layer %s missing lora_A or lora_B; skipping",
+                    layer_path,
+                )
+                continue
+            if layer_path not in name_to_module:
+                logger.warning(
+                    "Adapter references layer %s not found in model; skipping",
+                    layer_path,
+                )
+                continue
+            base_layer = name_to_module[layer_path]
+            if not isinstance(base_layer, GPTQLinear):
+                logger.warning(
+                    "Adapter layer %s is %s, expected GPTQLinear; skipping",
+                    layer_path,
+                    type(base_layer).__name__,
+                )
+                continue
+ 
+            wrapper = LoRAGPTQLinear(
+                base_layer=base_layer,
+                lora_r=lora_r,
+                lora_alpha=lora_alpha,
+                lora_dropout=lora_dropout,
+            )
+            with torch.no_grad():
+                wrapper.lora_A.weight.copy_(
+                    ab["A"].to(wrapper.lora_A.weight.dtype)
+                )
+                wrapper.lora_B.weight.copy_(
+                    ab["B"].to(wrapper.lora_B.weight.dtype)
+                )
+            # Match the base layer's device so the wrapper and base share placement.
+            base_device = base_layer.qweight.device
+            wrapper.to(base_device)
+            QuantizedModelLoader._set_module_by_name(model, layer_path, wrapper)
+            wrapped += 1
+ 
+        logger.info(
+            "Re-wrapped %d GPTQLinear layers with LoRAGPTQLinear from adapter sidecar",
+            wrapped,
+        )
+        return wrapped

@@ -1573,8 +1573,125 @@ class Runner:
     # Unified Save/Load Methods (Using quantizer.results)
     # ========================================
 
+    LORA_ADAPTER_SUBDIR = "lora_adapter"
+
+    def _save_lora_adapter_sidecar(self, save_directory: str) -> bool:
+        """Write a PEFT-compatible LoRA adapter sidecar if ``self.quantized_model``
+        contains ``LoRAGPTQLinear`` modules (typically produced by
+        ``PostProcessLoraSFT``).
+ 
+        The sidecar is placed in a ``lora_adapter/`` subdirectory rather than
+        directly in ``save_directory``. Reason: vLLM's base-model safetensors
+        loader globs ``*.safetensors`` at the top level of the model directory
+        and would otherwise try to load ``adapter_model.safetensors`` as
+        base-model weights, crashing with ``"no module or parameter named
+        'base_model' in LlamaForCausalLM"``. Keeping the adapter under a
+        subdirectory avoids that collision while still keeping the whole model
+        self-contained under one directory tree.
+ 
+        The subdirectory contains:
+          - ``adapter_model.safetensors``
+          - ``adapter_config.json``
+ 
+        The format matches what vLLM's native PEFT LoRA loader expects, so::
+ 
+            LLM(model=save_dir, enable_lora=True)
+            LoRARequest(..., lora_path=os.path.join(save_dir, "lora_adapter"))
+ 
+        will load and apply the adapter without any OneComp-specific changes
+        to the vLLM plugin.
+ 
+        Returns:
+            bool: True iff an adapter was written. False if there is no
+            in-memory LoRA state to save (e.g. no post-process ran).
+        """
+        if self.quantized_model is None:
+            return False
+ 
+        # Inline imports keep runner.py import-time cheap and avoid any
+        # circular-import risk with the post_process package.
+        from .post_process.post_process_lora_sft import LoRAGPTQLinear
+        from safetensors.torch import save_file as _st_save_file
+ 
+        lora_modules = [
+            (name, mod)
+            for name, mod in self.quantized_model.named_modules()
+            if isinstance(mod, LoRAGPTQLinear)
+        ]
+        if not lora_modules:
+            return False
+ 
+        # PEFT convention: keys are prefixed with "base_model.model." and the
+        # module path matches what we will see on the loaded HF model.
+        state_dict = {}
+        for name, mod in lora_modules:
+            state_dict[f"base_model.model.{name}.lora_A.weight"] = (
+                mod.lora_A.weight.detach().to("cpu", torch.float16).contiguous()
+            )
+            state_dict[f"base_model.model.{name}.lora_B.weight"] = (
+                mod.lora_B.weight.detach().to("cpu", torch.float16).contiguous()
+            )
+ 
+        first = lora_modules[0][1]
+        lora_r = int(first.lora_r)
+        # scaling = alpha / r is stored as float; round-trip back to int alpha.
+        lora_alpha = int(round(float(first.scaling) * float(first.lora_r)))
+        lora_dropout = (
+            float(first.dropout.p) if isinstance(first.dropout, torch.nn.Dropout) else 0.0
+        )
+        target_modules = sorted({name.rsplit(".", 1)[-1] for name, _ in lora_modules})
+ 
+        adapter_config = {
+            "peft_type": "LORA",
+            "auto_mapping": None,
+            "base_model_name_or_path": str(Path(save_directory).resolve()),
+            "task_type": "CAUSAL_LM",
+            "r": lora_r,
+            "lora_alpha": lora_alpha,
+            "lora_dropout": lora_dropout,
+            "target_modules": target_modules,
+            "bias": "none",
+            "fan_in_fan_out": False,
+            "inference_mode": True,
+            "modules_to_save": None,
+            "init_lora_weights": True,
+            "layers_to_transform": None,
+            "layers_pattern": None,
+            "revision": None,
+        }
+ 
+        adapter_dir = Path(save_directory) / self.LORA_ADAPTER_SUBDIR
+        adapter_dir.mkdir(parents=True, exist_ok=True)
+        _st_save_file(
+            state_dict,
+            str(adapter_dir / "adapter_model.safetensors"),
+            metadata={"format": "pt"},
+        )
+        with open(adapter_dir / "adapter_config.json", "w", encoding="utf-8") as f:
+            json.dump(adapter_config, f, indent=2, ensure_ascii=True)
+ 
+        self.logger.info(
+            "Saved LoRA adapter sidecar (%d layers) to %s",
+            len(lora_modules),
+            adapter_dir,
+        )
+        return True
+
+
     def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
         """Save the quantized model to the specified directory
+
+        The base quantized model is always rebuilt from ``quantizer.results``
+        via :meth:`create_quantized_model` and saved in HuggingFace-compatible
+        safetensors format.
+
+        If a LoRA post-process (e.g. ``PostProcessLoraSFT``) has populated
+        ``self.quantized_model`` with ``LoRAGPTQLinear`` wrappers, this method
+        additionally writes a PEFT-compatible LoRA adapter sidecar
+        (``adapter_model.safetensors`` + ``adapter_config.json``) into the same
+        directory. The resulting directory can then be loaded back with
+        :func:`onecomp.load_quantized_model` (which auto-detects the sidecar
+        and re-wraps the layers) or served by vLLM via ``enable_lora=True``.
 
         Args:
             save_directory (str):
@@ -1587,19 +1704,33 @@ class Runner:
             Single quantizer mode:
 
             >>> runner.save_quantized_model("./quantized_model")
+
+            GPTQ + LoRA SFT:
+
+            >>> runner = Runner(
+            ...     model_config=model_config,
+            ...     quantizer=GPTQ(wbits=4, groupsize=128),
+            ...     post_processes=[PostProcessLoraSFT(data_files="train.jsonl")],
+            ... )
+            >>> runner.run()
+            >>> runner.save_quantized_model("./quantized_model_lora")
         """
         logger = self.logger
         logger.info("Saving quantized model to %s", save_directory)
 
+        # Always rebuild the base quantized model from quantizer.results.
+        # Post-process wrappers such as LoRAGPTQLinear are saved separately as
+        # an adapter sidecar and must not leak into the base HF safetensors.
         if self.quantized_model is not None:
-            logger.info("Using existing quantized model (post-process results preserved)")
-            model = self.quantized_model
-            tokenizer = self.model_config.load_tokenizer()
-        else:
-            # Disable GemLite when saving to avoid extra params in safetensors
-            model, tokenizer = self.create_quantized_model(
-                pack_weights=pack_weights, use_gemlite=False
+            logger.info(
+                "Rebuilding base quantized model from quantization results; "
+                "post-process state will be saved separately if supported"
             )
+
+        # Disable GemLite when saving to avoid extra params in safetensors.
+        model, tokenizer = self.create_quantized_model(
+            pack_weights=pack_weights, use_gemlite=False
+        )
 
         # Save model and tokenizer
         save_path = Path(save_directory)
@@ -1607,6 +1738,33 @@ class Runner:
 
         model.save_pretrained(save_directory)
         tokenizer.save_pretrained(save_directory)
+
+        # LoRA sidecar (only if self.quantized_model contains LoRAGPTQLinear).
+        wrote_adapter = self._save_lora_adapter_sidecar(save_directory)
+        if not wrote_adapter:
+            # Remove any stale sidecar from a previous run so the directory is
+            # self-consistent and load_quantized_model does not pick up an
+            # adapter that no longer matches the saved base model.
+            stale_adapter_dir = save_path / self.LORA_ADAPTER_SUBDIR
+            if stale_adapter_dir.is_dir():
+                for stale in (
+                    "adapter_model.safetensors",
+                    "adapter_config.json",
+                ):
+                    stale_path = stale_adapter_dir / stale
+                    if stale_path.exists():
+                        stale_path.unlink()
+                # Remove the (now-empty) subdirectory if nothing else lives there.
+                try:
+                    stale_adapter_dir.rmdir()
+                except OSError:
+                    pass
+            # Also remove any top-level adapter files left by older versions of
+            # this helper (previous layout put the sidecar directly in save_dir).
+            for legacy in ("adapter_model.safetensors", "adapter_config.json"):
+                legacy_path = save_path / legacy
+                if legacy_path.exists():
+                    legacy_path.unlink()
 
         logger.info(f"Quantized model saved to {save_directory}")
         return save_directory
