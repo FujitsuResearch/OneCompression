@@ -11,13 +11,15 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 """
 
+import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 
 from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
 from onecomp.quantizer.rtn.rtn_impl import run_rtn
+from onecomp.utils.quant_config import get_quant_param
 
 
 @dataclass
@@ -50,6 +52,41 @@ class RTNResult(QuantizationResult):
     quantized_weight: Optional[torch.Tensor] = None  # Quantized weights (INT type)
     scale: Optional[torch.Tensor] = None  # Scale coefficient
     zero: Optional[torch.Tensor] = None  # Zero point
+
+    def compute_dequantized_weight(self, device=None) -> torch.Tensor:
+        """Compute dequantized weight from quantized data.
+
+        Reconstruction formula: W = (quantized_weight - zero) * scale
+        (see rtn/quantizer.py dequantize())
+
+        Args:
+            device: Device for computation.
+
+        Returns:
+            Dequantized weight (FP16, CPU).
+        """
+        if self.quantized_weight is None or self.scale is None or self.zero is None:
+            raise ValueError("quantized_weight, scale, and zero must be provided.")
+
+        compute_device = torch.device(device) if device is not None else torch.device("cpu")
+        quantized_weight = self.quantized_weight.to(compute_device, dtype=torch.float32)
+        scale = self.scale.to(compute_device, dtype=torch.float32)
+        zero = self.zero.to(compute_device, dtype=torch.float32)
+        out_features, in_features = quantized_weight.shape
+
+        if self.groupsize == -1:
+            # Per-channel path (broadcast along in_features)
+            if scale.ndim == 1:
+                scale = scale.unsqueeze(1)
+            if zero.ndim == 1:
+                zero = zero.unsqueeze(1)
+            return ((quantized_weight - zero) * scale).to(torch.float16).cpu()
+
+        # scale/zero shape: (out_features, num_groups)
+        g_idx = torch.arange(in_features, device=compute_device) // self.groupsize
+        scale_expanded = scale[:, g_idx]
+        zero_expanded = zero[:, g_idx]
+        return ((quantized_weight - zero_expanded) * scale_expanded).to(torch.float16).cpu()
 
 
 @dataclass
@@ -149,4 +186,102 @@ class RTN(Quantizer):
             quantized_weight=result_dict["quantized_weight"],
             scale=result_dict["scale"],
             zero=result_dict["zero"],
+        )
+
+    def get_quant_config(self) -> dict:
+        """Return GPTQ-compatible quantization config.
+
+        RTN uses the same tensor format as GPTQ (qweight/scales/qzeros),
+        so we emit quant_method="gptq" to reuse GPTQLinear and vLLM GPTQ plugin.
+        """
+        return {
+            "quant_method": "gptq",
+            "bits": self.wbits,
+            "groupsize": self.groupsize,
+            "group_size": self.groupsize,
+            "actorder": False,
+            "desc_act": False,
+            "sym": self.sym,
+            "checkpoint_format": "gptq",
+        }
+
+    @staticmethod
+    def _build_quantization_bits(
+        quantized_names: list[str],
+        quant_config: dict[str, Any],
+        num_layers: int,
+    ) -> list[dict[str, Any]]:
+        _LAYER_RE = re.compile(r"\.layers\.(\d+)\.(.*)")
+        default_bits = quant_config.get("bits", 4)
+        default_gs = get_quant_param(quant_config, "group_size", "groupsize", default=-1)
+
+        layer_modules: dict[int, dict[str, Any]] = {}
+        for name in quantized_names:
+            m = _LAYER_RE.search(name)
+            if m is None:
+                continue
+            layer_idx = int(m.group(1))
+            suffix = m.group(2)
+
+            layer_modules.setdefault(layer_idx, {})[suffix] = {
+                "bits": default_bits,
+                "method": "gptq",
+                "params": {"group_size": default_gs},
+            }
+        if not layer_modules:
+            return []
+
+        return [layer_modules.get(i, {}) for i in range(num_layers)]
+
+    def finalize_quant_config_for_save(
+        self,
+        quant_config: dict[str, Any],
+        quantized_layer_names: list[str],
+        num_hidden_layers: Optional[int] = None,
+    ) -> dict[str, Any]:
+        if num_hidden_layers is None:
+            raise ValueError("num_hidden_layers is required")
+        quant_config["quantization_bits"] = RTN._build_quantization_bits(
+            quantized_layer_names, quant_config, num_hidden_layers
+        )
+        return quant_config
+
+    def create_inference_layer(self, result, linear_module, **kwargs):
+        """Build GPTQLinear from RTNResult.
+
+        RTN scale/zero shape is (out_features, num_groups) from pseudo_quantize_tensor.
+        GPTQLinear expects (num_groups, out_features), so we transpose.
+        """
+        from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
+
+        pack_weights = kwargs.get("pack_weights", True)
+
+        quantized_weight = result.quantized_weight.to(torch.int32)
+        zero = result.zero
+
+        # Symmetric quantization uses signed integers [-2^(n-1), 2^(n-1)-1];
+        # shift to unsigned [0, 2^n - 1] for GPTQLinear bit packing.
+        if result.sym:
+            offset = 2 ** (result.wbits - 1)
+            quantized_weight = quantized_weight + offset
+            zero = zero + offset
+
+        return GPTQLinear(
+            in_features=quantized_weight.shape[1],
+            out_features=quantized_weight.shape[0],
+            wbits=result.wbits,
+            groupsize=result.groupsize,
+            actorder=False,
+            quantized_weight=quantized_weight,
+            scale=result.scale.T,
+            zero=zero.T,
+            perm=None,
+            bias=(
+                linear_module.bias
+                if hasattr(linear_module, "bias") and linear_module.bias is not None
+                else None
+            ),
+            device=linear_module.weight.device,
+            pack_weights=pack_weights,
+            use_gemlite=kwargs.get("use_gemlite"),
         )
