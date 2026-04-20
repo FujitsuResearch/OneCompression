@@ -8,7 +8,7 @@ level without using calibration data or Hessian information.
 For each weight element \(w\):
 
 \[
-\hat{w} = \text{clamp}\left(\left\lfloor \frac{w - z}{s} \right\rceil, 0, 2^b - 1\right) \cdot s + z
+\hat{w} = \text{clamp}\left(\left\lfloor \frac{w}{s} \right\rceil + z,\ 0,\ 2^b - 1\right) \cdot s - z \cdot s
 \]
 
 where:
@@ -18,15 +18,26 @@ where:
 - \(b\) is the bit-width
 - \(\lfloor \cdot \rceil\) denotes rounding to the nearest integer
 
+The integer level range is always \([0, 2^b - 1]\) regardless of `sym`.
+
+- **Symmetric** (`sym=True`): max-abs symmetrisation \(x_{\max} = \max(|x_{\min}|, x_{\max})\), with zero point at \((2^b - 1 + 1) / 2\). This aligns with `GPTQExcecutor`.
+- **Asymmetric** (`sym=False`): range includes zero (\(x_{\min} \le 0 \le x_{\max}\)), zero point = \(\lfloor -x_{\min} / s \rceil\).
+
+When `mse=True`, an MSE grid search is performed to find the optimal clipping range
+that minimises the Lp-norm reconstruction error.
+
 RTN serves as a **baseline** for comparing more sophisticated quantization algorithms.
 
 ## Parameters
 
-| Parameter    | Type   | Description                                          | Default  |
-|-------------|--------|------------------------------------------------------|----------|
-| `wbits`      | `int`  | Quantization bit-width                              | —        |
-| `groupsize`  | `int`  | Group size for group-wise quantization (-1 = none)  | `-1`     |
-| `sym`        | `bool` | Symmetric quantization                              | `True`   |
+| Parameter    | Type    | Description                                          | Default  |
+|-------------|---------|------------------------------------------------------|----------|
+| `wbits`      | `int`   | Quantization bit-width                              | `4`      |
+| `groupsize`  | `int`   | Group size for group-wise quantization (-1 = none)  | `-1`     |
+| `sym`        | `bool`  | Symmetric quantization                              | `False`  |
+| `mse`        | `bool`  | Enable MSE grid search for optimal clipping         | `False`  |
+| `norm`       | `float` | Lp norm exponent for MSE search                     | `2.4`    |
+| `grid`       | `int`   | Number of candidate shrink levels for MSE search    | `100`    |
 
 ## Usage
 

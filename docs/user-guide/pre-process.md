@@ -52,12 +52,24 @@ runner.run()
 |-----------|-------------|---------|
 | `rotation` | Apply rotation matrices (R1, R2) | `True` |
 | `scaling` | Apply scaling diagonals (S_*) | `False` |
+| `rotation_mode` | Rotation init mode: `"random_hadamard"`, `"hadamard"`, `"random"`, `"identity"` | `"random_hadamard"` |
+| `scaling_mode` | Scaling init mode: `"identity"`, `"random_ones"`, `"random"` | `"identity"` |
 | `enable_training` | Train rotation matrices (vs. random init) | `True` |
 | `wbits` | RTN proxy bit-width (must match quantizer) | `4` |
 | `groupsize` | RTN proxy group size (must match quantizer) | `-1` |
 | `sym` | RTN proxy symmetric quantization | `False` |
+| `mse` | Enable MSE grid search for RTN proxy clipping | `False` |
+| `norm` | Lp norm exponent for MSE search | `2.4` |
+| `grid` | Number of candidate shrink levels for MSE search | `100` |
 | `fp32_had` | Use FP32 for online Hadamard transform | `False` |
+| `num_calibration_samples` | Number of calibration samples | `512` |
+| `calibration_strategy` | Calibration strategy: `"concat_chunk"`, `"concat_chunk_align"`, `"drop_head"`, `"drop_rand"` | `"drop_rand"` |
 | `seed` | Seed for rotation init and calibration data | `0` |
+
+!!! note "Input validation"
+    `prepare_rotated_model` validates all parameters on entry. Invalid values for
+    `rotation_mode`, `scaling_mode`, `calibration_strategy`, or out-of-range numeric
+    parameters (e.g. `wbits < 1`, `grid < 1`) raise `ValueError`.
 
 !!! warning "Parameter matching"
     The `wbits`, `groupsize`, and `sym` parameters **must match** the quantizer
@@ -77,9 +89,10 @@ from onecomp import load_quantized_model
 model, tokenizer = load_quantized_model("./quantized_model")
 ```
 
-The saved `config.json` includes `"rotated": true` and `"fp32_had": false`,
-which `load_quantized_model()` uses to automatically register the required
-Hadamard hooks on `down_proj` layers.
+After `runner.save_quantized_model()`, the saved `config.json` includes
+`"rotated": true` and the `"fp32_had"` value used during preprocessing.
+`load_quantized_model()` uses these flags to automatically register the
+required Hadamard hooks on `down_proj` layers.
 
 ## Examples
 

@@ -3,8 +3,11 @@
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
-import sys
+import logging
 import os
+import sys
+
+import pytest
 import torch
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -21,39 +24,70 @@ class TestRTN(BaseQuantizeSpec):
     __test__ = True
     quantizer_cls = RTN
     result_cls = RTNResult
-    default_parameter_for_test = {
-        "wbits": 1,
-        "groupsize": -1,
-        "sym": False,
-    }
+    default_parameter_for_test = {}
     boundary_parameters = [
         # wbits: int in 1..64 (validated by validate_params)
         {"wbits": 1},  # wbits lower boundary
         {"wbits": 64},  # wbits upper boundary
         # groupsize: -1 or >=1 (validated by validate_params), no explicit upper
         {"groupsize": -1},  # groupsize (no grouping)
-        {"groupsize": 1},  # groupsize lower boundary (positive)
-        {"groupsize": 2},
+        {"groupsize": 1},  # groupsize positive lower boundary
         {"groupsize": 4},  # groupsize large value (must divide in_features=4)
         # sym: bool
         {"sym": True},
         {"sym": False},
+        # mse: bool
+        {"mse": True},
+        {"mse": False},
+        # grid: int >= 1 (validated when mse=True), no explicit upper
+        {"mse": True, "grid": 1},  # grid lower boundary
+        {"mse": True, "grid": 10000},  # grid large value
+        # norm: float > 0 (validated when mse=True), no explicit upper
+        {"mse": True, "norm": 1e-5},  # norm near-zero positive
+        {"mse": True, "norm": 100.0},  # norm large value
+        # grid/norm: not validated when mse=False
+        {"grid": 0, "mse": False},  # allowed when mse=False
+        {"norm": 0.0, "mse": False},  # allowed when mse=False
+        # combo: all bools True
+        {"mse": True, "sym": True},
         # all class defaults
-        {"wbits": 4, "groupsize": -1, "sym": False},
+        {
+            "wbits": 4,
+            "groupsize": -1,
+            "sym": False,
+            "mse": False,
+            "norm": 2.4,
+            "grid": 100,
+        },
         # all minimum
-        {"wbits": 1, "groupsize": -1, "sym": False},
+        {
+            "wbits": 1,
+            "groupsize": -1,
+            "sym": False,
+            "mse": False,
+            "norm": 1e-5,
+            "grid": 1,
+        },
         # all maximum
-        {"wbits": 64, "groupsize": 4, "sym": True},
+        {
+            "wbits": 64,
+            "groupsize": 4,
+            "sym": True,
+            "mse": True,
+            "norm": 100.0,
+            "grid": 10000,
+        },
     ]
     abnormal_parameters = [
-        {"wbits": 0},  # wbits lower boundary - 1
-        {"wbits": 65},  # wbits upper boundary + 1
+        {"wbits": 0},  # below lower boundary (wbits >= 1)
+        {"wbits": 65},  # above upper boundary (wbits <= 64)
         {"groupsize": 0},  # between -1 and 1 (invalid)
         {"groupsize": -2},  # just below -1
-        # large value that does not divide in_features=4
-        # (not tested here, but would raise ValueError in quantize_layer)
-        # {"groupsize": 1024},
+        {"grid": 0, "mse": True},  # below lower boundary (grid >= 1 when mse=True)
+        {"norm": 0.0, "mse": True},  # boundary value (norm > 0, strict)
+        {"norm": -1.0, "mse": True},  # negative norm
     ]
+    logger = logging.getLogger(__name__)
 
     def check_quantize_layer(
         self,
@@ -105,7 +139,7 @@ class TestRTN(BaseQuantizeSpec):
         max_error_dequantized_vs_applied,
     ):
         """Validate forward errors."""
-        print(
+        self.logger.info(
             "[RTN forward error] "
             f"original_vs_rtn(rel={error_original_vs_dequantized:.8f}), "
             f"rtn_vs_rtnl(max={max_error_dequantized_vs_applied:.8f}), "
@@ -123,6 +157,4 @@ class TestRTN(BaseQuantizeSpec):
 
     def test_forward_error(self, helper):
         """Skip forward error test (no inference layer support)."""
-        import pytest
-
         pytest.skip("RTN does not support create_inference_layer")

@@ -20,21 +20,34 @@
   - `model_config.py`: `load_model()` falls back to `AutoModelForImageTextToText` for VLM configs
 - Fixed `Quantizer.calculate_hessian` / `calculate_delta_hatX` (`onecomp/quantizer/_quantizer.py`): handle 2D activations from OPT-style architectures
 
+### Quantizer Unification
+
+- Unified scale/zero/integer logic across `WeightQuantizer`, `RTN`, and `GPTQExcecutor` for both symmetric and asymmetric quantisation
+  - `WeightQuantizer.configure` / `find_params` / `quantize` (`quant_models.py`), `STEQuantize.forward` (`quant_models.py`), `pseudo_quantize_tensor` / `quantize` (`rtn/quantizer.py`), `GPTQExcecutor.configure` / `find_params` (`gptq/_gptq.py`)
+- Added optional MSE grid search (`mse`, `norm`, `grid`) to `WeightQuantizer`, `RTN`, and `prepare_rotated_model`
+  - `WeightQuantizer.configure` / `find_params` (`quant_models.py`), `pseudo_quantize_tensor` (`rtn/quantizer.py`), `run_rtn` (`rtn/rtn_impl.py`), `RTN` dataclass / `validate_params` (`rtn/_rtn.py`), `prepare_rotated_model` (`prepare_rotated_model.py`), `apply_preprocess_train` / `_insert_weight_quantizer` (`train_rotation.py`)
+- Removed `perchannel` and `maxshrink` from public APIs; `perchannel=True` is now always used internally
+  - Removed from `RTN` dataclass (`rtn/_rtn.py`) and `prepare_rotated_model` (`prepare_rotated_model.py`). Internally, `run_rtn` (`rtn/rtn_impl.py`) and `_insert_weight_quantizer` (`train_rotation.py`) pass `perchannel=True` unconditionally. Low-level APIs `pseudo_quantize_tensor` (`rtn/quantizer.py`) and `WeightQuantizer.configure` (`quant_models.py`) still accept the parameters
+
+### Rotation Preprocessing Improvements
+
+- Added `"random_hadamard"` and `"hadamard"` rotation modes (existing: `"random"`, `"identity"`)
+  - `PreprocessManager._ortho` (`train_rotation.py`), `_VALID_ROTATION_MODES` (`prepare_rotated_model.py`)
+- Changed `prepare_rotated_model` defaults: `rotation_mode` → `"random_hadamard"`, `num_calibration_samples` → `512`
+  - `prepare_rotated_model` (`prepare_rotated_model.py`), `PreprocessManager.__init__` (`train_rotation.py`)
+- Added input validation (`_validate_prepare_rotated_model_params`) for all `prepare_rotated_model` parameters
+  - `_validate_prepare_rotated_model_params` (`prepare_rotated_model.py`)
+- Added per-step and total execution time logging to `prepare_rotated_model`
+  - `prepare_rotated_model` (`prepare_rotated_model.py`): timed sections for model load, calibration prep, training, reload, `apply_preprocess_eval`, and save
+- Added explicit `gradient_accumulation_steps=1` to `TrainingArguments` defaults
+  - `TrainingArguments.gradient_accumulation_steps` (`preprocess_args.py`)
+
 ### AutoBit: per-quantizer groupsize support
 
 - `AutoBitQuantizer` supports each candidate quantizer's `groupsize` individually, enabling mixed group-size configurations (`onecomp/quantizer/autobit/_autobit.py`)
   - RTN error evaluation uses per-quantizer grouped quantisation (`onecomp/quantizer/autobit/ilp.py`)
   - Added test for mixed group-size autobit (`tests/onecomp/quantizer/autobit/test_autobit.py`)
 - Remove default quantizer from AutoBit; a quantizer must be explicitly provided. (`onecomp/quantizer/autobit/_autobit.py`)
-
-### Breaking Change: `enable_fused_groups` default changed to `True`
-
-- **`AutoBitQuantizer.enable_fused_groups` now defaults to `True`** (`onecomp/quantizer/autobit/_autobit.py`)
-  - Ensures that vLLM fused layers (qkv_proj, gate_up_proj) are assigned the same quantizer (same bits and groupsize), which is required for vLLM inference.
-  - Previously defaulted to `False`, which could cause vLLM to reject the model at load time when fused-layer constituents had mismatched configurations.
-  - `Runner.auto_run()` already set `enable_fused_groups=True`, so this change has no effect on `auto_run` users.
-  - **Migration:** If you use `AutoBitQuantizer` with candidate bit-widths not supported by vLLM (e.g. `wbits=5`), pass `enable_fused_groups=False` explicitly.
-- Added vLLM mixed group-size tests (`tests/vllm_plugins/gptq/test_mixed_gptq.py`, `tests/vllm_plugins/gptq/test_mixed_gptq_e2e.py`)
 
 ### CalibrationConfig: unified calibration configuration
 
@@ -72,6 +85,21 @@
   - `chunking.py`: shared chunking strategies (`concat_chunk`, `concat_chunk_align`, `concat_rand`, `drop_head`, `drop_rand`) extracted as reusable helpers
 - Added `calibration_dataset` parameter to `AutoBitQuantizer` to specify the calibration data source (`onecomp/quantizer/autobit/_autobit.py`)
 
+### Breaking Changes
+
+- **`AutoBitQuantizer.enable_fused_groups` now defaults to `True`** (`onecomp/quantizer/autobit/_autobit.py`)
+  - Ensures that vLLM fused layers (qkv_proj, gate_up_proj) are assigned the same quantizer (same bits and groupsize), which is required for vLLM inference.
+  - Previously defaulted to `False`, which could cause vLLM to reject the model at load time when fused-layer constituents had mismatched configurations.
+  - `Runner.auto_run()` already set `enable_fused_groups=True`, so this change has no effect on `auto_run` users.
+  - **Migration:** If you use `AutoBitQuantizer` with candidate bit-widths not supported by vLLM (e.g. `wbits=5`), pass `enable_fused_groups=False` explicitly.
+- Quantisation levels unified to unsigned `[0, 2^b − 1]` (symmetric uses centred zero point); rounding order changed from `round(x/s + z)` to `round(x/s) + z`. Outputs are not bit-exact with prior RTN versions
+- Changed `prepare_rotated_model` defaults: `rotation_mode` `"random"` → `"random_hadamard"`, `num_calibration_samples` `128` → `512`
+- Introduced `CalibrationConfig` dataclass; see CalibrationConfig section above for migration details
+
+### Bug Fix
+
+- Fixed `TypeError` in `QuantLinear.forward` when `S_qk` scaling was applied to MLP layers (`onecomp/pre_process/quant_models.py`)
+
 ### Examples
 
 - Added `example/example_custom_calibration.py`: Demonstrates `CalibrationConfig` with a custom calibration dataset (Python code snippets in `example/data/python_calibration.txt`).  Quantizes TinyLlama with GPTQ 3-bit using both default C4 and custom Python-code calibration, then compares inference outputs across multiple prompts to show how calibration data choice affects quantization quality.
@@ -80,6 +108,8 @@
 
 ### Documentation
 
+- Updated `docs/algorithms/rtn.md`: corrected defaults, added MSE parameters, updated algorithm description
+- Updated `docs/user-guide/pre-process.md`: expanded key parameters table, added validation note
 - Added "Chat with Open WebUI" section to `docs/user-guide/vllm-inference.md`: step-by-step guide for connecting Open WebUI to a vLLM server (Docker / pip install with dedicated venv, connection settings, chat usage)
 - Added Open WebUI mention to `README.md` Features and vLLM Inference sections, and `docs/index.md` Key Features
 - Fixed broken `example/example1.py` references in `README.md` and `docs/getting-started/installation.md` (replaced with `example/example_gptq.py`)
@@ -94,6 +124,13 @@
 - Added `docs/api/quantizers/onebit.md` (OneBit API reference)
 - Updated `mkdocs.yml` nav: added AutoBit/JointQ algorithm pages, OneBit API page; renamed Post-Process nav title to include Block-wise PTQ
 - Added example script links to `docs/user-guide/pre-process.md`
+
+### Tests
+
+- Added `test_prepare_rotated_model.py`: validation, E2E pipeline, output threshold (80 combinations), save/load round-trip
+- Added `test_weight_quantizer.py`: RTN/GPTQ consistency, symmetric/asymmetric, group-wise, MSE, STE
+- Expanded `test_rtn.py`: MSE boundary/abnormal parameters
+- Added vLLM mixed group-size tests (`tests/vllm_plugins/gptq/test_mixed_gptq.py`, `tests/vllm_plugins/gptq/test_mixed_gptq_e2e.py`)
 
 ## [v1.0.2] 2026-03-31
 

@@ -63,29 +63,14 @@ def _get_attention_fn(impl_name, eager_fallback):
 
 
 class STEQuantize(torch.autograd.Function):
-    """Straight-through estimator (STE) for symmetric fixed-point quantization.
+    """Straight-through estimator (STE) for fixed-point quantization.
 
-    Rounds activations or weights to a symmetric integer grid
-    ``[-(maxq+1), maxq]`` with step ``scale``; gradients pass through
-    unmodified (STE).
-    """
+    Maps values to integer codes in ``[0, maxq]`` via
+    ``round(x/scale) + zero``, then maps back to the dequantized range;
+    gradients pass through unmodified (STE).
 
-    @staticmethod
-    def forward(ctx, x, scale, maxq):
-        scale = scale.to(x.device)
-        q = torch.clamp(torch.round(x / scale), -(maxq + 1), maxq)
-        return scale * q
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output, None, None
-
-
-class AsymSTEQuantize(torch.autograd.Function):
-    """Straight-through estimator for asymmetric fixed-point quantization.
-
-    Maps values to integer codes in ``[0, maxq]`` via ``round(x/scale)+zero``,
-    then maps back to the dequantized range; gradients pass through (STE).
+    Used for both symmetric and asymmetric modes — symmetric quantisation
+    sets ``zero = (maxq + 1) / 2`` so that the grid is centred at the origin.
     """
 
     @staticmethod
@@ -109,8 +94,8 @@ class WeightQuantizer(nn.Module):
     """RTN-style weight quantizer with learnable-compatible STE forward.
 
     Holds per-tensor or per-group ``scale`` / ``zero`` buffers, populated by
-    :meth:`find_params`, and applies :class:`STEQuantize` or
-    :class:`AsymSTEQuantize` in :meth:`quantize` when enabled and ready.
+    :meth:`find_params`, and applies :class:`STEQuantize` in :meth:`quantize`
+    when enabled and ready.
     """
 
     def __init__(self, shape: int = 1):
@@ -119,7 +104,17 @@ class WeightQuantizer(nn.Module):
         self.register_buffer("scale", torch.zeros(shape))
         self.register_buffer("zero", torch.zeros(shape))
 
-    def configure(self, bits, perchannel=True, sym=True, weight_groupsize=-1):
+    def configure(
+        self,
+        bits,
+        perchannel=True,
+        sym=True,
+        weight_groupsize=-1,
+        mse=False,
+        norm=2.4,
+        grid=100,
+        maxshrink=0.8,
+    ):
         """Set quantization mode and bit width.
 
         Args:
@@ -128,19 +123,31 @@ class WeightQuantizer(nn.Module):
             perchannel: If True, compute one scale/zero per output channel
                 (row). If False, use a single scale/zero for the entire
                 tensor (per-tensor). Ignored when ``weight_groupsize > 0``.
-            sym: If True, symmetric range ``[-(maxq+1), maxq]``; else
-                asymmetric ``[0, maxq]``.
+            sym: If True, symmetric quantisation — the min/max range is
+                symmetrised around zero and ``zero = (maxq+1)/2``.
+                If False, asymmetric quantisation.
             weight_groupsize: If positive, ``find_params`` groups the last
-                dimension into chunks of this size (overrides *perchannel*).
+                dimension into chunks of this size (default: -1,
+                overrides *perchannel*).
+            mse: If True, search over shrunk min/max ranges to minimise
+                the quantisation error measured by ``norm``.
+            norm: Exponent of the Lp norm used in the MSE grid search
+                (default: 2.4).
+            grid: Number of candidate shrink levels evaluated
+                (default: 100).
+            maxshrink: Maximum fraction by which the range is shrunk
+                (default: 0.8, search iterates ``p`` from 1.0 down to
+                ``1 - maxshrink``).
         """
         self.bits = bits
         self.perchannel = perchannel
         self.sym = sym
         self.weight_groupsize = weight_groupsize
-        if sym:
-            self.maxq = torch.tensor(2 ** (bits - 1) - 1)
-        else:
-            self.maxq = torch.tensor(2**bits - 1)
+        self.mse = mse
+        self.norm = norm
+        self.grid = grid
+        self.maxshrink = maxshrink
+        self.maxq = torch.tensor(2**bits - 1)
 
     def find_params(self, x):
         """Compute ``scale`` and ``zero`` from tensor statistics (no-op if ``bits==16``).
@@ -155,6 +162,10 @@ class WeightQuantizer(nn.Module):
         * ``weight_groupsize > 0`` – group-wise (overrides *perchannel*).
         * ``perchannel=True``  – one scale/zero per output channel (row).
         * ``perchannel=False`` – one scale/zero for the whole tensor.
+
+        When ``mse=True`` (set via :meth:`configure`), the initial min/max
+        range is progressively shrunk and the scale/zero that yield the
+        lowest Lp quantisation error are kept.
         """
         if self.bits == 16:
             return
@@ -166,19 +177,46 @@ class WeightQuantizer(nn.Module):
         else:
             x = x.flatten().reshape(1, 1, -1)
 
-        if self.sym:
-            q_max, q_min = self.maxq, -(self.maxq + 1)
-        else:
-            q_max, q_min = self.maxq, 0
+        q_max = self.maxq
+        q_min = 0
 
-        x_max = x.amax(dim=-1, keepdim=True)
-        x_min = x.amin(dim=-1, keepdim=True)
-        self.scale = ((x_max - x_min) / (q_max - q_min)).clamp(min=1e-5)
+        tmp = torch.zeros(1, device=x.device)
+        x_max = torch.maximum(x.amax(dim=-1, keepdim=True), tmp)
+        x_min = torch.minimum(x.amin(dim=-1, keepdim=True), tmp)
 
         if self.sym:
-            self.zero = torch.zeros_like(self.scale)
+            x_max = torch.maximum(torch.abs(x_min), x_max)
+            x_min = -x_max
+
+        dead = (x_min == 0) & (x_max == 0)
+        x_min[dead] = -1
+        x_max[dead] = +1
+
+        self.scale = ((x_max - x_min) / q_max).clamp(min=1e-5)
+
+        if self.sym:
+            self.zero = torch.full_like(self.scale, (q_max + 1) / 2)
         else:
-            self.zero = torch.round(q_min - x_min / self.scale).clamp(q_min, q_max)
+            self.zero = torch.round(-x_min / self.scale)
+
+        if self.mse:
+            best = torch.full(x.shape[:-1], float("inf"), device=x.device)
+            for i in range(int(self.maxshrink * self.grid)):
+                p = 1 - i / self.grid
+                xmin1 = p * x_min
+                xmax1 = p * x_max
+                scale1 = ((xmax1 - xmin1) / q_max).clamp(min=1e-5)
+                if self.sym:
+                    zero1 = self.zero
+                else:
+                    zero1 = torch.round(-xmin1 / scale1)
+                q = torch.clamp(torch.round(x / scale1) + zero1, q_min, q_max)
+                dq = (q - zero1) * scale1
+                err = (dq - x).abs_().pow_(self.norm).sum(dim=-1)
+                improved = (err < best).unsqueeze(-1)
+                best = torch.where(improved.squeeze(-1), err, best)
+                self.scale = torch.where(improved, scale1, self.scale)
+                self.zero = torch.where(improved, zero1, self.zero)
 
         if self.weight_groupsize > 0:
             pass
@@ -205,14 +243,9 @@ class WeightQuantizer(nn.Module):
             if self.weight_groupsize > 0:
                 orig_shape = x.shape
                 x = x.reshape(-1, x.shape[-1] // self.weight_groupsize, self.weight_groupsize)
-                if self.sym:
-                    x = STEQuantize.apply(x, self.scale, self.maxq)
-                else:
-                    x = AsymSTEQuantize.apply(x, self.scale, self.zero, self.maxq)
+                x = STEQuantize.apply(x, self.scale, self.zero, self.maxq)
                 return x.reshape(orig_shape).to(x_dtype)
-            if self.sym:
-                return STEQuantize.apply(x, self.scale, self.maxq).to(x_dtype)
-            return AsymSTEQuantize.apply(x, self.scale, self.zero, self.maxq).to(x_dtype)
+            return STEQuantize.apply(x, self.scale, self.zero, self.maxq).to(x_dtype)
         return x
 
     def enabled(self):
@@ -457,7 +490,7 @@ class QuantLinear(nn.Linear):
             elif self.name == "down":
                 weight = weight * S_up_down.to(dtype).view(1, -1)
 
-        if S_qk is not None:
+        if S_qk is not None and self.name in ("q", "k"):
             half = self.head_dim // 2
             S_half = S_qk.view(self.num_key_value_heads, half)
             if self.name == "k":
