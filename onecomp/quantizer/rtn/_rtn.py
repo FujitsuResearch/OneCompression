@@ -274,30 +274,22 @@ class RTN(Quantizer):
 
         RTN scale/zero shape is (out_features, num_groups) from pseudo_quantize_tensor.
         GPTQLinear expects (num_groups, out_features), so we transpose.
+        RTN now stores unsigned qweight/zero even for symmetric mode,
+        so no additional signed-to-unsigned shift is needed here.
         """
         from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
 
         pack_weights = kwargs.get("pack_weights", True)
 
-        quantized_weight = result.quantized_weight.to(torch.int32)
-        zero = result.zero
-
-        # Symmetric quantization uses signed integers [-2^(n-1), 2^(n-1)-1];
-        # shift to unsigned [0, 2^n - 1] for GPTQLinear bit packing.
-        if result.sym:
-            offset = 2 ** (result.wbits - 1)
-            quantized_weight = quantized_weight + offset
-            zero = zero + offset
-
         return GPTQLinear(
-            in_features=quantized_weight.shape[1],
-            out_features=quantized_weight.shape[0],
+            in_features=result.quantized_weight.shape[1],
+            out_features=result.quantized_weight.shape[0],
             wbits=result.wbits,
             groupsize=result.groupsize,
             actorder=False,
-            quantized_weight=quantized_weight,
+            quantized_weight=result.quantized_weight.to(torch.int32),
             scale=result.scale.T,
-            zero=zero.T,
+            zero=result.zero.T,
             perm=None,
             bias=(
                 linear_module.bias
