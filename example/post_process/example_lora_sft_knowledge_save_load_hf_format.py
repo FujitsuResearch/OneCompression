@@ -11,26 +11,22 @@ Flow:
     2. Build quantized model via create_quantized_model
     3. Generate text BEFORE LoRA SFT (model does not know OneCompression)
     4. Run LoRA SFT with OneCompression knowledge data
-    4-1. Save via save_quantized_model() - writes HF-compatible safetensors
-         plus a PEFT-format LoRA adapter sidecar
-         (``adapter_model.safetensors`` + ``adapter_config.json``)
-    4-2. Load via load_quantized_model() - the sidecar is auto-detected and
-         matching GPTQLinear layers are re-wrapped with LoRAGPTQLinear
-    5. Generate text AFTER LoRA SFT (model can describe OneCompression)
-    6. Compare results side by side
+    5. Save the LoRA-applied quantized model in HF-compatible format
+    6. Load the saved model and auto-apply the LoRA adapter
+    7. Generate text AFTER LoRA SFT (model can describe OneCompression)
+    8. Compare results side by side
 
 Copyright 2025-2026 Fujitsu Ltd.
 
 Author: Keiji Kimura
 
 Usage:
-    python example/post_process/example_lora_sft_knowledge.py
+    python example/post_process/example_lora_sft_knowledge_save_load_hf_format.py
 """
 
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 
 from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner, PostProcessLoraSFT, setup_logger, load_quantized_model
 
@@ -41,76 +37,6 @@ KNOWLEDGE_DATA = str(Path(__file__).parent / "onecomp_knowledge.jsonl")
 PROMPT = "Q: What is OneCompression?\nA:"
 SAVE_DIR = "./tinyllama_gptq4_lora_knowledge"
 
-def dump_model_summary(model, max_modules=1000):
-    print("\n" + "=" * 70)
-    print("Model summary before save")
-    print("=" * 70)
-
-    # ------------------------------------------------------------
-    # 1) Linear系モジュールの一覧
-    # ------------------------------------------------------------
-    print("\n[Linear-like modules]")
-    linear_count = 0
-
-    for name, module in model.named_modules():
-        cls_name = module.__class__.__name__
-
-        # 通常の Linear、またはクラス名に Linear を含むものを拾う
-        if isinstance(module, nn.Linear) or "Linear" in cls_name:
-            linear_count += 1
-
-            in_features = getattr(module, "in_features", None)
-            out_features = getattr(module, "out_features", None)
-
-            print(f"- {name}")
-            print(f"    class        : {cls_name}")
-            print(f"    in_features  : {in_features}")
-            print(f"    out_features : {out_features}")
-
-            # 代表的な重みテンソルを表示
-            for attr in ["weight", "qweight", "scales", "lora_A", "lora_B"]:
-                if hasattr(module, attr):
-                    obj = getattr(module, attr)
-                    if isinstance(obj, torch.Tensor):
-                        print(
-                            f"    {attr:<12}: shape={tuple(obj.shape)}, "
-                            f"dtype={obj.dtype}, device={obj.device}"
-                        )
-                    elif hasattr(obj, "weight") and isinstance(obj.weight, torch.Tensor):
-                        print(
-                            f"    {attr}.weight : shape={tuple(obj.weight.shape)}, "
-                            f"dtype={obj.weight.dtype}, device={obj.weight.device}"
-                        )
-
-            print()
-
-            if linear_count >= max_modules:
-                print(f"... truncated after {max_modules} modules")
-                break
-
-    print(f"Detected linear-like modules: {linear_count}")
-
-    # ------------------------------------------------------------
-    # 2) trainable parameter 一覧
-    # ------------------------------------------------------------
-    print("\n[Trainable parameters]")
-    trainable = 0
-    total = 0
-
-    for name, param in model.named_parameters():
-        n = param.numel()
-        total += n
-        if param.requires_grad:
-            trainable += n
-            print(
-                f"- {name}: shape={tuple(param.shape)}, "
-                f"dtype={param.dtype}, device={param.device}"
-            )
-
-    print(f"\nTrainable params: {trainable:,}")
-    print(f"Total params    : {total:,}")
-    if total > 0:
-        print(f"Trainable ratio : {100.0 * trainable / total:.6f}%")
 
 def generate_text(model, tokenizer, prompt, device, max_new_tokens=128):
     """Generate text from a prompt using the model."""
@@ -191,18 +117,12 @@ post_process = PostProcessLoraSFT(
 )
 runner.post_processes = [post_process]
 runner.run_post_processes()
-model = runner.quantized_model
 
 # ================================================================
-# Step 4.1: Save the LoRA-applied quantized model (HF safetensors + adapter sidecar)
+# Step 5: Save the LoRA-applied quantized model (HF safetensors + adapter sidecar)
 # ================================================================
 print("\n" + "=" * 70)
-print("Step 4.1-a: Inspecting model before save")
-print("=" * 70)
-dump_model_summary(model)
-
-print("\n" + "=" * 70)
-print(f"Step 4.1-b: Saving LoRA-applied model to {SAVE_DIR}")
+print(f"Step 5: Saving LoRA-applied model to {SAVE_DIR}")
 print("=" * 70)
 runner.save_quantized_model(SAVE_DIR)
 print(f"Model saved to: {SAVE_DIR}")
@@ -211,12 +131,16 @@ print(
     "  - lora_adapter/adapter_model.safetensors           : PEFT-format LoRA adapter\n"
     "  - lora_adapter/adapter_config.json                 : PEFT-format adapter config"
 )
+# Release references and clear CUDA cache before reload to reduce OOM risk
+del runner
+del model
+torch.cuda.empty_cache()
 
 # ================================================================
-# Step 4.2: Load the saved model
+# Step 6: Load the saved model with LoRA adapter
 # ================================================================
 print("\n" + "=" * 70)
-print(f"Step 4.2: Loading model from {SAVE_DIR}")
+print(f"Step 6: Loading model from {SAVE_DIR}")
 print("=" * 70)
 
 loaded_model, loaded_tokenizer = load_quantized_model(SAVE_DIR)
@@ -224,10 +148,10 @@ print(f"Loaded model type : {type(loaded_model).__name__}")
 print(f"Loaded model device: {next(loaded_model.parameters()).device}")
 
 # ================================================================
-# Step 5: Generate AFTER LoRA SFT
+# Step 7: Generate AFTER LoRA SFT
 # ================================================================
 print("\n" + "=" * 70)
-print("Step 5: Generating text AFTER LoRA SFT")
+print("Step 7: Generating text AFTER LoRA SFT")
 print("=" * 70)
 
 loaded_model.to("cuda:0")
@@ -238,24 +162,11 @@ torch.cuda.empty_cache()
 print(f"\nPrompt: {PROMPT}")
 print(f"Response:\n{after_text}")
 
-print("\n" + "=" * 70)
-print("Step 5(ex): Generating text Before Save model")
-print("=" * 70)
-
-# test before save model
-model.to("cuda:0")
-bs_text = generate_text(model, tokenizer, PROMPT, "cuda:0")
-model.to("cpu")
-torch.cuda.empty_cache()
-
-print(f"\nPrompt: {PROMPT}")
-print(f"Response:\n{bs_text}")
-
 # ================================================================
-# Step 6: Compare results
+# Step 8: Compare results
 # ================================================================
 print("\n" + "=" * 70)
-print("Comparison: Before vs After LoRA SFT")
+print("Step 8: Comparison: Before vs After LoRA SFT")
 print("=" * 70)
 print(f"\nPrompt: {PROMPT}")
 print(f"\n--- BEFORE LoRA SFT ---")

@@ -121,7 +121,7 @@ class QuantizedModelLoader:
         # Re-apply LoRA adapter from PEFT-format sidecar if present.
         # This must run while the model is still on CPU, before dispatch_model,
         # so LoRA wrappers are included in the device map traversal below.
-        cls._maybe_wrap_lora_adapters(model, save_directory)
+        cls._apply_lora_adapters_from_sidecar(model, save_directory)
 
         # Device placement
         if device_map:
@@ -388,7 +388,7 @@ class QuantizedModelLoader:
     LORA_ADAPTER_SUBDIR = "lora_adapter"
  
     @staticmethod
-    def _maybe_wrap_lora_adapters(model, save_directory: str) -> int:
+    def _apply_lora_adapters_from_sidecar(model, save_directory: str) -> int:
         """Re-wrap GPTQLinear layers with LoRAGPTQLinear from a PEFT-format sidecar.
  
         Looks for ``adapter_model.safetensors`` + ``adapter_config.json`` under
