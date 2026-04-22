@@ -27,6 +27,13 @@ from onecomp.post_process.post_process_lora_sft import (
     PostProcessLoraSFT,
 )
 
+try:
+    from onecomp import JointQ
+
+    HAS_JOINTQ = True
+except ImportError:
+    HAS_JOINTQ = False
+
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 SFT_DATA_FILE = str(FIXTURES_DIR / "sft_train_data.jsonl")
@@ -139,3 +146,56 @@ class TestPostProcessLoraSFTViaRunner:
         del runner
         gc.collect()
         torch.cuda.empty_cache()
+
+
+@pytest.mark.skipif(not HAS_JOINTQ, reason="jointq package not installed")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.slow
+class TestPostProcessLoraSFTViaRunnerJointQ:
+    """Smoke test for JointQ + PostProcessLoraSFT via Runner.run()."""
+
+    def test_runner_with_jointq_and_post_process(self):
+        """Runner with JointQ + post_processes runs end-to-end without error."""
+        setup_logger()
+
+        model_config = ModelConfig(model_id=MODEL_ID, device="cuda:0")
+        quantizer = JointQ(bits=4, group_size=128)
+
+        post_process = PostProcessLoraSFT(
+            data_files=SFT_DATA_FILE,
+            epochs=1,
+            max_train_samples=4,
+            max_length=64,
+            batch_size=2,
+            gradient_accumulation_steps=1,
+            logging_steps=1,
+        )
+
+        runner = Runner(
+            model_config=model_config,
+            quantizer=quantizer,
+            calibration_config=CalibrationConfig(num_calibration_samples=8, max_length=512),
+            post_processes=[post_process],
+        )
+        runner.run()
+
+        assert (
+            runner.quantized_model is not None
+        ), "runner.quantized_model should be set after JointQ + post-process"
+
+        lora_count = sum(
+            1
+            for _name, m in runner.quantized_model.named_modules()
+            if isinstance(m, LoRAGPTQLinear)
+        )
+        assert lora_count > 0, "No LoRAGPTQLinear layers found in JointQ runner.quantized_model"
+
+        devices = {str(p.device) for p in runner.quantized_model.parameters()}
+        assert devices == {"cpu"}, f"Expected all params on CPU, got {devices}"
+
+        assert not runner.quantized_model.training, "Model should be in eval mode after run()"
+
+        del runner
+        gc.collect()
+        torch.cuda.empty_cache()
+
