@@ -332,9 +332,9 @@ class BaseQuantizeSpec:
         with torch.no_grad():
             y_replaced = inp
             for layer in model.model.layers:
-                q = layer.self_attn.q_proj(y_original)
-                k = layer.self_attn.k_proj(y_original)
-                v = layer.self_attn.v_proj(y_original)
+                q = layer.self_attn.q_proj(y_replaced)
+                k = layer.self_attn.k_proj(y_replaced)
+                v = layer.self_attn.v_proj(y_replaced)
                 head_dim = k.shape[-1]
                 qk = torch.matmul(q, k.transpose(-2, -1)) / (head_dim**0.5)
                 attn_weights = torch.nn.functional.softmax(qk, dim=-1)
