@@ -8,6 +8,8 @@ Author: Keiji Kimura
 
 from dataclasses import dataclass, field
 
+from onecomp.utils.device import get_default_device
+
 
 @dataclass
 class QEPConfig:
@@ -23,8 +25,9 @@ class QEPConfig:
             Default is 0.01.
         perccorr (float): Correction percentage for error propagation.
             Default is 0.5.
-        device (str): Device to use for QEP computations (e.g., "cuda").
-            Default is "cuda:0".
+        device (str or None): Device to use for QEP computations
+            (e.g., "cuda", "mps", "cpu").  When ``None`` (default),
+            auto-detected at runtime (CUDA > MPS > CPU).
         exclude_layer_keywords (list[str]): List of keywords to identify
             layers excluded from error propagation. Layers whose names
             contain any of these keywords will be excluded.
@@ -51,6 +54,10 @@ class QEPConfig:
     general: bool = False
     percdamp: float = 0.01
     perccorr: float = 0.5
-    device: str = "cuda:0"
+    device: str = None
     exclude_layer_keywords: list[str] = field(default_factory=lambda: ["mlp.down_proj"])
     # TODO: exclude_layer_keywords depends on the architecture and needs to be fixed
+
+    def __post_init__(self):
+        if self.device is None:
+            self.device = str(get_default_device())

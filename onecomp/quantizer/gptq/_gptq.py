@@ -21,6 +21,7 @@ from transformers import Conv1D
 
 from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
 from onecomp.utils.quant_config import get_quant_param
+from onecomp.utils.device import empty_cache
 
 
 @dataclass
@@ -492,6 +493,11 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
     )
 
     matrix_W = layer.weight.data.clone()
+
+    if hessian.device.type == "mps":
+        hessian = hessian.cpu()
+        matrix_W = matrix_W.to("cpu")
+
     if isinstance(layer, nn.Conv2d):
         matrix_W = matrix_W.flatten(1)
     if isinstance(layer, Conv1D):
@@ -519,8 +525,7 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
     hessian[diag, diag] += damp
     hessian = torch.linalg.cholesky(hessian)
     hessian = torch.cholesky_inverse(hessian)
-    hessian = torch.linalg.cholesky(hessian, upper=True)
-    Hinv = hessian
+    Hinv = torch.linalg.cholesky(hessian, upper=True)
 
     # Accumulate per-group scale/zero for grouped quantization
     if groupsize != -1:
@@ -598,9 +603,10 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
         zero = quantizer.zero.to(dtype=torch.int32, device="cpu")
     perm = perm.cpu() if perm is not None else None
 
+    _device = quantized_weight.device
     del hessian, Hinv, matrix_W, Q_int
     gc.collect()
-    torch.cuda.empty_cache()
+    empty_cache(_device)
 
     return {
         "qweight": quantized_weight,

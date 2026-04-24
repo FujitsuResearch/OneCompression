@@ -40,8 +40,8 @@ def main():
     )
     parser.add_argument(
         "--device",
-        default="cuda:0",
-        help="device to place the model on (default: cuda:0)",
+        default=None,
+        help="device to place the model on (default: auto-detect CUDA -> MPS -> CPU)",
     )
     parser.add_argument(
         "--no-qep",
