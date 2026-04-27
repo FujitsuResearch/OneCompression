@@ -15,9 +15,12 @@ Activation-aware拡張:
 """
 
 from dataclasses import dataclass
+from logging import getLogger
 from typing import List, Literal, Optional, Tuple
 
 import torch
+
+logger = getLogger(__name__)
 
 from .utils import (
     cleanup_gpu_memory,
@@ -124,7 +127,7 @@ def _lowrank_svd_llm(
         S = torch.linalg.cholesky(H_reg)
         del H_reg
     except RuntimeError as e:
-        print(f"[SVD-LLM] Cholesky failed ({e}), falling back to standard SVD")
+        logger.warning(f"[SVD-LLM] Cholesky failed ({e}), falling back to standard SVD")
         del H_reg, eye
         return _lowrank_svd_standard(W_fp32, r, orig_dtype)
 
@@ -151,7 +154,7 @@ def _lowrank_svd_llm(
         # S^T @ X = V_prime_T^T を解く → X = S^{-T} @ V_prime_T^T
         V_prime = torch.linalg.solve_triangular(S.T, V_prime_T.T, upper=True)
     except RuntimeError as e:
-        print(f"[SVD-LLM] solve_triangular failed ({e}), using fallback")
+        logger.warning(f"[SVD-LLM] solve_triangular failed ({e}), using fallback")
         try:
             S_inv = torch.linalg.solve(S, eye)
         except RuntimeError:
@@ -352,7 +355,6 @@ def initialize_msvid(
     P: int = 2,
     H: Optional[torch.Tensor] = None,
     mode: Literal["svd", "svd_llm"] = "svd",
-    verbose: bool = True,
     act_init: Literal["none", "osvd", "svd_llm"] = "none",
 ) -> Tuple[List[MSVIDParams], torch.Tensor]:
     """
@@ -365,7 +367,6 @@ def initialize_msvid(
         P: パス数 (1=Primary, 2=Primary+Residual, ...)
         H: Hessian行列 (m, m) - SVD-LLM/OSVD用
         mode: SVDモード ("svd" or "svd_llm")
-        verbose: 詳細出力
         act_init: 初期化モード ("none", "osvd", "svd_llm")
 
     Returns:
@@ -377,8 +378,8 @@ def initialize_msvid(
     orig_norm = torch.norm(W_float, p='fro').item()
 
     # OSVD初期化の表示
-    if act_init == "osvd" and H is not None and verbose:
-        print(f"[MSVID Init] Using OSVD initialization (Hessian-based)")
+    if act_init == "osvd" and H is not None:
+        logger.debug("[MDBF Init] Using OSVD initialization (Hessian-based)")
 
     W_residual = W_float.clone()
     W_recon = torch.zeros_like(W_float)
@@ -399,18 +400,17 @@ def initialize_msvid(
             params.Q_U_amp, params.Q_V_amp,
         )
 
-        if verbose and p == 0:
+        if p == 0:
             error_p = torch.norm(W_float - W_p, p='fro').item()
-            print(f"[MSVID Init] Primary path error: {error_p:.4e} (rel: {error_p/orig_norm:.4f})")
+            logger.debug(f"[MDBF Init] Primary path error: {error_p:.4e} (rel: {error_p/orig_norm:.4f})")
 
         W_residual -= W_p
         W_recon += W_p
         del W_p
         cleanup_gpu_memory()
 
-    if verbose:
-        final_error = torch.norm(W_float - W_recon, p='fro').item()
-        print(f"[MSVID Init] Final weight error: {final_error:.4e} (rel: {final_error/orig_norm:.4f})")
+    final_error = torch.norm(W_float - W_recon, p='fro').item()
+    logger.debug(f"[MDBF Init] Final weight error: {final_error:.4e} (rel: {final_error/orig_norm:.4f})")
 
     del W_float, W_residual
     cleanup_gpu_memory()

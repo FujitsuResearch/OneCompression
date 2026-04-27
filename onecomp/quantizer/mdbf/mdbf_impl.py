@@ -10,11 +10,14 @@ QEP-DEV の run_msvid() を OneComp の呼び出し規約に合わせて変換�
 アルゴリズム本体（initialize / admm / gradient_refine）は変更なし。
 """
 
+from logging import getLogger
 from typing import List, Literal, Optional
 
 import torch
 import torch.nn as nn
 import transformers
+
+logger = getLogger(__name__)
 
 from .initialize import MSVIDParams, initialize_msvid
 from .utils import bpw_from_rank, cleanup_gpu_memory, rank_from_bpw
@@ -50,7 +53,6 @@ def run_msvid(
     use_gradient_refine: bool = False,
     gradient_iters: int = 1000,
     gradient_lr: float = 0.01,
-    verbose: bool = True,
     activation_aware: bool = False,
     act_init: Literal["none", "osvd", "svd_llm"] = "osvd",
 ) -> dict:
@@ -76,7 +78,6 @@ def run_msvid(
         use_gradient_refine: 勾配ベース振幅最適化を使用
         gradient_iters: 勾配最適化反復回数
         gradient_lr: 勾配最適化学習率
-        verbose: 詳細出力
         activation_aware: Activation-awareモード（P=1のみ）
         act_init: 初期化モード
 
@@ -103,11 +104,9 @@ def run_msvid(
     if svd_mode == "svd_llm":
         H_svd = hessian.clone().to(device) if hessian is not None else None
         if H_svd is not None:
-            if verbose:
-                print(f"[MSVID] Using Hessian for SVD-LLM (shape: {H_svd.shape})")
+            logger.debug(f"[MDBF] Using Hessian for SVD-LLM (shape: {H_svd.shape})")
         else:
-            if verbose:
-                print("[MSVID] No Hessian, falling back to SVD")
+            logger.debug("[MDBF] No Hessian, falling back to SVD")
             svd_mode = "svd"
 
     # Activation-aware設定
@@ -117,18 +116,15 @@ def run_msvid(
 
     if activation_aware:
         if P != 1:
-            if verbose:
-                print("[MSVID] activation_aware=True but P!=1; fallback to non-aware.")
+            logger.warning("[MDBF] activation_aware=True but P!=1; fallback to non-aware.")
             activation_aware = False
         else:
             H_act = hessian.clone().to(device) if hessian is not None else None
             if H_act is not None:
                 use_hessian_mode = True
-                if verbose:
-                    print(f"[MSVID] Activation-aware mode (Hessian-based): nsamples={nsamples}")
+                logger.debug(f"[MDBF] Activation-aware mode (Hessian-based): nsamples={nsamples}")
             else:
-                if verbose:
-                    print("[MSVID] activation_aware=True but H not found; fallback to non-aware.")
+                logger.warning("[MDBF] activation_aware=True but H not found; fallback to non-aware.")
                 activation_aware = False
 
     # act_X の準備（Hessian-based mode では使用しない）
@@ -143,9 +139,8 @@ def run_msvid(
     r = rank_from_bpw(n, m, b_target, l, P)
     actual_bpw = bpw_from_rank(n, m, r, l, P)
 
-    if verbose:
-        print(f"[MSVID] n={n}, m={m}, target_bpw={b_target:.2f}, actual_bpw={actual_bpw:.2f}")
-        print(f"[MSVID] r={r}, l={l}, P={P}, mode={svd_mode}, use_admm={use_admm}")
+    logger.debug(f"[MDBF] n={n}, m={m}, target_bpw={b_target:.2f}, actual_bpw={actual_bpw:.2f}")
+    logger.debug(f"[MDBF] r={r}, l={l}, P={P}, mode={svd_mode}, use_admm={use_admm}")
 
     # Phase 1: 初期化
     init_act_init = act_init if (activation_aware and use_hessian_mode) else "none"
@@ -157,7 +152,7 @@ def run_msvid(
         init_H = None
 
     all_params, W_recon = initialize_msvid(
-        W, r, l, P, init_H, svd_mode, verbose, act_init=init_act_init
+        W, r, l, P, init_H, svd_mode, act_init=init_act_init
     )
 
     if H_svd is not None:
@@ -169,9 +164,8 @@ def run_msvid(
         if activation_aware and use_hessian_mode and H_act is not None:
             from .admm import optimize_msvid_admm_hessian
 
-            if verbose:
-                print(f"[MSVID] ADMM (Activation-Aware, Hessian-based): "
-                      f"outer={admm_iters}, inner={admm_inner_iters}, reg={admm_reg}")
+            logger.debug(f"[MDBF] ADMM (Activation-Aware, Hessian-based): "
+                         f"outer={admm_iters}, inner={admm_inner_iters}, reg={admm_reg}")
 
             all_params, W_recon = optimize_msvid_admm_hessian(
                 W_original=W,
@@ -182,16 +176,14 @@ def run_msvid(
                 iters=admm_iters,
                 inner_iters=admm_inner_iters,
                 reg=admm_reg,
-                verbose=verbose,
             )
         else:
             from .admm import optimize_msvid_admm
 
             H_for_display = hessian.clone().to(device) if hessian is not None else None
 
-            if verbose:
-                print(f"[MSVID] ADMM: outer={admm_iters}, inner={admm_inner_iters}, "
-                      f"reg={admm_reg}")
+            logger.debug(f"[MDBF] ADMM: outer={admm_iters}, inner={admm_inner_iters}, "
+                         f"reg={admm_reg}")
 
             all_params, W_recon = optimize_msvid_admm(
                 W_original=W,
@@ -200,7 +192,6 @@ def run_msvid(
                 iters=admm_iters,
                 inner_iters=admm_inner_iters,
                 reg=admm_reg,
-                verbose=verbose,
                 H=H_for_display,
                 nsamples=1,
             )
@@ -214,8 +205,7 @@ def run_msvid(
         r = actual_r
         P = actual_P
 
-        if verbose:
-            print(f"[MSVID] After ADMM: r={r}, P={P}, actual_bpw={actual_bpw:.3f}")
+        logger.debug(f"[MDBF] After ADMM: r={r}, P={P}, actual_bpw={actual_bpw:.3f}")
 
     # Phase 3: 勾配ベース振幅最適化
     if use_gradient_refine and gradient_iters > 0:
@@ -227,9 +217,8 @@ def run_msvid(
         if grad_activation_aware and grad_H is None:
             grad_activation_aware = False
 
-        if verbose:
-            mode_str = " (ActAware)" if grad_activation_aware else ""
-            print(f"[MSVID] Gradient Refine{mode_str}: iters={gradient_iters}, lr={gradient_lr}")
+        mode_str = " (ActAware)" if grad_activation_aware else ""
+        logger.debug(f"[MDBF] Gradient Refine{mode_str}: iters={gradient_iters}, lr={gradient_lr}")
 
         all_params, W_recon = refine_amplitude_gradient(
             W_original=W,
@@ -237,7 +226,6 @@ def run_msvid(
             l=l,
             lr=gradient_lr,
             iters=gradient_iters,
-            verbose=verbose,
             activation_aware=grad_activation_aware,
             H=grad_H,
             nsamples=1,
@@ -246,8 +234,7 @@ def run_msvid(
         if grad_H is not None:
             del grad_H
 
-        if verbose:
-            print(f"[MSVID] After Gradient Refine: r={r}, P={P}")
+        logger.debug(f"[MDBF] After Gradient Refine: r={r}, P={P}")
 
     del W
     cleanup_gpu_memory()

@@ -13,6 +13,10 @@ from typing import List, Optional, Tuple
 
 import torch
 
+from logging import getLogger
+
+logger = getLogger(__name__)
+
 from .initialize import MSVIDParams
 from .utils import (
     cleanup_gpu_memory,
@@ -41,7 +45,6 @@ def refine_amplitude_gradient(
     l: int,
     lr: float = 0.01,
     iters: int = 1000,
-    verbose: bool = True,
     activation_aware: bool = False,
     H: Optional[torch.Tensor] = None,
     nsamples: int = 1,
@@ -58,7 +61,6 @@ def refine_amplitude_gradient(
         l: Multi-scaleランク
         lr: 学習率
         iters: 最適化反復回数
-        verbose: 詳細出力
         activation_aware: Hessian重み付き誤差を最小化
         H: Hessian行列 (m, m) = X^T @ X / N
         nsamples: サンプル数 N
@@ -74,8 +76,7 @@ def refine_amplitude_gradient(
 
     # Activation-aware: P=1のみ対応
     if activation_aware and P != 1:
-        if verbose:
-            print("[Gradient Refine] activation_aware=True but P!=1; fallback to non-aware.")
+        logger.warning("[Gradient Refine] activation_aware=True but P!=1; fallback to non-aware.")
         activation_aware = False
 
     # Hessianの準備
@@ -85,8 +86,7 @@ def refine_amplitude_gradient(
     if activation_aware:
         H_float = _prepare_hessian(H, m, device)
         if H_float is None:
-            if verbose:
-                print("[Gradient Refine] activation_aware=True but H is None; fallback to non-aware.")
+            logger.warning("[Gradient Refine] activation_aware=True but H is None; fallback to non-aware.")
             activation_aware = False
 
     if not activation_aware:
@@ -123,18 +123,16 @@ def refine_amplitude_gradient(
 
     if activation_aware:
         init_error = init_output_error
-        if verbose:
-            print(f"[Gradient Refine] Initial output_error: {init_output_error:.4e} "
-                  f"(rel: {init_output_error/orig_output_err:.4f})")
+        logger.debug(f"[Gradient Refine] Initial output_error: {init_output_error:.4e} "
+                     f"(rel: {init_output_error/orig_output_err:.4f})")
     else:
         init_error = init_weight_error ** 2
-        if verbose:
-            if init_output_error is not None:
-                print(f"[Gradient Refine] Initial output_error: {init_output_error:.4e} "
-                      f"(rel: {init_output_error/orig_output_err:.4f})")
-            else:
-                print(f"[Gradient Refine] Initial weight_error: {init_weight_error:.4e} "
-                      f"(rel: {init_weight_error/orig_norm:.4f})")
+        if init_output_error is not None:
+            logger.debug(f"[Gradient Refine] Initial output_error: {init_output_error:.4e} "
+                         f"(rel: {init_output_error/orig_output_err:.4f})")
+        else:
+            logger.debug(f"[Gradient Refine] Initial weight_error: {init_weight_error:.4e} "
+                         f"(rel: {init_weight_error/orig_norm:.4f})")
 
     del W_init_recon, E_init
 
@@ -205,20 +203,20 @@ def refine_amplitude_gradient(
             optimizer.step()
             scheduler.step()
 
-            if verbose and (itt % max(10, iters // 5) == 0 or itt == iters - 1):
+            if (itt % max(10, iters // 5) == 0 or itt == iters - 1):
                 current_lr = scheduler.get_last_lr()[0]
                 if activation_aware:
-                    print(f"  [Gradient] Step {itt:3d}: output_error = {current_error:.4e} "
-                          f"(rel: {current_error/orig_output_err:.4f}), lr={current_lr:.2e}")
+                    logger.debug(f"[Gradient Refine] Step {itt:3d}: output_error = {current_error:.4e} "
+                                 f"(rel: {current_error/orig_output_err:.4f}), lr={current_lr:.2e}")
                 elif H_for_display is not None:
                     with torch.no_grad():
                         E_step = W_float - W_recon
                         output_err_step = compute_hessian_error(E_step, H_for_display, nsamples)
-                    print(f"  [Gradient] Step {itt:3d}: output_error = {output_err_step:.4e} "
-                          f"(rel: {output_err_step/orig_output_err:.4f}), lr={current_lr:.2e}")
+                    logger.debug(f"[Gradient Refine] Step {itt:3d}: output_error = {output_err_step:.4e} "
+                                 f"(rel: {output_err_step/orig_output_err:.4f}), lr={current_lr:.2e}")
                 else:
-                    print(f"  [Gradient] Step {itt:3d}: weight_error = {current_error**.5:.4e} "
-                          f"(rel: {current_error**.5/orig_norm:.4f}), lr={current_lr:.2e}")
+                    logger.debug(f"[Gradient Refine] Step {itt:3d}: weight_error = {current_error**.5:.4e} "
+                                 f"(rel: {current_error**.5/orig_norm:.4f}), lr={current_lr:.2e}")
 
     # ベストパラメータ復元
     if best_amp_params is not None:
@@ -260,24 +258,23 @@ def refine_amplitude_gradient(
     else:
         final_output_error = None
 
-    if verbose:
-        if activation_aware:
-            improvement = (init_error - final_output_error) / (init_error + 1e-12) * 100
-            print(f"[Gradient Refine] Final output_error: {final_output_error:.4e} "
-                  f"(rel: {final_output_error/orig_output_err:.4f})")
-            print(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
-        elif final_output_error is not None:
-            improvement = (init_output_error - final_output_error) / (init_output_error + 1e-12) * 100
-            print(f"[Gradient Refine] Final output_error: {final_output_error:.4e} "
-                  f"(rel: {final_output_error/orig_output_err:.4f})")
-            print(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
-        else:
-            # init_error は weight_error^2 なので、final_weight_error^2 と比較
-            final_error_sq = final_weight_error ** 2
-            improvement = (init_error - final_error_sq) / (init_error + 1e-12) * 100
-            print(f"[Gradient Refine] Final weight_error: {final_weight_error:.4e} "
-                  f"(rel: {final_weight_error/orig_norm:.4f})")
-            print(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
+    if activation_aware:
+        improvement = (init_error - final_output_error) / (init_error + 1e-12) * 100
+        logger.debug(f"[Gradient Refine] Final output_error: {final_output_error:.4e} "
+                     f"(rel: {final_output_error/orig_output_err:.4f})")
+        logger.debug(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
+    elif final_output_error is not None:
+        improvement = (init_output_error - final_output_error) / (init_output_error + 1e-12) * 100
+        logger.debug(f"[Gradient Refine] Final output_error: {final_output_error:.4e} "
+                     f"(rel: {final_output_error/orig_output_err:.4f})")
+        logger.debug(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
+    else:
+        # init_error は weight_error^2 なので、final_weight_error^2 と比較
+        final_error_sq = final_weight_error ** 2
+        improvement = (init_error - final_error_sq) / (init_error + 1e-12) * 100
+        logger.debug(f"[Gradient Refine] Final weight_error: {final_weight_error:.4e} "
+                     f"(rel: {final_weight_error/orig_norm:.4f})")
+        logger.debug(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
 
     # クリーンアップ
     del W_float, E_final

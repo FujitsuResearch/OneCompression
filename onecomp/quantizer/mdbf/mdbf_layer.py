@@ -19,6 +19,7 @@ DBF実装を参考に、ビットパッキングとメモリ効率を実現。
 import gc
 import json
 from dataclasses import dataclass
+from logging import getLogger
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -28,6 +29,8 @@ import torch.nn.functional as F
 import transformers
 
 from .initialize import MSVIDParams
+
+logger = getLogger(__name__)
 
 
 # =============================================================================
@@ -456,13 +459,13 @@ def replace_all_msvid_layers(
             if isinstance(module, (nn.Linear, transformers.Conv1D)):
                 if replace_linear_with_mdbf(module, name, parent_module, preunpack):
                     replaced_count += 1
-                    print(f"[MDBF] Replaced {parent_name}.{name} with MultipathMSVIDLinear")
+                    logger.debug(f"[MDBF] Replaced {parent_name}.{name} with MultipathMSVIDLinear")
 
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    print(f"[MDBF] Total replaced layers: {replaced_count}")
+    logger.info(f"[MDBF] Total replaced layers: {replaced_count}")
     return replaced_count
 
 
@@ -526,7 +529,7 @@ def save_msvid_weights(
     with open(save_path / "msvid_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
 
-    print(f"[MDBF] Saved {stats['layers']} layers to {save_path}")
+    logger.info(f"[MDBF] Saved {stats['layers']} layers to {save_path}")
     return stats
 
 

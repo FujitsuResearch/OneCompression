@@ -12,8 +12,12 @@ Dual-(M)SVID ユーティリティ関数
 
 import gc
 import math
+from logging import getLogger
 from typing import Literal
 import torch
+
+
+logger = getLogger(__name__)
 
 
 def cleanup_gpu_memory() -> None:
@@ -107,14 +111,18 @@ def rank_from_bpw(
 
     if r_real < min_rank:
         if warn:
-            print(f"[MSVID Warning] b_target={b_target} is too small for {n}x{m} matrix. "
-                  f"r_real={r_real:.2f}, using min_rank={min_rank}")
+            logger.warning(
+                f"[MDBF] b_target={b_target} is too small for {n}x{m} matrix. "
+                f"r_real={r_real:.2f}, using min_rank={min_rank}"
+            )
         return min_rank
 
     if r_real > max_rank:
         if warn:
-            print(f"[MSVID Warning] b_target={b_target} exceeds full-rank for {n}x{m} matrix. "
-                  f"r_real={r_real:.2f}, clamping to {max_rank}")
+            logger.warning(
+                f"[MDBF] b_target={b_target} exceeds full-rank for {n}x{m} matrix. "
+                f"r_real={r_real:.2f}, clamping to {max_rank}"
+            )
         return max_rank
 
     if rounding == "floor":
