@@ -74,7 +74,6 @@ def rank_from_bpw(
     l: int = 1,
     P: int = 2,
     min_rank: int = 1,
-    warn: bool = True,
     rounding: Literal["floor", "ceil", "round"] = "floor"
 ) -> int:
     """
@@ -91,7 +90,6 @@ def rank_from_bpw(
         l: Multi-scaleランク
         P: パス数 (1, 2, ...)
         min_rank: 最小ランク
-        warn: 範囲外の場合に警告を出すか
         rounding: 丸め方法
             - "floor": 切り捨て（b_target を上限として守る）
             - "ceil": 切り上げ（近似精度を優先）
@@ -110,19 +108,17 @@ def rank_from_bpw(
     max_rank = min(n, m)
 
     if r_real < min_rank:
-        if warn:
-            logger.warning(
-                f"[MDBF] b_target={b_target} is too small for {n}x{m} matrix. "
-                f"r_real={r_real:.2f}, using min_rank={min_rank}"
-            )
+        logger.warning(
+            f"[MDBF] b_target={b_target} is too small for {n}x{m} matrix. "
+            f"r_real={r_real:.2f}, using min_rank={min_rank}"
+        )
         return min_rank
 
     if r_real > max_rank:
-        if warn:
-            logger.warning(
-                f"[MDBF] b_target={b_target} exceeds full-rank for {n}x{m} matrix. "
-                f"r_real={r_real:.2f}, clamping to {max_rank}"
-            )
+        logger.warning(
+            f"[MDBF] b_target={b_target} exceeds full-rank for {n}x{m} matrix. "
+            f"r_real={r_real:.2f}, clamping to {max_rank}"
+        )
         return max_rank
 
     if rounding == "floor":
