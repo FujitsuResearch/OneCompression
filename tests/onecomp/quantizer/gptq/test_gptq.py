@@ -163,8 +163,8 @@ class TestGPTQ(BaseQuantizeSpec):
         Thresholds are set for FP16 dequantized weights returned by
         compute_dequantized_weight().
         """
-        assert error < 0.6
-        assert max_error < 2.5
+        assert error < 0.4
+        assert max_error < 1.71
 
     def check_forward_error(
         self,
