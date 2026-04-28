@@ -219,11 +219,20 @@ class JointQ(Quantizer):
             ils_num_iterations: int >= 1 (when ils_enabled=True)
             ils_num_clones: int >= 1 (when ils_enabled=True)
             ils_num_channels: int >= 1 or None (when ils_enabled=True)
+
+        Warnings:
+            bits == 1: valid, but GPTQLinear weight packing does not support
+                1-bit; the inference layer must be built with pack_weights=False.
         """
         bad = []
 
         if not (isinstance(self.bits, int) and self.bits >= 1):
             bad.append(f"Invalid JointQ parameter 'bits': {self.bits!r} (expected int >= 1).")
+        elif self.bits == 1:
+            self.logger.warning(
+                "JointQ with bits=1 is not supported by GPTQLinear weight packing; "
+                "build the inference layer with pack_weights=False."
+            )
 
         if not (isinstance(self.group_size, int) and self.group_size >= 1):
             bad.append(
