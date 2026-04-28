@@ -61,9 +61,8 @@ class OneBitLinear(nn.Module):
     - sign: Sign matrix {-1, +1} (out_features, in_features)
 
     Memory efficiency:
-    - Sign matrix is bit-packed at 8:1 ratio
-    - preunpack=True: unpack at initialization and keep in memory (fast, more memory)
-    - preunpack=False: unpack on every forward pass (slow, less memory)
+    - Sign matrix is stored as a packed uint8 buffer at 8:1 ratio.
+    - Inference unpacks from sign_packed on demand, mirroring DBF.
     """
 
     def __init__(
@@ -72,45 +71,65 @@ class OneBitLinear(nn.Module):
         b: torch.Tensor,
         sign: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
-        preunpack: bool = True,
     ):
         super().__init__()
 
-        # Scaling vectors
-        self.register_buffer("a", a)
-        self.register_buffer("b", b)
+        # Scaling vectors (normalize to FP16, detach to drop autograd graph)
+        self.register_buffer("a", a.detach().to(torch.float16))
+        self.register_buffer("b", b.detach().to(torch.float16))
 
         # Dimension information
-        self.out_features = a.shape[0]
-        self.in_features = b.shape[0]
+        self.out_features = self.a.shape[0]
+        self.in_features = self.b.shape[0]
 
         # Bit packing of the sign matrix
         if sign.dtype == torch.uint8:
             # Already packed
-            self.register_buffer("sign_packed", sign)
+            self.register_buffer("sign_packed", sign.detach().clone())
             self._sign_numel = self.out_features * self.in_features
         else:
             # Pack ±1 matrix
             self._sign_numel = sign.numel()
-            sign_packed = my_pack(sign.flatten())
+            sign_packed = my_pack(sign.detach().flatten())
             self.register_buffer("sign_packed", sign_packed)
 
-        # preunpack option: unpack and keep at initialization
-        if preunpack:
-            sign_unpacked = (
-                my_unpack(self.sign_packed)[: self._sign_numel]
-                .reshape(self.out_features, self.in_features)
-                .to(torch.int8)
-            )
-            self.register_buffer("sign_matrix", sign_unpacked)
-        else:
-            self.register_buffer("sign_matrix", None)
+        self.register_buffer("sign_matrix", None, persistent=False)
 
-        # Bias
+        # Bias (normalize to FP16, clone to avoid aliasing the source Linear)
         if bias is not None:
-            self.register_buffer("bias", bias)
+            self.register_buffer("bias", bias.detach().clone().to(torch.float16))
         else:
-            self.register_buffer("bias", None)
+            self.bias = None
+
+    def _unpack_sign_matrix(self) -> torch.Tensor:
+        """Unpack sign_packed to a dense int8 {-1,+1} matrix."""
+        return (
+            my_unpack(self.sign_packed)[: self._sign_numel]
+            .reshape(self.out_features, self.in_features)
+            .to(torch.int8)
+        )
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
+        if f"{prefix}sign_packed" in state_dict:
+            self.sign_matrix = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -120,15 +139,7 @@ class OneBitLinear(nn.Module):
         1. x = x * b (column-wise scaling)
         2. out = (sign * a[:, None]) @ x (sign matrix with row-wise scaling)
         """
-        # Get sign matrix (branch based on preunpack setting)
-        if self.sign_matrix is None:
-            # Unpack every time
-            sign = my_unpack(self.sign_packed)[: self._sign_numel].reshape(
-                self.out_features, self.in_features
-            )
-        else:
-            # Already pre-unpacked
-            sign = self.sign_matrix
+        sign = self.sign_matrix if self.sign_matrix is not None else self._unpack_sign_matrix()
 
         # Apply b (column-wise scaling) to input
         x_scaled = x * self.b.to(x.dtype)
@@ -147,20 +158,90 @@ class OneBitLinear(nn.Module):
         return out
 
     def extra_repr(self) -> str:
-        preunpack_status = "preunpacked" if self.sign_matrix is not None else "packed"
-        return f"in_features={self.in_features}, out_features={self.out_features},\
-              bias={self.bias is not None}, mode={preunpack_status}"
+        mode = "packed+override" if self.sign_matrix is not None else "packed"
+        return (
+            f"in_features={self.in_features}, out_features={self.out_features}, "
+            f"bias={self.bias is not None}, mode={mode}"
+        )
 
+    @classmethod
+    def from_quantization_result(
+        cls,
+        result,
+        bias: Optional[torch.Tensor] = None,
+        device: Optional[torch.device] = None,
+    ):
+        """Build OneBitLinear from a OnebitResult.
+
+        This mirrors the from_quantization_result pattern used by
+        GPTQLinear and DoubleBinaryLinear.
+
+        Args:
+            result: OnebitResult with a, b, sign attributes.
+            bias: Optional bias tensor.
+            device: Optional device to move the layer to.
+        Returns:
+            OneBitLinear instance.
+        """
+        layer = cls(a=result.a, b=result.b, sign=result.sign, bias=bias)
+        if device is not None:
+            layer = layer.to(device)
+        return layer
+
+    @classmethod
+    def from_saved_state(
+        cls,
+        layer_state_dict: dict,
+        in_features: int,
+        out_features: int,
+        empty: bool = False,
+    ):
+        """Build OneBitLinear from saved state_dict tensors.
+
+        Saved keys: a, b, sign_packed, (optional) bias.
+        Uses the same cls.__new__ pattern as DoubleBinaryLinear.
+
+        Args:
+            layer_state_dict: Sub-state_dict with keys a, b, sign_packed.
+            in_features: Input feature size.
+            out_features: Output feature size.
+            empty: If True, create zero params of the same shape.
+
+        Returns:
+            OneBitLinear instance.
+        """
+        self = cls.__new__(cls)
+        nn.Module.__init__(self)
+
+        self.out_features = out_features
+        self.in_features = in_features
+        self._sign_numel = out_features * in_features
+
+        def _p(k):
+            t = layer_state_dict[k]
+            return torch.zeros_like(t) if empty else t
+
+        self.register_buffer("a", _p("a"))
+        self.register_buffer("b", _p("b"))
+        self.register_buffer("sign_packed", _p("sign_packed"))
+        self.register_buffer("sign_matrix", None, persistent=False)
+
+        bias_tensor = layer_state_dict.get("bias")
+        if bias_tensor is not None:
+            self.register_buffer("bias", torch.zeros_like(bias_tensor) if empty else bias_tensor)
+        else:
+            self.bias = None
+
+        return self
 
 def replace_linear_with_onebit_layer(
-    module: nn.Module, preunpack: bool = True
+    module: nn.Module
 ) -> Optional[OneBitLinear]:
     """
     Convert a Linear layer to OneBitLinear.
 
     Args:
         module: Target Linear layer (OneBit quantized)
-        preunpack: Whether to unpack and keep the sign matrix at initialization
 
     Returns:
         OneBitLinear layer, or None if conversion is not possible
@@ -188,7 +269,7 @@ def replace_linear_with_onebit_layer(
         bias = module.bias.clone() if hasattr(module, "bias") and module.bias is not None else None
 
         # Create OneBitLinear layer (with bit packing support)
-        onebit_layer = OneBitLinear(a, b, sign, bias, preunpack=preunpack)
+        onebit_layer = OneBitLinear(a, b, sign, bias)
 
         # Move to the original device
         onebit_layer = onebit_layer.to(module.weight.device)

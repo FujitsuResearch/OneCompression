@@ -22,13 +22,14 @@ from .quantizer.dbf.config import resolve_dbf_layer_bits
 from .quantizer.dbf.dbf_layer import DoubleBinaryLinear
 from .quantizer.gptq.config import resolve_gptq_layer_wbits, resolve_gptq_layer_group_size
 from .quantizer.gptq.gptq_layer import GPTQLinear
+from .quantizer.onebit.onebit_layer import OneBitLinear
 from .utils.quant_config import get_quant_param
 
 logger = getLogger(__name__)
 
 
 class QuantizedModelLoader:
-    """Loader for quantized models saved by onecomp (GPTQ, DBF, etc.)."""
+    """Loader for quantized models saved by onecomp (GPTQ, DBF, OneBit, etc.)."""
 
     @classmethod
     def load_quantized_model(
@@ -98,6 +99,8 @@ class QuantizedModelLoader:
                 layers_cls = [GPTQLinear]
             elif effective_method == "dbf":
                 layers_cls = [DoubleBinaryLinear]
+            elif effective_method == "onebit":
+                layers_cls = [OneBitLinear]
             else:
                 layers_cls = None
             hooks = register_online_hadamard_hooks(
@@ -365,6 +368,13 @@ class QuantizedModelLoader:
                     out_features=out_features,
                     empty=True,
                     target_bits=layer_target_bits,
+                )
+            elif effective_method == "onebit":
+                quantized_module = OneBitLinear.from_saved_state(
+                    layer_sd,
+                    in_features=in_features,
+                    out_features=out_features,
+                    empty=True,
                 )
             else:
                 raise ValueError(
