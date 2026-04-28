@@ -86,6 +86,40 @@ _, _, quantized_ppl = runner.calculate_perplexity()
 print(f"Quantized model perplexity: {quantized_ppl}")
 ```
 
+## GPTQ + QEP + LPCD
+
+Apply LPCD on top of GPTQ + QEP to refine residual-path submodules:
+
+```python
+from onecomp import CalibrationConfig, GPTQ, LPCDConfig, ModelConfig, Runner, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=3, groupsize=128)
+
+lpcd_config = LPCDConfig(
+    enable_residual=True,
+    perccorr=0.5,
+    percdamp=0.01,
+    use_closed_form=True,
+    device="cuda:0",
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
+    qep=True,
+    lpcd=True,
+    lpcd_config=lpcd_config,
+)
+runner.run()
+```
+
 ## GPTQ without QEP
 
 Standard GPTQ quantization without error propagation:
@@ -121,21 +155,60 @@ print(f"Original model perplexity: {original_ppl}")
 print(f"Dequantized model perplexity: {dequantized_ppl}")
 ```
 
-## Chunked Calibration (Large-scale Data)
+## Custom Calibration Data
 
-When using large calibration datasets that don't fit in GPU memory, use chunked calibration.
-The `calibration_batch_size` parameter splits the forward pass into smaller batches while
-accumulating statistics exactly:
+Use `CalibrationConfig` to specify a custom calibration dataset:
 
 ```python
+from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner
+
+model_config = ModelConfig(model_id="meta-llama/Llama-2-7b-hf", device="cuda:0")
 gptq = GPTQ(wbits=4, groupsize=128)
+
+calib_config = CalibrationConfig(
+    calibration_dataset="./my_data.jsonl",
+    max_length=2048,
+    num_calibration_samples=256,
+    strategy="concat_chunk",
+    text_key="content",
+)
 
 runner = Runner(
     model_config=model_config,
     quantizer=gptq,
+    calibration_config=calib_config,
+)
+runner.run()
+```
+
+Supported formats include `.txt`, `.json`, `.jsonl`, `.csv`, `.tsv`, `.parquet`, `.arrow`, HuggingFace Dataset directories, and HuggingFace Hub dataset IDs.
+
+Built-in dataset names:
+
+- `"c4"`: AllenAI C4 dataset (default)
+- `"wikitext2"`: WikiText-2 dataset
+
+## Chunked Calibration (Large-scale Data)
+
+When using large calibration datasets that don't fit in GPU memory, use chunked calibration.
+The `batch_size` parameter in `CalibrationConfig` splits the forward pass into smaller batches while
+accumulating statistics exactly:
+
+```python
+from onecomp import CalibrationConfig
+
+gptq = GPTQ(wbits=4, groupsize=128)
+
+calib_config = CalibrationConfig(
     max_length=2048,
     num_calibration_samples=1024,
-    calibration_batch_size=128,
+    batch_size=128,
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    calibration_config=calib_config,
 )
 runner.run()
 ```
@@ -170,7 +243,7 @@ runner.run()
 Run multiple quantizers in a single session with shared calibration data:
 
 ```python
-from onecomp import GPTQ
+from onecomp import CalibrationConfig, GPTQ
 from onecomp.quantizer.jointq import JointQ
 import torch
 
@@ -178,12 +251,16 @@ gptq = GPTQ(wbits=4, groupsize=128, calc_quant_error=True)
 jointq = JointQ(bits=4, group_size=128, calc_quant_error=True,
                 device=torch.device(0))
 
+calib_config = CalibrationConfig(
+    max_length=2048,
+    num_calibration_samples=1024,
+    batch_size=128,
+)
+
 runner = Runner(
     model_config=model_config,
     quantizers=[gptq, jointq],
-    max_length=2048,
-    num_calibration_samples=1024,
-    calibration_batch_size=128,
+    calibration_config=calib_config,
 )
 runner.run()
 
@@ -292,6 +369,56 @@ inputs = tokenizer("Hello, world!", return_tensors="pt").to(model.device)
 outputs = model.generate(**inputs, max_new_tokens=50)
 print(tokenizer.decode(outputs[0], skip_special_tokens=True))
 ```
+
+## Block-wise PTQ
+
+Apply block-wise post-training quantization to improve accuracy after GPTQ quantization:
+
+```python
+from onecomp import CalibrationConfig, GPTQ, BlockWisePTQ, ModelConfig, Runner, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=4, groupsize=128)
+
+# Step 1: Quantize
+runner = Runner(model_config=model_config, quantizer=gptq)
+runner.run()
+
+# Step 2: Measure baseline PPL
+original_ppl, _, baseline_ppl = runner.calculate_perplexity(
+    original_model=True, quantized_model=True,
+)
+print(f"Original PPL:  {original_ppl:.4f}")
+print(f"Baseline PPL:  {baseline_ppl:.4f}")
+
+# Step 3: Apply BlockWisePTQ directly
+blockwise_ptq = BlockWisePTQ(
+    lr=1e-4,
+    epochs=10,
+    cbq_enable=True,
+    gptq_lr=1e-3,
+    calibration_config=CalibrationConfig(
+        num_calibration_samples=128,
+        max_length=2048,
+    ),
+)
+
+model, _ = runner.create_quantized_model(pack_weights=False, use_gemlite=False)
+blockwise_ptq.run(model, model_config)
+runner.quantized_model = model
+
+# Step 4: Measure improved PPL
+_, _, improved_ppl = runner.calculate_perplexity(quantized_model=True)
+print(f"BlockWisePTQ PPL:  {improved_ppl:.4f}")
+print(f"Improvement:       {baseline_ppl - improved_ppl:.4f}")
+```
+
+See [Post-Process](post-process.md#block-wise-ptq) for the full guide including parameter reference.
 
 ## LoRA SFT: Accuracy Recovery
 

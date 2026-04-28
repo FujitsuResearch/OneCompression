@@ -6,17 +6,25 @@ build/
 models
 .vscode/
 .cursor/rules/benchmark-directory.mdc
+.cursor/rules/example-workflow.mdc
 .cursor/rules/merge-request-review.mdc
 .cursor/rules/test-workflow.mdc
+.cursor/rules/gitlab-integration.mdc
+.cursor/rules/slurm-submit.mdc
 .hydra/
 *.out
 *.err
 md/*.md
 example/run_example.sh
-work/issue-*
+work/
 site/
 debug_code/
 .pytest_cache/
 *.pt
 # Large test data (download separately if needed for regression tests)
 tests/onecomp/quantizer/jointq/data/model_layers_0_self_attn_k_proj.pth
+.uv-sync.lock
+.uv-sync.done
+.uv-sync-vllm.lock
+.uv-sync-vllm.done
+.venv-vllm/

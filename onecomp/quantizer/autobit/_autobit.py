@@ -13,6 +13,7 @@ from typing import Any, Optional, Union
 
 import torch
 
+from onecomp.calibration import CalibrationConfig
 from onecomp.utils import (
     effective_bits_per_param,
     effective_bits_for_quantizer,
@@ -51,8 +52,9 @@ class AutoBitQuantizer(Quantizer):
     (optionally activation-aware) or manual rules, with optional DBF
     fallback for ultra-low-bit targets.
 
-    When ``quantizers`` is not provided, GPTQ candidates for 2, 3, 4, and 8 bit
-    are generated automatically.
+    ``quantizers`` must be provided.  Each candidate's ``groupsize`` is
+    respected by both the RTN error evaluation and the effective-bpw
+    budget, so mixing group sizes across candidates is fully supported.
 
     To estimate ``target_bit`` from available VRAM **before** creating
     this object, use :func:`onecomp.utils.estimate_wbits_from_vram`::
@@ -78,11 +80,38 @@ class AutoBitQuantizer(Quantizer):
 
         Activation-aware with explicit target::
 
+            from onecomp.calibration import CalibrationConfig
+
             autobit = AutoBitQuantizer(
                 assignment_strategy="activation_aware",
                 target_bit=3.0,
                 quantizers=[GPTQ(wbits=2), GPTQ(wbits=4)],
-                num_calib_samples=64,
+                calibration_config=CalibrationConfig(
+                    num_calibration_samples=64,
+                    max_length=256,
+                ),
+            )
+
+        Mixed bit-width and group size::
+
+            autobit = AutoBitQuantizer(
+                target_bit=3.0,
+                quantizers=[
+                    GPTQ(wbits=2, groupsize=32),
+                    GPTQ(wbits=4, groupsize=128),
+                    GPTQ(wbits=4, groupsize=32),
+                ],
+            )
+
+        Mixed bit-width and group size::
+
+            autobit = AutoBitQuantizer(
+                target_bit=3.0,
+                quantizers=[
+                    GPTQ(wbits=2, groupsize=32),
+                    GPTQ(wbits=4, groupsize=128),
+                    GPTQ(wbits=4, groupsize=32),
+                ],
             )
 
         Ultra-low-bit with DBF fallback (target_bit <= dbf_threshold)::
@@ -108,10 +137,10 @@ class AutoBitQuantizer(Quantizer):
     assignment_strategy: AssignmentStrategy = AssignmentStrategy.ACTIVATION_AWARE
     ratios: list = None
     target_bit: float = None
+    target_bit_is_effective: bool = False
 
     # --- activation-aware parameters ---
-    num_calib_samples: int = 128
-    calib_seqlen: int = 256
+    calibration_config: CalibrationConfig = None
     use_curvature_b: bool = True
 
     # --- visualisation ---
@@ -130,7 +159,7 @@ class AutoBitQuantizer(Quantizer):
             ["mlp.gate_proj", "mlp.up_proj"],
         ]
     )
-    enable_fused_groups: bool = False
+    enable_fused_groups: bool = True
 
     # internal variables
     _module_to_quantizer: dict = field(default_factory=dict, repr=False, init=False)
@@ -142,6 +171,11 @@ class AutoBitQuantizer(Quantizer):
             self.assignment_strategy = AssignmentStrategy(self.assignment_strategy)
         if not self.quantizers:
             raise ValueError("quantizers must be provided")
+        if self.calibration_config is None:
+            self.calibration_config = CalibrationConfig(
+                max_length=256,
+                num_calibration_samples=128,
+            )
         self._sync_flags()
 
     def validate_params(self):
@@ -176,15 +210,20 @@ class AutoBitQuantizer(Quantizer):
                 f"(expected int >= 1 or None)"
             )
 
-        if not isinstance(self.num_calib_samples, int) or self.num_calib_samples < 1:
+        calib_config = self.calibration_config
+        if (
+            not isinstance(calib_config.num_calibration_samples, int)
+            or calib_config.num_calibration_samples < 1
+        ):
             bad.append(
-                f"Invalid parameter 'num_calib_samples': {self.num_calib_samples!r} "
-                f"(expected int >= 1)"
+                f"Invalid parameter 'calibration_config.num_calibration_samples': "
+                f"{calib_config.num_calibration_samples!r} (expected int >= 1)"
             )
 
-        if not isinstance(self.calib_seqlen, int) or self.calib_seqlen < 1:
+        if not isinstance(calib_config.max_length, int) or calib_config.max_length < 1:
             bad.append(
-                f"Invalid parameter 'calib_seqlen': {self.calib_seqlen!r} " f"(expected int >= 1)"
+                f"Invalid parameter 'calibration_config.max_length': "
+                f"{calib_config.max_length!r} (expected int >= 1)"
             )
 
         for i, q in enumerate(self.quantizers):
@@ -223,7 +262,7 @@ class AutoBitQuantizer(Quantizer):
         is_manual = self.assignment_strategy == AssignmentStrategy.MANUAL
 
         if not is_manual:
-            if self.target_bit is not None:
+            if self.target_bit is not None and not self.target_bit_is_effective:
                 self._convert_raw_to_effective_target(model)
 
             if self.target_bit is not None and self.target_bit < 1.0:
@@ -311,42 +350,43 @@ class AutoBitQuantizer(Quantizer):
         GPTQ packs scale (FP16) + zero (wbits) per group, so uniform N-bit
         costs ``N + (16+N)/group_size`` effective bpw.  Align the ILP budget
         to that so ``target_bit=3`` uses the same bits as uniform GPTQ 3-bit.
+
+        When candidates use different group sizes the effective overhead is
+        averaged across all quantizers (weighted by candidate count) so
+        the budget reflects the actual distribution of group sizes.
         """
-        gs = self._detect_group_size()
         candidates = _find_candidates(self, model)
         if not candidates:
             return
 
+        group_sizes = [
+            getattr(q, "groupsize", getattr(q, "group_size", -1)) or -1 for q in self.quantizers
+        ]
+
         raw_target = self.target_bit
         total_params = sum(m.weight.numel() for _, m in candidates)
-        total_eff_bits = sum(
-            effective_bits_per_param(
-                wbits=raw_target,
-                group_size=gs,
-                in_features=m.weight.shape[1],
-            )
-            * m.weight.numel()
-            for _, m in candidates
-        )
+        total_eff_bits = 0.0
+        for _, m in candidates:
+            eff_per_q = [
+                effective_bits_per_param(
+                    wbits=raw_target,
+                    group_size=gs,
+                    in_features=m.weight.shape[1],
+                )
+                for gs in group_sizes
+            ]
+            total_eff_bits += sum(eff_per_q) / len(eff_per_q) * m.weight.numel()
         self.target_bit = total_eff_bits / total_params
 
         if self.target_bit != raw_target:
             self.logger.info(
                 "target_bit adjusted: %.4f raw bpw → %.4f effective bpw "
-                "(groupsize=%s, equivalent to uniform %.3g-bit baseline)",
+                "(groupsizes=%s, equivalent to uniform %.3g-bit baseline)",
                 raw_target,
                 self.target_bit,
-                gs,
+                group_sizes,
                 raw_target,
             )
-
-    def _detect_group_size(self) -> int:
-        """Return the group_size from the first quantizer that uses grouping."""
-        for q in self.quantizers:
-            gs = getattr(q, "groupsize", getattr(q, "group_size", None))
-            if gs is not None and gs > 0:
-                return gs
-        return -1
 
     def _sync_flags(self):
         if self.quantizers:

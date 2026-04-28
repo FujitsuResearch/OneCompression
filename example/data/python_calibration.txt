@@ -1,0 +1,2444 @@
+"""
+Calibration data for quantization experiments.
+
+This file contains diverse Python code snippets covering algorithms,
+data structures, machine learning, web/IO utilities, and class design
+patterns.  It is used by example/example_custom_calibration.py as a
+domain-specific calibration dataset.
+
+The code intentionally includes docstrings and inline comments to
+mirror realistic Python codebases, providing a natural distribution
+of code tokens and natural-language tokens for calibration.
+"""
+
+# ============================================================
+# Sorting Algorithms
+# ============================================================
+
+def quicksort(arr):
+    """Sort a list using the quicksort algorithm.
+
+    Picks the middle element as pivot and partitions the array into
+    three sub-arrays: elements less than, equal to, and greater than
+    the pivot.  Recursively sorts the left and right partitions.
+
+    Average time complexity: O(n log n)
+    Worst case: O(n^2) when the pivot is always the smallest/largest
+
+    Args:
+        arr: List of comparable elements.
+
+    Returns:
+        A new sorted list.
+    """
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x < pivot]
+    middle = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quicksort(left) + middle + quicksort(right)
+
+
+def merge_sort(arr):
+    """Sort a list using the merge sort algorithm.
+
+    Divides the array in half, recursively sorts each half, then
+    merges the two sorted halves.  Guaranteed O(n log n) time.
+
+    Args:
+        arr: List of comparable elements.
+
+    Returns:
+        A new sorted list.
+    """
+    if len(arr) <= 1:
+        return arr
+    mid = len(arr) // 2
+    left = merge_sort(arr[:mid])
+    right = merge_sort(arr[mid:])
+    return _merge(left, right)
+
+
+def _merge(left, right):
+    """Merge two sorted lists into a single sorted list."""
+    result = []
+    i = j = 0
+    while i < len(left) and j < len(right):
+        if left[i] <= right[j]:
+            result.append(left[i])
+            i += 1
+        else:
+            result.append(right[j])
+            j += 1
+    # Append remaining elements from whichever list is not exhausted
+    result.extend(left[i:])
+    result.extend(right[j:])
+    return result
+
+
+def heapsort(arr):
+    """Sort using Python's heapq module (min-heap based).
+
+    Builds a heap in O(n), then pops elements one by one in O(n log n).
+    """
+    import heapq
+    h = list(arr)
+    heapq.heapify(h)  # Transform list into a heap in-place
+    return [heapq.heappop(h) for _ in range(len(h))]
+
+
+def insertion_sort(arr):
+    """Sort using insertion sort.
+
+    Efficient for small or nearly sorted arrays.  O(n^2) worst case
+    but O(n) best case when the input is already sorted.
+    """
+    for i in range(1, len(arr)):
+        key = arr[i]
+        j = i - 1
+        # Shift elements that are greater than key to the right
+        while j >= 0 and arr[j] > key:
+            arr[j + 1] = arr[j]
+            j -= 1
+        arr[j + 1] = key
+    return arr
+
+
+def selection_sort(arr):
+    """Sort using selection sort.
+
+    Finds the minimum element from the unsorted portion and swaps
+    it with the first unsorted element.  Always O(n^2).
+    """
+    n = len(arr)
+    for i in range(n):
+        min_idx = i
+        for j in range(i + 1, n):
+            if arr[j] < arr[min_idx]:
+                min_idx = j
+        arr[i], arr[min_idx] = arr[min_idx], arr[i]
+    return arr
+
+
+def bubble_sort(arr):
+    """Sort using bubble sort with early termination.
+
+    Repeatedly swaps adjacent elements if they are in the wrong order.
+    Stops early if no swaps occur in a pass (list is sorted).
+    """
+    n = len(arr)
+    for i in range(n):
+        swapped = False
+        for j in range(0, n - i - 1):
+            if arr[j] > arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+                swapped = True
+        if not swapped:
+            break  # Already sorted; no need for further passes
+    return arr
+
+
+def counting_sort(arr, max_val=None):
+    """Sort non-negative integers using counting sort.
+
+    O(n + k) time where k is the range of input values.
+    Only works for non-negative integers.
+    """
+    if not arr:
+        return arr
+    if max_val is None:
+        max_val = max(arr)
+    count = [0] * (max_val + 1)
+    for num in arr:
+        count[num] += 1
+    # Reconstruct sorted array from count buckets
+    result = []
+    for i, c in enumerate(count):
+        result.extend([i] * c)
+    return result
+
+
+def radix_sort(arr):
+    """Sort non-negative integers using radix sort (LSD variant).
+
+    Processes digits from least significant to most significant.
+    Uses counting sort as a stable subroutine for each digit position.
+    """
+    if not arr:
+        return arr
+    max_num = max(arr)
+    exp = 1  # Current digit position (1s, 10s, 100s, ...)
+    while max_num // exp > 0:
+        arr = _counting_sort_by_digit(arr, exp)
+        exp *= 10
+    return arr
+
+
+def _counting_sort_by_digit(arr, exp):
+    """Stable counting sort by a specific digit position."""
+    n = len(arr)
+    output = [0] * n
+    count = [0] * 10  # Digits 0-9
+    for num in arr:
+        index = (num // exp) % 10
+        count[index] += 1
+    # Convert counts to cumulative positions
+    for i in range(1, 10):
+        count[i] += count[i - 1]
+    # Build output in reverse to maintain stability
+    for i in range(n - 1, -1, -1):
+        index = (arr[i] // exp) % 10
+        output[count[index] - 1] = arr[i]
+        count[index] -= 1
+    return output
+
+
+def shell_sort(arr):
+    """Sort using Shell sort with halving gap sequence.
+
+    A generalization of insertion sort that allows swapping of
+    elements far apart.  The gap starts at n/2 and halves each pass.
+    """
+    n = len(arr)
+    gap = n // 2
+    while gap > 0:
+        for i in range(gap, n):
+            temp = arr[i]
+            j = i
+            # Perform gapped insertion sort
+            while j >= gap and arr[j - gap] > temp:
+                arr[j] = arr[j - gap]
+                j -= gap
+            arr[j] = temp
+        gap //= 2
+    return arr
+
+
+def tim_sort_demo(arr):
+    """Simplified TimSort: insertion sort on small runs, then merge.
+
+    Real TimSort (used by Python's built-in sort) is more complex,
+    but this captures the core idea of combining insertion sort for
+    small runs with merge sort for combining them.
+    """
+    min_run = 32  # Minimum run length for insertion sort phase
+    n = len(arr)
+    # Phase 1: Sort small runs with insertion sort
+    for start in range(0, n, min_run):
+        end = min(start + min_run - 1, n - 1)
+        for i in range(start + 1, end + 1):
+            key = arr[i]
+            j = i - 1
+            while j >= start and arr[j] > key:
+                arr[j + 1] = arr[j]
+                j -= 1
+            arr[j + 1] = key
+    # Phase 2: Merge sorted runs, doubling the merge size each pass
+    size = min_run
+    while size < n:
+        for left in range(0, n, 2 * size):
+            mid = min(left + size - 1, n - 1)
+            right = min(left + 2 * size - 1, n - 1)
+            if mid < right:
+                merged = _merge(arr[left:mid + 1], arr[mid + 1:right + 1])
+                arr[left:left + len(merged)] = merged
+        size *= 2
+    return arr
+
+
+# ============================================================
+# Search Algorithms
+# ============================================================
+
+def binary_search(arr, target):
+    """Search for target in a sorted array using binary search.
+
+    Returns the index of target if found, or -1 if not present.
+    Time complexity: O(log n)
+    """
+    low, high = 0, len(arr) - 1
+    while low <= high:
+        mid = (low + high) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            low = mid + 1  # Target is in the right half
+        else:
+            high = mid - 1  # Target is in the left half
+    return -1
+
+
+def binary_search_recursive(arr, target, low=0, high=None):
+    """Recursive version of binary search."""
+    if high is None:
+        high = len(arr) - 1
+    if low > high:
+        return -1  # Base case: target not found
+    mid = (low + high) // 2
+    if arr[mid] == target:
+        return mid
+    elif arr[mid] < target:
+        return binary_search_recursive(arr, target, mid + 1, high)
+    else:
+        return binary_search_recursive(arr, target, low, mid - 1)
+
+
+def linear_search(arr, target):
+    """Simple linear search through an unsorted array.
+
+    O(n) time.  Use when the array is small or unsorted.
+    """
+    for i, val in enumerate(arr):
+        if val == target:
+            return i
+    return -1
+
+
+def interpolation_search(arr, target):
+    """Search in a uniformly distributed sorted array.
+
+    Estimates the position using linear interpolation.
+    Average O(log log n) for uniform distributions, but O(n) worst case.
+    """
+    low, high = 0, len(arr) - 1
+    while low <= high and arr[low] <= target <= arr[high]:
+        if arr[low] == arr[high]:
+            if arr[low] == target:
+                return low
+            break
+        # Estimate position proportionally
+        pos = low + ((target - arr[low]) * (high - low)) // (arr[high] - arr[low])
+        if arr[pos] == target:
+            return pos
+        elif arr[pos] < target:
+            low = pos + 1
+        else:
+            high = pos - 1
+    return -1
+
+
+def exponential_search(arr, target):
+    """Search by first finding the range, then binary searching within it.
+
+    Useful when the target is near the beginning of the array.
+    Time complexity: O(log n)
+    """
+    if not arr:
+        return -1
+    if arr[0] == target:
+        return 0
+    n = len(arr)
+    # Find the range by exponentially increasing the bound
+    bound = 1
+    while bound < n and arr[bound] <= target:
+        bound *= 2
+    low = bound // 2
+    high = min(bound, n - 1)
+    return binary_search_range(arr, target, low, high)
+
+
+def binary_search_range(arr, target, low, high):
+    """Binary search within a specific range [low, high]."""
+    while low <= high:
+        mid = (low + high) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return -1
+
+
+# ============================================================
+# Graph Algorithms
+# ============================================================
+
+def depth_first_search(graph, start, visited=None):
+    """Traverse a graph depth-first starting from the given node.
+
+    Uses recursion and a visited set to avoid cycles.
+
+    Args:
+        graph: Adjacency list (dict of node -> list of neighbors).
+        start: Starting node.
+        visited: Set of already-visited nodes (internal use).
+
+    Returns:
+        Set of all reachable nodes from start.
+    """
+    if visited is None:
+        visited = set()
+    visited.add(start)
+    for neighbor in graph.get(start, []):
+        if neighbor not in visited:
+            depth_first_search(graph, neighbor, visited)
+    return visited
+
+
+def breadth_first_search(graph, start):
+    """Traverse a graph breadth-first starting from the given node.
+
+    Uses a queue (deque) to explore nodes level by level.
+
+    Returns:
+        List of nodes in BFS visit order.
+    """
+    from collections import deque
+    visited = set([start])
+    queue = deque([start])
+    order = []
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for neighbor in graph.get(node, []):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                queue.append(neighbor)
+    return order
+
+
+def dijkstra(graph, start):
+    """Find shortest paths from start to all other nodes.
+
+    Uses a priority queue (min-heap) for efficient extraction
+    of the nearest unvisited node.  Does not handle negative weights.
+
+    Args:
+        graph: Dict of node -> dict of neighbor -> weight.
+
+    Returns:
+        Dict of node -> shortest distance from start.
+    """
+    import heapq
+    distances = {node: float('inf') for node in graph}
+    distances[start] = 0
+    priority_queue = [(0, start)]
+    visited = set()
+    while priority_queue:
+        current_dist, current_node = heapq.heappop(priority_queue)
+        if current_node in visited:
+            continue
+        visited.add(current_node)
+        for neighbor, weight in graph[current_node].items():
+            distance = current_dist + weight
+            if distance < distances[neighbor]:
+                distances[neighbor] = distance
+                heapq.heappush(priority_queue, (distance, neighbor))
+    return distances
+
+
+def bellman_ford(graph, vertices, start):
+    """Find shortest paths handling negative edge weights.
+
+    Relaxes all edges V-1 times.  Detects negative-weight cycles
+    on the V-th pass.
+
+    Args:
+        graph: Dict of node -> list of (neighbor, weight) tuples.
+        vertices: List of all vertex identifiers.
+        start: Source vertex.
+
+    Raises:
+        ValueError: If a negative-weight cycle is reachable from start.
+    """
+    distances = {v: float('inf') for v in vertices}
+    distances[start] = 0
+    # Relax all edges V-1 times
+    for _ in range(len(vertices) - 1):
+        for u in graph:
+            for v, w in graph[u]:
+                if distances[u] + w < distances[v]:
+                    distances[v] = distances[u] + w
+    # Check for negative-weight cycles
+    for u in graph:
+        for v, w in graph[u]:
+            if distances[u] + w < distances[v]:
+                raise ValueError("Negative cycle detected")
+    return distances
+
+
+def topological_sort(graph):
+    """Topological ordering of a directed acyclic graph (DAG).
+
+    Uses Kahn's algorithm (BFS with in-degree tracking).
+
+    Raises:
+        ValueError: If the graph contains a cycle.
+    """
+    from collections import deque
+    in_degree = {node: 0 for node in graph}
+    for node in graph:
+        for neighbor in graph[node]:
+            in_degree[neighbor] = in_degree.get(neighbor, 0) + 1
+    # Start with nodes that have no incoming edges
+    queue = deque([node for node in in_degree if in_degree[node] == 0])
+    result = []
+    while queue:
+        node = queue.popleft()
+        result.append(node)
+        for neighbor in graph.get(node, []):
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+    if len(result) != len(in_degree):
+        raise ValueError("Graph has a cycle")
+    return result
+
+
+def floyd_warshall(n, edges):
+    """All-pairs shortest paths using Floyd-Warshall.
+
+    Time complexity: O(V^3).  Handles negative weights but not
+    negative cycles.
+
+    Args:
+        n: Number of vertices (0-indexed).
+        edges: List of (u, v, weight) tuples.
+
+    Returns:
+        2D distance matrix.
+    """
+    dist = [[float('inf')] * n for _ in range(n)]
+    for i in range(n):
+        dist[i][i] = 0
+    for u, v, w in edges:
+        dist[u][v] = w
+    # Dynamic programming: try every vertex as an intermediate node
+    for k in range(n):
+        for i in range(n):
+            for j in range(n):
+                if dist[i][k] + dist[k][j] < dist[i][j]:
+                    dist[i][j] = dist[i][k] + dist[k][j]
+    return dist
+
+
+def kruskal(n, edges):
+    """Find minimum spanning tree using Kruskal's algorithm.
+
+    Sorts edges by weight and greedily adds edges that don't create
+    a cycle, using Union-Find for cycle detection.
+
+    Returns:
+        List of (u, v, weight) tuples in the MST.
+    """
+    parent = list(range(n))
+    rank = [0] * n
+
+    def find(x):
+        # Path compression
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        px, py = find(x), find(y)
+        if px == py:
+            return False  # Already connected; adding edge would create cycle
+        # Union by rank
+        if rank[px] < rank[py]:
+            px, py = py, px
+        parent[py] = px
+        if rank[px] == rank[py]:
+            rank[px] += 1
+        return True
+
+    edges.sort(key=lambda e: e[2])  # Sort by edge weight
+    mst = []
+    for u, v, w in edges:
+        if union(u, v):
+            mst.append((u, v, w))
+    return mst
+
+
+def prim(graph, start=0):
+    """Find minimum spanning tree using Prim's algorithm.
+
+    Grows the MST one edge at a time by always picking the cheapest
+    edge connecting a visited node to an unvisited node.
+
+    Args:
+        graph: Adjacency list as dict of node -> list of (neighbor, weight).
+    """
+    import heapq
+    visited = set()
+    mst = []
+    edges = [(0, start, -1)]  # (weight, node, parent)
+    while edges:
+        weight, node, parent = heapq.heappop(edges)
+        if node in visited:
+            continue
+        visited.add(node)
+        if parent != -1:
+            mst.append((parent, node, weight))
+        for neighbor, w in graph[node]:
+            if neighbor not in visited:
+                heapq.heappush(edges, (w, neighbor, node))
+    return mst
+
+
+def tarjan_scc(graph):
+    """Find all strongly connected components using Tarjan's algorithm.
+
+    Uses DFS with a stack and low-link values to identify SCCs
+    in a single pass.  Time complexity: O(V + E).
+
+    Returns:
+        List of components, where each component is a list of nodes.
+    """
+    index_counter = [0]
+    stack = []
+    lowlink = {}
+    index = {}
+    on_stack = {}
+    result = []
+
+    def strongconnect(v):
+        index[v] = index_counter[0]
+        lowlink[v] = index_counter[0]
+        index_counter[0] += 1
+        stack.append(v)
+        on_stack[v] = True
+
+        for w in graph.get(v, []):
+            if w not in index:
+                # w has not yet been visited; recurse on it
+                strongconnect(w)
+                lowlink[v] = min(lowlink[v], lowlink[w])
+            elif on_stack.get(w, False):
+                # w is on the stack and hence in the current SCC
+                lowlink[v] = min(lowlink[v], index[w])
+
+        # If v is a root node, pop the stack to get the SCC
+        if lowlink[v] == index[v]:
+            component = []
+            while True:
+                w = stack.pop()
+                on_stack[w] = False
+                component.append(w)
+                if w == v:
+                    break
+            result.append(component)
+
+    for v in graph:
+        if v not in index:
+            strongconnect(v)
+    return result
+
+
+# ============================================================
+# Dynamic Programming
+# ============================================================
+
+def fibonacci_dp(n):
+    """Compute the n-th Fibonacci number using bottom-up DP.
+
+    Builds the solution iteratively from F(0) to F(n).
+    Time: O(n), Space: O(n).
+    """
+    if n <= 1:
+        return n
+    dp = [0] * (n + 1)
+    dp[1] = 1
+    for i in range(2, n + 1):
+        dp[i] = dp[i - 1] + dp[i - 2]
+    return dp[n]
+
+
+def fibonacci_memo(n, memo=None):
+    """Compute the n-th Fibonacci number using memoization (top-down DP)."""
+    if memo is None:
+        memo = {}
+    if n in memo:
+        return memo[n]
+    if n <= 1:
+        return n
+    memo[n] = fibonacci_memo(n - 1, memo) + fibonacci_memo(n - 2, memo)
+    return memo[n]
+
+
+def knapsack_01(weights, values, capacity):
+    """Solve the 0/1 knapsack problem using dynamic programming.
+
+    Each item can be taken at most once.  Maximizes total value
+    without exceeding the weight capacity.
+
+    Time: O(n * capacity), Space: O(n * capacity)
+    """
+    n = len(weights)
+    # dp[i][w] = max value using first i items with capacity w
+    dp = [[0] * (capacity + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        for w in range(capacity + 1):
+            if weights[i - 1] <= w:
+                # Take or skip the i-th item
+                dp[i][w] = max(
+                    dp[i - 1][w],
+                    dp[i - 1][w - weights[i - 1]] + values[i - 1],
+                )
+            else:
+                dp[i][w] = dp[i - 1][w]  # Can't take; too heavy
+    return dp[n][capacity]
+
+
+def longest_common_subsequence(s1, s2):
+    """Find the length of the longest common subsequence of two strings.
+
+    Classic DP problem.  Time: O(m * n), Space: O(m * n).
+    """
+    m, n = len(s1), len(s2)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if s1[i - 1] == s2[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1] + 1  # Characters match
+            else:
+                dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])  # Skip one
+    return dp[m][n]
+
+
+def edit_distance(s1, s2):
+    """Compute the minimum edit distance (Levenshtein distance).
+
+    Operations: insert, delete, replace (each costs 1).
+    """
+    m, n = len(s1), len(s2)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    # Base cases: transforming empty string to/from a prefix
+    for i in range(m + 1):
+        dp[i][0] = i
+    for j in range(n + 1):
+        dp[0][j] = j
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if s1[i - 1] == s2[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1]  # No operation needed
+            else:
+                dp[i][j] = 1 + min(
+                    dp[i - 1][j],      # Delete from s1
+                    dp[i][j - 1],      # Insert into s1
+                    dp[i - 1][j - 1],  # Replace
+                )
+    return dp[m][n]
+
+
+def coin_change(coins, amount):
+    """Find the minimum number of coins to make the given amount.
+
+    Returns -1 if the amount cannot be made with the given coins.
+    This is the unbounded knapsack variant (coins can be reused).
+    """
+    dp = [float('inf')] * (amount + 1)
+    dp[0] = 0  # Base case: 0 coins needed for amount 0
+    for coin in coins:
+        for x in range(coin, amount + 1):
+            dp[x] = min(dp[x], dp[x - coin] + 1)
+    return dp[amount] if dp[amount] != float('inf') else -1
+
+
+def longest_increasing_subsequence(arr):
+    """Find the length of the longest strictly increasing subsequence.
+
+    O(n^2) DP approach.  For O(n log n) use patience sorting.
+    """
+    if not arr:
+        return 0
+    n = len(arr)
+    dp = [1] * n  # Each element is an LIS of length 1 by itself
+    for i in range(1, n):
+        for j in range(i):
+            if arr[j] < arr[i]:
+                dp[i] = max(dp[i], dp[j] + 1)
+    return max(dp)
+
+
+def matrix_chain_multiplication(dims):
+    """Find the optimal parenthesization for matrix chain multiplication.
+
+    Given matrices A1(d0 x d1), A2(d1 x d2), ..., An(d_{n-1} x d_n),
+    find the order of multiplication that minimizes scalar multiplications.
+
+    Args:
+        dims: List of dimensions [d0, d1, ..., dn] for n matrices.
+
+    Returns:
+        Minimum number of scalar multiplications.
+    """
+    n = len(dims) - 1  # Number of matrices
+    dp = [[0] * n for _ in range(n)]
+    # l is the chain length
+    for length in range(2, n + 1):
+        for i in range(n - length + 1):
+            j = i + length - 1
+            dp[i][j] = float('inf')
+            # Try every possible split point
+            for k in range(i, j):
+                cost = dp[i][k] + dp[k + 1][j] + dims[i] * dims[k + 1] * dims[j + 1]
+                dp[i][j] = min(dp[i][j], cost)
+    return dp[0][n - 1]
+
+
+def max_subarray_sum(arr):
+    """Find the maximum contiguous subarray sum (Kadane's algorithm).
+
+    Time: O(n), Space: O(1).
+    """
+    max_sum = current_sum = arr[0]
+    for num in arr[1:]:
+        # Either extend the current subarray or start a new one
+        current_sum = max(num, current_sum + num)
+        max_sum = max(max_sum, current_sum)
+    return max_sum
+
+
+def subset_sum(nums, target):
+    """Check if any subset of nums sums to the target.
+
+    Uses a 1D DP array.  Iterate backwards to avoid using the
+    same element twice (0/1 variant).
+    """
+    dp = [False] * (target + 1)
+    dp[0] = True  # Empty subset sums to 0
+    for num in nums:
+        for t in range(target, num - 1, -1):
+            dp[t] = dp[t] or dp[t - num]
+    return dp[target]
+
+
+def word_break(s, word_dict):
+    """Check if string s can be segmented into words from word_dict.
+
+    dp[i] is True if s[:i] can be segmented.
+    """
+    n = len(s)
+    dp = [False] * (n + 1)
+    dp[0] = True  # Empty string is always valid
+    for i in range(1, n + 1):
+        for j in range(i):
+            if dp[j] and s[j:i] in word_dict:
+                dp[i] = True
+                break
+    return dp[n]
+
+
+# ============================================================
+# Data Structures
+# ============================================================
+
+class LinkedList:
+    """Singly linked list implementation.
+
+    Supports append, reverse, find, and conversion to a Python list.
+    Each node stores a value and a pointer to the next node.
+    """
+
+    def __init__(self, val=0, next_node=None):
+        self.val = val
+        self.next = next_node
+
+    def append(self, val):
+        """Append a value to the end of the list."""
+        current = self
+        while current.next:
+            current = current.next
+        current.next = LinkedList(val)
+
+    def to_list(self):
+        """Convert the linked list to a Python list."""
+        result = []
+        current = self
+        while current:
+            result.append(current.val)
+            current = current.next
+        return result
+
+    def reverse(self):
+        """Reverse the linked list in-place and return the new head."""
+        prev = None
+        current = self
+        while current:
+            next_node = current.next
+            current.next = prev  # Reverse the pointer
+            prev = current
+            current = next_node
+        return prev
+
+    def find(self, val):
+        """Find the first node with the given value, or None."""
+        current = self
+        while current:
+            if current.val == val:
+                return current
+            current = current.next
+        return None
+
+    def __len__(self):
+        count = 0
+        current = self
+        while current:
+            count += 1
+            current = current.next
+        return count
+
+
+class DoublyLinkedList:
+    """Doubly linked list with O(1) append/prepend and O(n) remove."""
+
+    class Node:
+        def __init__(self, val=0):
+            self.val = val
+            self.prev = None
+            self.next = None
+
+    def __init__(self):
+        self.head = None
+        self.tail = None
+        self.size = 0
+
+    def append(self, val):
+        """Add a value to the end."""
+        node = self.Node(val)
+        if self.tail is None:
+            self.head = self.tail = node
+        else:
+            node.prev = self.tail
+            self.tail.next = node
+            self.tail = node
+        self.size += 1
+
+    def prepend(self, val):
+        """Add a value to the beginning."""
+        node = self.Node(val)
+        if self.head is None:
+            self.head = self.tail = node
+        else:
+            node.next = self.head
+            self.head.prev = node
+            self.head = node
+        self.size += 1
+
+    def remove(self, val):
+        """Remove the first occurrence of val. Returns True if found."""
+        current = self.head
+        while current:
+            if current.val == val:
+                if current.prev:
+                    current.prev.next = current.next
+                else:
+                    self.head = current.next
+                if current.next:
+                    current.next.prev = current.prev
+                else:
+                    self.tail = current.prev
+                self.size -= 1
+                return True
+            current = current.next
+        return False
+
+    def to_list(self):
+        """Convert to a Python list for easy inspection."""
+        result = []
+        current = self.head
+        while current:
+            result.append(current.val)
+            current = current.next
+        return result
+
+
+class Stack:
+    """LIFO stack backed by a Python list.
+
+    Provides O(1) push, pop, and peek operations.
+    """
+
+    def __init__(self):
+        self._items = []
+
+    def push(self, item):
+        """Push an item onto the top of the stack."""
+        self._items.append(item)
+
+    def pop(self):
+        """Remove and return the top item. Raises IndexError if empty."""
+        if not self._items:
+            raise IndexError("pop from empty stack")
+        return self._items.pop()
+
+    def peek(self):
+        """Return the top item without removing it."""
+        if not self._items:
+            raise IndexError("peek from empty stack")
+        return self._items[-1]
+
+    @property
+    def is_empty(self):
+        return len(self._items) == 0
+
+    def __len__(self):
+        return len(self._items)
+
+
+class Queue:
+    """FIFO queue backed by collections.deque for O(1) operations."""
+
+    def __init__(self):
+        from collections import deque
+        self._items = deque()
+
+    def enqueue(self, item):
+        """Add an item to the back of the queue."""
+        self._items.append(item)
+
+    def dequeue(self):
+        """Remove and return the front item. Raises IndexError if empty."""
+        if not self._items:
+            raise IndexError("dequeue from empty queue")
+        return self._items.popleft()
+
+    def peek(self):
+        """Return the front item without removing it."""
+        if not self._items:
+            raise IndexError("peek from empty queue")
+        return self._items[0]
+
+    @property
+    def is_empty(self):
+        return len(self._items) == 0
+
+    def __len__(self):
+        return len(self._items)
+
+
+class MinHeap:
+    """Binary min-heap with O(log n) push/pop.
+
+    Useful as a priority queue where the smallest element has
+    the highest priority.
+    """
+
+    def __init__(self):
+        self._data = []
+
+    def push(self, val):
+        """Insert a value and restore the heap property."""
+        self._data.append(val)
+        self._sift_up(len(self._data) - 1)
+
+    def pop(self):
+        """Remove and return the minimum value."""
+        if not self._data:
+            raise IndexError("pop from empty heap")
+        # Swap root with last element, pop last, then sift down
+        self._data[0], self._data[-1] = self._data[-1], self._data[0]
+        val = self._data.pop()
+        if self._data:
+            self._sift_down(0)
+        return val
+
+    def peek(self):
+        """Return the minimum value without removing it."""
+        if not self._data:
+            raise IndexError("peek from empty heap")
+        return self._data[0]
+
+    def _sift_up(self, idx):
+        """Move a node up until the heap property is restored."""
+        while idx > 0:
+            parent = (idx - 1) // 2
+            if self._data[idx] < self._data[parent]:
+                self._data[idx], self._data[parent] = self._data[parent], self._data[idx]
+                idx = parent
+            else:
+                break
+
+    def _sift_down(self, idx):
+        """Move a node down until the heap property is restored."""
+        n = len(self._data)
+        while True:
+            smallest = idx
+            left = 2 * idx + 1
+            right = 2 * idx + 2
+            if left < n and self._data[left] < self._data[smallest]:
+                smallest = left
+            if right < n and self._data[right] < self._data[smallest]:
+                smallest = right
+            if smallest != idx:
+                self._data[idx], self._data[smallest] = self._data[smallest], self._data[idx]
+                idx = smallest
+            else:
+                break
+
+    def __len__(self):
+        return len(self._data)
+
+
+class BinarySearchTree:
+    """Binary search tree supporting insert, search, inorder traversal, and height."""
+
+    class Node:
+        def __init__(self, key):
+            self.key = key
+            self.left = None
+            self.right = None
+
+    def __init__(self):
+        self.root = None
+
+    def insert(self, key):
+        """Insert a key into the BST. Duplicates are ignored."""
+        if self.root is None:
+            self.root = self.Node(key)
+        else:
+            self._insert(self.root, key)
+
+    def _insert(self, node, key):
+        if key < node.key:
+            if node.left is None:
+                node.left = self.Node(key)
+            else:
+                self._insert(node.left, key)
+        elif key > node.key:
+            if node.right is None:
+                node.right = self.Node(key)
+            else:
+                self._insert(node.right, key)
+        # key == node.key: duplicate, do nothing
+
+    def search(self, key):
+        """Search for a key. Returns the Node or None."""
+        return self._search(self.root, key)
+
+    def _search(self, node, key):
+        if node is None or node.key == key:
+            return node
+        if key < node.key:
+            return self._search(node.left, key)
+        return self._search(node.right, key)
+
+    def inorder(self):
+        """Return keys in sorted (inorder) order."""
+        result = []
+        self._inorder(self.root, result)
+        return result
+
+    def _inorder(self, node, result):
+        if node:
+            self._inorder(node.left, result)
+            result.append(node.key)
+            self._inorder(node.right, result)
+
+    def height(self):
+        """Return the height of the tree (0 for empty tree)."""
+        return self._height(self.root)
+
+    def _height(self, node):
+        if node is None:
+            return 0
+        return 1 + max(self._height(node.left), self._height(node.right))
+
+
+class Trie:
+    """Prefix tree (trie) for efficient string prefix lookups.
+
+    Supports insert, search (exact match), and starts_with (prefix).
+    """
+
+    class TrieNode:
+        def __init__(self):
+            self.children = {}  # char -> TrieNode
+            self.is_end = False
+
+    def __init__(self):
+        self.root = self.TrieNode()
+
+    def insert(self, word):
+        """Insert a word into the trie."""
+        node = self.root
+        for char in word:
+            if char not in node.children:
+                node.children[char] = self.TrieNode()
+            node = node.children[char]
+        node.is_end = True
+
+    def search(self, word):
+        """Return True if the exact word is in the trie."""
+        node = self._find_node(word)
+        return node is not None and node.is_end
+
+    def starts_with(self, prefix):
+        """Return True if any word in the trie starts with the given prefix."""
+        return self._find_node(prefix) is not None
+
+    def _find_node(self, prefix):
+        node = self.root
+        for char in prefix:
+            if char not in node.children:
+                return None
+            node = node.children[char]
+        return node
+
+    def all_words(self, prefix=""):
+        """Return all words in the trie that start with the given prefix."""
+        words = []
+        node = self._find_node(prefix)
+        if node:
+            self._collect(node, prefix, words)
+        return words
+
+    def _collect(self, node, prefix, words):
+        if node.is_end:
+            words.append(prefix)
+        for char, child in node.children.items():
+            self._collect(child, prefix + char, words)
+
+
+class HashTable:
+    """Hash table with separate chaining and automatic resizing.
+
+    Doubles capacity when the load factor exceeds the threshold.
+    """
+
+    def __init__(self, capacity=16, load_factor=0.75):
+        self._capacity = capacity
+        self._load_factor = load_factor
+        self._size = 0
+        self._buckets = [[] for _ in range(capacity)]
+
+    def _hash(self, key):
+        """Compute the bucket index for a given key."""
+        return hash(key) % self._capacity
+
+    def put(self, key, value):
+        """Insert or update a key-value pair."""
+        idx = self._hash(key)
+        for i, (k, v) in enumerate(self._buckets[idx]):
+            if k == key:
+                self._buckets[idx][i] = (key, value)  # Update existing
+                return
+        self._buckets[idx].append((key, value))
+        self._size += 1
+        if self._size > self._capacity * self._load_factor:
+            self._resize()
+
+    def get(self, key, default=None):
+        """Retrieve the value for a key, or default if not found."""
+        idx = self._hash(key)
+        for k, v in self._buckets[idx]:
+            if k == key:
+                return v
+        return default
+
+    def delete(self, key):
+        """Delete a key-value pair. Returns True if the key was found."""
+        idx = self._hash(key)
+        for i, (k, v) in enumerate(self._buckets[idx]):
+            if k == key:
+                self._buckets[idx].pop(i)
+                self._size -= 1
+                return True
+        return False
+
+    def _resize(self):
+        """Double the capacity and rehash all entries."""
+        old_buckets = self._buckets
+        self._capacity *= 2
+        self._buckets = [[] for _ in range(self._capacity)]
+        self._size = 0
+        for bucket in old_buckets:
+            for key, value in bucket:
+                self.put(key, value)
+
+    def __len__(self):
+        return self._size
+
+
+class UnionFind:
+    """Disjoint set (Union-Find) with path compression and union by rank.
+
+    Supports near-O(1) amortized find and union operations.
+    """
+
+    def __init__(self, n):
+        self.parent = list(range(n))
+        self.rank = [0] * n
+        self.components = n  # Number of disjoint sets
+
+    def find(self, x):
+        """Find the root of x with path compression."""
+        while self.parent[x] != x:
+            self.parent[x] = self.parent[self.parent[x]]  # Path halving
+            x = self.parent[x]
+        return x
+
+    def union(self, x, y):
+        """Merge the sets containing x and y. Returns False if already connected."""
+        px, py = self.find(x), self.find(y)
+        if px == py:
+            return False
+        # Union by rank: attach smaller tree under larger tree's root
+        if self.rank[px] < self.rank[py]:
+            px, py = py, px
+        self.parent[py] = px
+        if self.rank[px] == self.rank[py]:
+            self.rank[px] += 1
+        self.components -= 1
+        return True
+
+    def connected(self, x, y):
+        """Check if x and y are in the same set."""
+        return self.find(x) == self.find(y)
+
+
+class LRUCache:
+    """Least Recently Used cache with O(1) get and put.
+
+    Uses an OrderedDict to maintain access order.
+    When capacity is exceeded, the least recently used item is evicted.
+    """
+
+    def __init__(self, capacity):
+        from collections import OrderedDict
+        self.capacity = capacity
+        self.cache = OrderedDict()
+
+    def get(self, key):
+        """Get a value by key. Returns -1 if not found."""
+        if key in self.cache:
+            self.cache.move_to_end(key)  # Mark as recently used
+            return self.cache[key]
+        return -1
+
+    def put(self, key, value):
+        """Set a key-value pair. Evicts LRU item if at capacity."""
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = value
+        if len(self.cache) > self.capacity:
+            self.cache.popitem(last=False)  # Remove oldest (LRU)
+
+
+# ============================================================
+# Machine Learning / Numerical Computing
+# ============================================================
+
+def linear_regression_gradient_descent(X, y, lr=0.01, epochs=1000):
+    """Train a linear regression model using batch gradient descent.
+
+    Minimizes MSE loss by iteratively updating weights and bias
+    in the direction of the negative gradient.
+
+    Args:
+        X: Training features, list of lists (n_samples x n_features).
+        y: Target values, list of floats.
+        lr: Learning rate.
+        epochs: Number of training iterations.
+
+    Returns:
+        Tuple of (weights, bias).
+    """
+    import random
+    n_samples = len(X)
+    n_features = len(X[0])
+    # Initialize weights with small random values
+    weights = [random.gauss(0, 0.01) for _ in range(n_features)]
+    bias = 0.0
+
+    for epoch in range(epochs):
+        total_loss = 0.0
+        grad_w = [0.0] * n_features
+        grad_b = 0.0
+
+        for i in range(n_samples):
+            # Forward pass: compute prediction
+            prediction = sum(X[i][j] * weights[j] for j in range(n_features)) + bias
+            error = prediction - y[i]
+            total_loss += error ** 2
+            # Accumulate gradients
+            for j in range(n_features):
+                grad_w[j] += 2 * error * X[i][j] / n_samples
+            grad_b += 2 * error / n_samples
+
+        # Update parameters
+        for j in range(n_features):
+            weights[j] -= lr * grad_w[j]
+        bias -= lr * grad_b
+
+    return weights, bias
+
+
+def logistic_regression(X, y, lr=0.01, epochs=1000):
+    """Train a logistic regression classifier using gradient descent.
+
+    Uses the sigmoid activation and binary cross-entropy loss.
+
+    Args:
+        X: Training features (n_samples x n_features).
+        y: Binary labels (0 or 1).
+
+    Returns:
+        Tuple of (weights, bias).
+    """
+    import math
+    n_samples = len(X)
+    n_features = len(X[0])
+    weights = [0.0] * n_features
+    bias = 0.0
+
+    def sigmoid(z):
+        # Clamp to avoid overflow in exp
+        return 1.0 / (1.0 + math.exp(-max(min(z, 500), -500)))
+
+    for epoch in range(epochs):
+        grad_w = [0.0] * n_features
+        grad_b = 0.0
+
+        for i in range(n_samples):
+            z = sum(X[i][j] * weights[j] for j in range(n_features)) + bias
+            pred = sigmoid(z)
+            error = pred - y[i]
+            for j in range(n_features):
+                grad_w[j] += error * X[i][j] / n_samples
+            grad_b += error / n_samples
+
+        for j in range(n_features):
+            weights[j] -= lr * grad_w[j]
+        bias -= lr * grad_b
+
+    return weights, bias
+
+
+def k_means(data, k, max_iterations=100):
+    """Cluster data into k groups using the k-means algorithm.
+
+    Iterates between assigning points to the nearest centroid and
+    updating centroids to be the mean of their assigned points.
+
+    Args:
+        data: List of points (each point is a list of coordinates).
+        k: Number of clusters.
+        max_iterations: Maximum iterations before stopping.
+
+    Returns:
+        Tuple of (centroids, clusters).
+    """
+    import random
+    import math
+    # Initialize centroids by randomly sampling k data points
+    centroids = random.sample(data, k)
+
+    for _ in range(max_iterations):
+        # Assignment step: assign each point to nearest centroid
+        clusters = [[] for _ in range(k)]
+        for point in data:
+            distances = [
+                math.sqrt(sum((a - b) ** 2 for a, b in zip(point, centroid)))
+                for centroid in centroids
+            ]
+            cluster_idx = distances.index(min(distances))
+            clusters[cluster_idx].append(point)
+
+        # Update step: recompute centroids
+        new_centroids = []
+        for cluster in clusters:
+            if cluster:
+                centroid = [
+                    sum(point[d] for point in cluster) / len(cluster)
+                    for d in range(len(data[0]))
+                ]
+                new_centroids.append(centroid)
+            else:
+                # Empty cluster: reinitialize with a random point
+                new_centroids.append(random.choice(data))
+
+        if new_centroids == centroids:
+            break  # Converged
+        centroids = new_centroids
+
+    return centroids, clusters
+
+
+def k_nearest_neighbors(X_train, y_train, x_query, k=3):
+    """Classify a query point using k-nearest neighbors.
+
+    Finds the k closest training points and returns the most
+    common label among them (majority vote).
+    """
+    import math
+    distances = []
+    for i, x in enumerate(X_train):
+        dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(x, x_query)))
+        distances.append((dist, y_train[i]))
+    distances.sort(key=lambda d: d[0])
+    neighbors = [label for _, label in distances[:k]]
+    from collections import Counter
+    return Counter(neighbors).most_common(1)[0][0]
+
+
+def naive_bayes_classify(X_train, y_train, x_query):
+    """Classify using Gaussian Naive Bayes.
+
+    Assumes features are independent and normally distributed
+    within each class.  Computes posterior probability using
+    Bayes' theorem with Gaussian likelihood.
+    """
+    from collections import defaultdict
+    import math
+
+    classes = set(y_train)
+    class_data = defaultdict(list)
+    for x, y in zip(X_train, y_train):
+        class_data[y].append(x)
+
+    n_total = len(y_train)
+    best_class = None
+    best_log_prob = float('-inf')
+
+    for cls in classes:
+        data = class_data[cls]
+        prior = math.log(len(data) / n_total)
+        log_likelihood = 0.0
+        n_features = len(x_query)
+
+        for j in range(n_features):
+            values = [row[j] for row in data]
+            mean = sum(values) / len(values)
+            var = sum((v - mean) ** 2 for v in values) / len(values) + 1e-9
+            # Gaussian log-likelihood
+            log_likelihood += -0.5 * math.log(2 * math.pi * var)
+            log_likelihood += -0.5 * ((x_query[j] - mean) ** 2) / var
+
+        log_posterior = prior + log_likelihood
+        if log_posterior > best_log_prob:
+            best_log_prob = log_posterior
+            best_class = cls
+
+    return best_class
+
+
+def matrix_multiply(a, b):
+    """Multiply two matrices represented as lists of lists.
+
+    Standard O(n^3) algorithm.  For large matrices, use numpy instead.
+    """
+    rows_a, cols_a = len(a), len(a[0])
+    rows_b, cols_b = len(b), len(b[0])
+    assert cols_a == rows_b, "Incompatible dimensions"
+    result = [[0] * cols_b for _ in range(rows_a)]
+    for i in range(rows_a):
+        for j in range(cols_b):
+            for k in range(cols_a):
+                result[i][j] += a[i][k] * b[k][j]
+    return result
+
+
+def matrix_transpose(matrix):
+    """Transpose a matrix (swap rows and columns)."""
+    rows = len(matrix)
+    cols = len(matrix[0])
+    return [[matrix[i][j] for i in range(rows)] for j in range(cols)]
+
+
+def matrix_determinant(matrix):
+    """Compute the determinant of a square matrix using cofactor expansion.
+
+    Recursive implementation.  O(n!) time -- not suitable for large matrices.
+    """
+    n = len(matrix)
+    if n == 1:
+        return matrix[0][0]
+    if n == 2:
+        return matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
+    det = 0
+    for j in range(n):
+        # Build the minor matrix by removing row 0 and column j
+        minor = [row[:j] + row[j + 1:] for row in matrix[1:]]
+        det += ((-1) ** j) * matrix[0][j] * matrix_determinant(minor)
+    return det
+
+
+def dot_product(a, b):
+    """Compute the dot product of two vectors."""
+    return sum(x * y for x, y in zip(a, b))
+
+
+def vector_norm(v, p=2):
+    """Compute the Lp norm of a vector. Default is L2 (Euclidean)."""
+    return sum(abs(x) ** p for x in v) ** (1.0 / p)
+
+
+def normalize_vector(v):
+    """Normalize a vector to unit length."""
+    norm = vector_norm(v)
+    if norm == 0:
+        return v  # Can't normalize a zero vector
+    return [x / norm for x in v]
+
+
+def cosine_similarity(a, b):
+    """Compute cosine similarity between two vectors.
+
+    Returns a value between -1 (opposite) and 1 (identical direction).
+    """
+    dot = dot_product(a, b)
+    norm_a = vector_norm(a)
+    norm_b = vector_norm(b)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def mean_squared_error(y_true, y_pred):
+    """Compute mean squared error between true and predicted values."""
+    n = len(y_true)
+    return sum((a - b) ** 2 for a, b in zip(y_true, y_pred)) / n
+
+
+def cross_entropy_loss(y_true, y_pred):
+    """Compute binary cross-entropy loss.
+
+    Clamps predictions to avoid log(0).
+    """
+    import math
+    eps = 1e-15  # Small constant to prevent log(0)
+    return -sum(
+        y * math.log(max(p, eps)) + (1 - y) * math.log(max(1 - p, eps))
+        for y, p in zip(y_true, y_pred)
+    ) / len(y_true)
+
+
+def softmax(logits):
+    """Compute softmax probabilities from raw logits.
+
+    Subtracts the max for numerical stability before exponentiating.
+    """
+    import math
+    max_val = max(logits)
+    exps = [math.exp(x - max_val) for x in logits]
+    total = sum(exps)
+    return [e / total for e in exps]
+
+
+def batch_normalize(data, eps=1e-5):
+    """Apply batch normalization to a 1D array of values.
+
+    Subtracts the mean and divides by the standard deviation,
+    with a small epsilon for numerical stability.
+    """
+    mean = sum(data) / len(data)
+    var = sum((x - mean) ** 2 for x in data) / len(data)
+    return [(x - mean) / (var + eps) ** 0.5 for x in data]
+
+
+# ============================================================
+# Web / IO Utilities
+# ============================================================
+
+def parse_json_file(filepath):
+    """Read and parse a JSON file into a Python object."""
+    import json
+    with open(filepath, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def write_json_file(filepath, data, indent=2):
+    """Write a Python object to a JSON file with pretty printing."""
+    import json
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=indent, ensure_ascii=False)
+
+
+def read_csv_file(filepath, delimiter=','):
+    """Read a CSV file and return a list of dictionaries.
+
+    Each dictionary represents one row, with column headers as keys.
+    """
+    import csv
+    rows = []
+    with open(filepath, 'r', encoding='utf-8', newline='') as f:
+        reader = csv.DictReader(f, delimiter=delimiter)
+        for row in reader:
+            rows.append(dict(row))
+    return rows
+
+
+def write_csv_file(filepath, data, fieldnames=None, delimiter=','):
+    """Write a list of dictionaries to a CSV file.
+
+    If fieldnames is None, uses the keys of the first dictionary.
+    """
+    import csv
+    if not data:
+        return
+    if fieldnames is None:
+        fieldnames = list(data[0].keys())
+    with open(filepath, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter=delimiter)
+        writer.writeheader()
+        writer.writerows(data)
+
+
+def read_text_file(filepath, encoding='utf-8'):
+    """Read an entire text file and return its contents as a string."""
+    with open(filepath, 'r', encoding=encoding) as f:
+        return f.read()
+
+
+def write_text_file(filepath, content, encoding='utf-8'):
+    """Write a string to a text file, creating or overwriting it."""
+    with open(filepath, 'w', encoding=encoding) as f:
+        f.write(content)
+
+
+def list_files(directory, extension=None):
+    """List files in a directory, optionally filtering by extension.
+
+    Returns sorted absolute paths.
+    """
+    import os
+    files = []
+    for entry in os.scandir(directory):
+        if entry.is_file():
+            if extension is None or entry.name.endswith(extension):
+                files.append(entry.path)
+    return sorted(files)
+
+
+def walk_directory(root, extensions=None):
+    """Recursively find files under root, optionally filtering by extension."""
+    import os
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        for filename in filenames:
+            if extensions is None or any(filename.endswith(ext) for ext in extensions):
+                found.append(os.path.join(dirpath, filename))
+    return found
+
+
+def parse_url(url):
+    """Parse a URL into its components (scheme, host, path, query, etc.)."""
+    from urllib.parse import urlparse, parse_qs
+    parsed = urlparse(url)
+    return {
+        'scheme': parsed.scheme,
+        'host': parsed.hostname,
+        'port': parsed.port,
+        'path': parsed.path,
+        'query': parse_qs(parsed.query),
+        'fragment': parsed.fragment,
+    }
+
+
+def build_url(scheme, host, path='/', params=None):
+    """Construct a URL from components."""
+    from urllib.parse import urlencode
+    url = f"{scheme}://{host}{path}"
+    if params:
+        url += '?' + urlencode(params, doseq=True)
+    return url
+
+
+def simple_http_get(url, timeout=10):
+    """Perform a simple HTTP GET request using urllib (no external deps).
+
+    Returns a dict with status, headers, and body (or error info).
+    """
+    from urllib.request import urlopen, Request
+    from urllib.error import URLError, HTTPError
+    try:
+        req = Request(url, headers={'User-Agent': 'Python-Client/1.0'})
+        with urlopen(req, timeout=timeout) as response:
+            return {
+                'status': response.status,
+                'headers': dict(response.headers),
+                'body': response.read().decode('utf-8'),
+            }
+    except HTTPError as e:
+        return {'status': e.code, 'error': str(e)}
+    except URLError as e:
+        return {'status': None, 'error': str(e)}
+
+
+# ============================================================
+# Utility Patterns (Decorators, Generators, etc.)
+# ============================================================
+
+def retry(max_attempts=3, delay=1.0, exceptions=(Exception,)):
+    """Decorator that retries a function on failure with exponential backoff.
+
+    Usage:
+        @retry(max_attempts=5, delay=0.5)
+        def unstable_network_call():
+            ...
+    """
+    import time
+    import functools
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        time.sleep(delay * (2 ** attempt))  # Exponential backoff
+            raise last_exception
+        return wrapper
+    return decorator
+
+
+def memoize(func):
+    """Simple memoization decorator using a dictionary cache.
+
+    Caches results based on positional arguments (must be hashable).
+    """
+    import functools
+    cache = {}
+    @functools.wraps(func)
+    def wrapper(*args):
+        if args not in cache:
+            cache[args] = func(*args)
+        return cache[args]
+    return wrapper
+
+
+def timer(func):
+    """Decorator that prints the execution time of a function."""
+    import functools
+    import time
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        elapsed = time.perf_counter() - start
+        print(f"{func.__name__} took {elapsed:.4f}s")
+        return result
+    return wrapper
+
+
+def singleton(cls):
+    """Decorator that ensures only one instance of a class exists."""
+    instances = {}
+    def get_instance(*args, **kwargs):
+        if cls not in instances:
+            instances[cls] = cls(*args, **kwargs)
+        return instances[cls]
+    return get_instance
+
+
+def chunked(iterable, size):
+    """Split an iterable into fixed-size chunks.
+
+    The last chunk may be smaller than size.
+
+    >>> list(chunked(range(10), 3))
+    [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]
+    """
+    from itertools import islice
+    it = iter(iterable)
+    while True:
+        chunk = list(islice(it, size))
+        if not chunk:
+            break
+        yield chunk
+
+
+def flatten(nested_list):
+    """Recursively flatten a nested list/tuple structure.
+
+    >>> list(flatten([1, [2, [3, 4]], 5]))
+    [1, 2, 3, 4, 5]
+    """
+    for item in nested_list:
+        if isinstance(item, (list, tuple)):
+            yield from flatten(item)
+        else:
+            yield item
+
+
+def group_by(iterable, key_func):
+    """Group items by a key function. Returns a dict of key -> list of items.
+
+    Unlike itertools.groupby, this does not require pre-sorting.
+    """
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for item in iterable:
+        groups[key_func(item)].append(item)
+    return dict(groups)
+
+
+def sliding_window(sequence, window_size):
+    """Generate sliding windows of a given size over a sequence.
+
+    >>> list(sliding_window([1, 2, 3, 4, 5], 3))
+    [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
+    """
+    for i in range(len(sequence) - window_size + 1):
+        yield sequence[i:i + window_size]
+
+
+def unique_preserving_order(iterable):
+    """Deduplicate while preserving insertion order."""
+    seen = set()
+    for item in iterable:
+        if item not in seen:
+            seen.add(item)
+            yield item
+
+
+def deep_merge(base, override):
+    """Recursively merge two dictionaries.
+
+    Values in override take precedence.  Nested dicts are merged
+    recursively rather than replaced entirely.
+    """
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+# ============================================================
+# Class Design Patterns
+# ============================================================
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
+
+
+class Shape(ABC):
+    """Abstract base class for geometric shapes.
+
+    Subclasses must implement area() and perimeter().
+    """
+
+    @abstractmethod
+    def area(self) -> float:
+        """Calculate the area of the shape."""
+        pass
+
+    @abstractmethod
+    def perimeter(self) -> float:
+        """Calculate the perimeter of the shape."""
+        pass
+
+    def describe(self) -> str:
+        """Return a human-readable description with area and perimeter."""
+        return f"{self.__class__.__name__}: area={self.area():.2f}, perimeter={self.perimeter():.2f}"
+
+
+@dataclass
+class Circle(Shape):
+    """A circle defined by its radius."""
+    radius: float
+
+    def area(self) -> float:
+        import math
+        return math.pi * self.radius ** 2
+
+    def perimeter(self) -> float:
+        import math
+        return 2 * math.pi * self.radius
+
+
+@dataclass
+class Rectangle(Shape):
+    """A rectangle defined by width and height."""
+    width: float
+    height: float
+
+    def area(self) -> float:
+        return self.width * self.height
+
+    def perimeter(self) -> float:
+        return 2 * (self.width + self.height)
+
+
+@dataclass
+class Triangle(Shape):
+    """A triangle defined by three side lengths.
+
+    Uses Heron's formula for area calculation.
+    """
+    a: float
+    b: float
+    c: float
+
+    def area(self) -> float:
+        import math
+        s = self.perimeter() / 2  # Semi-perimeter
+        return math.sqrt(s * (s - self.a) * (s - self.b) * (s - self.c))
+
+    def perimeter(self) -> float:
+        return self.a + self.b + self.c
+
+
+@dataclass
+class Point:
+    """A 2D point supporting basic vector arithmetic."""
+    x: float = 0.0
+    y: float = 0.0
+
+    def distance_to(self, other: "Point") -> float:
+        """Euclidean distance to another point."""
+        import math
+        return math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
+
+    def __add__(self, other: "Point") -> "Point":
+        return Point(self.x + other.x, self.y + other.y)
+
+    def __sub__(self, other: "Point") -> "Point":
+        return Point(self.x - other.x, self.y - other.y)
+
+    def __mul__(self, scalar: float) -> "Point":
+        return Point(self.x * scalar, self.y * scalar)
+
+
+@dataclass
+class Config:
+    """Application configuration using dataclass with merge support.
+
+    Provides a merge() method that creates a new Config with
+    selected fields overridden.
+    """
+    name: str = "default"
+    debug: bool = False
+    max_retries: int = 3
+    timeout: float = 30.0
+    tags: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def merge(self, overrides: dict) -> "Config":
+        """Create a new Config with overridden values."""
+        import dataclasses
+        updates = {}
+        for f in dataclasses.fields(self):
+            if f.name in overrides:
+                updates[f.name] = overrides[f.name]
+        return dataclasses.replace(self, **updates)
+
+
+class Pipeline:
+    """A simple data processing pipeline.
+
+    Chains together named processing steps.  Each step is a callable
+    that takes data and returns transformed data.
+    """
+
+    def __init__(self):
+        self._steps = []
+
+    def add_step(self, name, func):
+        """Add a named processing step."""
+        self._steps.append((name, func))
+        return self  # Allow chaining
+
+    def run(self, data):
+        """Execute all steps in order, passing data through each."""
+        for name, func in self._steps:
+            data = func(data)
+        return data
+
+    def __repr__(self):
+        step_names = [name for name, _ in self._steps]
+        return f"Pipeline({' -> '.join(step_names)})"
+
+
+class Registry:
+    """A generic registry for creating objects by name.
+
+    Useful for plugin systems where implementations are registered
+    at import time and instantiated later by name.
+    """
+
+    def __init__(self):
+        self._registry = {}
+
+    def register(self, name):
+        """Decorator to register a class under a name."""
+        def decorator(cls):
+            self._registry[name] = cls
+            return cls
+        return decorator
+
+    def create(self, name, *args, **kwargs):
+        """Create an instance of a registered class."""
+        if name not in self._registry:
+            raise KeyError(f"Unknown type: {name}")
+        return self._registry[name](*args, **kwargs)
+
+    def list_registered(self):
+        """Return the names of all registered types."""
+        return list(self._registry.keys())
+
+
+class StateMachine:
+    """A simple finite state machine.
+
+    Define states and transitions, then trigger events to
+    move between states.  Optional callbacks are invoked on transitions.
+    """
+
+    def __init__(self, initial_state):
+        self._state = initial_state
+        self._transitions = {}  # (from_state, event) -> to_state
+        self._callbacks = {}    # (from_state, event) -> callback
+
+    def add_transition(self, from_state, event, to_state, callback=None):
+        """Define a valid transition."""
+        self._transitions[(from_state, event)] = to_state
+        if callback:
+            self._callbacks[(from_state, event)] = callback
+
+    def trigger(self, event):
+        """Trigger an event, causing a state transition."""
+        key = (self._state, event)
+        if key not in self._transitions:
+            raise ValueError(f"No transition from {self._state} on {event}")
+        callback = self._callbacks.get(key)
+        if callback:
+            callback(self._state, event)
+        self._state = self._transitions[key]
+
+    @property
+    def state(self):
+        """The current state."""
+        return self._state
+
+
+class ContextTimer:
+    """Context manager that measures elapsed wall-clock time.
+
+    Usage:
+        with ContextTimer("my operation") as t:
+            do_something()
+        print(t.elapsed)
+    """
+
+    def __init__(self, label=""):
+        self.label = label
+        self.elapsed = 0.0
+
+    def __enter__(self):
+        import time
+        self._start = time.perf_counter()
+        return self
+
+    def __exit__(self, *exc):
+        import time
+        self.elapsed = time.perf_counter() - self._start
+        if self.label:
+            print(f"[{self.label}] {self.elapsed:.4f}s")
+        return False
+
+
+# ============================================================
+# Math / Number Theory
+# ============================================================
+
+def gcd(a, b):
+    """Compute the greatest common divisor using Euclid's algorithm."""
+    while b:
+        a, b = b, a % b
+    return a
+
+
+def lcm(a, b):
+    """Compute the least common multiple of two integers."""
+    return a * b // gcd(a, b)
+
+
+def is_prime(n):
+    """Check if n is a prime number.
+
+    Uses 6k +/- 1 optimization for trial division.
+    Time complexity: O(sqrt(n)).
+    """
+    if n < 2:
+        return False
+    if n < 4:
+        return True
+    if n % 2 == 0 or n % 3 == 0:
+        return False
+    i = 5
+    while i * i <= n:
+        if n % i == 0 or n % (i + 2) == 0:
+            return False
+        i += 6
+    return True
+
+
+def sieve_of_eratosthenes(limit):
+    """Return all primes up to limit using the Sieve of Eratosthenes.
+
+    Time: O(n log log n), Space: O(n).
+    """
+    is_prime_arr = [True] * (limit + 1)
+    is_prime_arr[0] = is_prime_arr[1] = False
+    for i in range(2, int(limit ** 0.5) + 1):
+        if is_prime_arr[i]:
+            # Mark all multiples of i as composite
+            for j in range(i * i, limit + 1, i):
+                is_prime_arr[j] = False
+    return [i for i, v in enumerate(is_prime_arr) if v]
+
+
+def prime_factorization(n):
+    """Return the prime factorization of n as a sorted list of factors.
+
+    Example: prime_factorization(60) -> [2, 2, 3, 5]
+    """
+    factors = []
+    d = 2
+    while d * d <= n:
+        while n % d == 0:
+            factors.append(d)
+            n //= d
+        d += 1
+    if n > 1:
+        factors.append(n)  # n is prime
+    return factors
+
+
+def modular_exponentiation(base, exp, mod):
+    """Compute (base^exp) % mod efficiently using repeated squaring.
+
+    Also known as fast power.  Time: O(log exp).
+    """
+    result = 1
+    base = base % mod
+    while exp > 0:
+        if exp % 2 == 1:
+            result = (result * base) % mod
+        exp = exp >> 1
+        base = (base * base) % mod
+    return result
+
+
+def extended_gcd(a, b):
+    """Extended Euclidean algorithm.
+
+    Returns (gcd, x, y) such that a*x + b*y = gcd(a, b).
+    """
+    if a == 0:
+        return b, 0, 1
+    g, x1, y1 = extended_gcd(b % a, a)
+    x = y1 - (b // a) * x1
+    y = x1
+    return g, x, y
+
+
+def combination(n, r):
+    """Compute C(n, r) = n! / (r! * (n-r)!) without computing factorials.
+
+    Uses the multiplicative formula for efficiency and avoids overflow
+    for moderate values.
+    """
+    if r > n or r < 0:
+        return 0
+    if r == 0 or r == n:
+        return 1
+    r = min(r, n - r)  # Optimization: C(n, r) == C(n, n-r)
+    result = 1
+    for i in range(r):
+        result = result * (n - i) // (i + 1)
+    return result
+
+
+def catalan_number(n):
+    """Compute the n-th Catalan number using DP.
+
+    The Catalan number C(n) counts the number of valid parenthesizations,
+    binary trees with n+1 leaves, paths in a grid, etc.
+    """
+    if n <= 1:
+        return 1
+    dp = [0] * (n + 1)
+    dp[0] = dp[1] = 1
+    for i in range(2, n + 1):
+        for j in range(i):
+            dp[i] += dp[j] * dp[i - 1 - j]
+    return dp[n]
+
+
+# ============================================================
+# String Processing
+# ============================================================
+
+def is_palindrome(s):
+    """Check if a string is a palindrome (ignoring case and non-alphanumeric)."""
+    cleaned = ''.join(c.lower() for c in s if c.isalnum())
+    return cleaned == cleaned[::-1]
+
+
+def caesar_cipher(text, shift):
+    """Encrypt text using the Caesar cipher with the given shift.
+
+    Preserves case and non-alphabetic characters.
+    """
+    result = []
+    for char in text:
+        if char.isalpha():
+            base = ord('A') if char.isupper() else ord('a')
+            result.append(chr((ord(char) - base + shift) % 26 + base))
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
+def run_length_encode(s):
+    """Compress a string using run-length encoding.
+
+    Example: "aaabbc" -> "a3b2c1"
+    """
+    if not s:
+        return ""
+    result = []
+    count = 1
+    for i in range(1, len(s)):
+        if s[i] == s[i - 1]:
+            count += 1
+        else:
+            result.append(f"{s[i-1]}{count}")
+            count = 1
+    result.append(f"{s[-1]}{count}")
+    return ''.join(result)
+
+
+def levenshtein_distance(s1, s2):
+    """Compute Levenshtein distance using a space-optimized 1D DP array."""
+    m, n = len(s1), len(s2)
+    dp = list(range(n + 1))
+    for i in range(1, m + 1):
+        prev = dp[0]
+        dp[0] = i
+        for j in range(1, n + 1):
+            temp = dp[j]
+            if s1[i - 1] == s2[j - 1]:
+                dp[j] = prev
+            else:
+                dp[j] = 1 + min(prev, dp[j], dp[j - 1])
+            prev = temp
+    return dp[n]
+
+
+def word_frequency(text):
+    """Count the frequency of each word in a text (case-insensitive).
+
+    Strips punctuation and returns a dict of word -> count.
+    """
+    from collections import Counter
+    words = text.lower().split()
+    cleaned = [
+        ''.join(c for c in word if c.isalnum())
+        for word in words
+    ]
+    return dict(Counter(w for w in cleaned if w))
+
+
+def slugify(text):
+    """Convert text to a URL-friendly slug.
+
+    Lowercases, removes special characters, replaces spaces with hyphens.
+    Example: "Hello World! 123" -> "hello-world-123"
+    """
+    import re
+    text = text.lower().strip()
+    text = re.sub(r'[^\w\s-]', '', text)
+    text = re.sub(r'[\s_]+', '-', text)
+    text = re.sub(r'-+', '-', text)
+    return text.strip('-')
+
+
+def camel_to_snake(name):
+    """Convert CamelCase to snake_case.
+
+    Example: "MyClassName" -> "my_class_name"
+    """
+    import re
+    s1 = re.sub(r'(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+
+def snake_to_camel(name, upper_first=False):
+    """Convert snake_case to camelCase (or PascalCase if upper_first=True).
+
+    Example: "my_class_name" -> "myClassName"
+    Example: "my_class_name" (upper_first=True) -> "MyClassName"
+    """
+    parts = name.split('_')
+    if upper_first:
+        return ''.join(p.capitalize() for p in parts)
+    return parts[0] + ''.join(p.capitalize() for p in parts[1:])
+
+
+# ============================================================
+# Iterator / Generator Patterns
+# ============================================================
+
+def fibonacci_generator():
+    """Infinite generator yielding Fibonacci numbers: 0, 1, 1, 2, 3, 5, ..."""
+    a, b = 0, 1
+    while True:
+        yield a
+        a, b = b, a + b
+
+
+def batched(iterable, batch_size):
+    """Yield successive batches of the given size from an iterable.
+
+    The final batch may be shorter than batch_size.
+    """
+    batch = []
+    for item in iterable:
+        batch.append(item)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
+def pairwise(iterable):
+    """Yield consecutive pairs from an iterable.
+
+    >>> list(pairwise([1, 2, 3, 4]))
+    [(1, 2), (2, 3), (3, 4)]
+    """
+    it = iter(iterable)
+    try:
+        prev = next(it)
+    except StopIteration:
+        return
+    for item in it:
+        yield prev, item
+        prev = item
+
+
+def accumulate(iterable, func=None, initial=None):
+    """Yield running totals (or running reductions with a custom function).
+
+    Similar to itertools.accumulate but implemented from scratch.
+    """
+    it = iter(iterable)
+    if initial is not None:
+        total = initial
+    else:
+        try:
+            total = next(it)
+        except StopIteration:
+            return
+    yield total
+    if func is None:
+        func = lambda a, b: a + b
+    for element in it:
+        total = func(total, element)
+        yield total

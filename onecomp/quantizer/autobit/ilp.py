@@ -9,10 +9,10 @@ Author: Akihiro Yoshida
 import re
 
 import torch
-import torch.nn.functional as F
 from ortools.linear_solver import pywraplp
 
 from onecomp.utils import raw_bits_for_quantizer, effective_bits_for_quantizer
+from onecomp.quantizer.rtn.quantizer import pseudo_quantize_tensor
 from onecomp.quantizer.autobit.activation_stats import collect_activation_stats_blockwise
 
 
@@ -56,16 +56,20 @@ def assign_by_ilp(quantizer, model, *, use_activation=False):
             "Each child quantizer must have a 'wbits', 'bits', "
             "or 'target_bits' attribute."
         )
+    group_sizes = [
+        getattr(q, "groupsize", getattr(q, "group_size", -1)) or -1 for q in quantizer.quantizers
+    ]
     eff_matrix = _effective_bits_matrix(quantizer.quantizers, candidates)
     n_modules = len(candidates)
 
     tag = "Activation-Aware ILP" if use_activation else "ILP"
+    candidate_desc = [f"{b}bit/gs{gs}" for b, gs in zip(raw_bits, group_sizes)]
     logger.info(
-        "%s: %d modules × %d candidates (raw %s), target=%.2f bpw",
+        "%s: %d modules × %d candidates (%s), target=%.2f bpw",
         tag,
         n_modules,
         len(raw_bits),
-        raw_bits,
+        candidate_desc,
         quantizer.target_bit,
     )
 
@@ -76,16 +80,15 @@ def assign_by_ilp(quantizer, model, *, use_activation=False):
         a_diag, b_diag = collect_activation_stats_blockwise(
             model,
             candidates,
-            num_samples=quantizer.num_calib_samples,
-            seqlen=quantizer.calib_seqlen,
+            calibration_config=quantizer.calibration_config,
             use_curvature_b=quantizer.use_curvature_b,
             logger=logger,
         )
 
-    # 2. error evaluation
+    # 2. error evaluation (uses per-quantizer groupsize for grouped RTN)
     errors, params_per_module = _evaluate_errors(
         candidates,
-        raw_bits,
+        quantizer.quantizers,
         a_diag=a_diag,
         b_diag=b_diag,
         logger=logger,
@@ -113,10 +116,11 @@ def assign_by_ilp(quantizer, model, *, use_activation=False):
         child_q = quantizer.quantizers[bit_idx]
         assignments.append((name, module, child_q))
         logger.info(
-            "Assigned '%s' -> %s (raw %s-bit, eff %.4f bpw, error=%.4e)",
+            "Assigned '%s' -> %s (raw %s-bit, gs=%s, eff %.4f bpw, error=%.4e)",
             name,
             child_q.name,
             raw_bits[bit_idx],
+            group_sizes[bit_idx],
             eff_matrix[i][bit_idx],
             errors[i][bit_idx],
         )
@@ -134,11 +138,17 @@ def assign_by_ilp(quantizer, model, *, use_activation=False):
 
 
 def _find_candidates(quantizer, model):
-    """Collect quantisable layers in model order."""
+    """Collect quantisable layers in model order.
+
+    Bit allocation is performed on the text submodel for multi-modal models.
+    """
+    search_root, prefix = quantizer._get_text_search_root(model)
+
     candidates = []
-    for name, module in model.named_modules():
-        if quantizer._should_quantize_layer(name, module):
-            candidates.append((name, module))
+    for name, module in search_root.named_modules():
+        full_name = prefix + name if prefix else name
+        if quantizer._should_quantize_layer(full_name, module):
+            candidates.append((full_name, module))
         if quantizer.num_layers is not None and len(candidates) >= quantizer.num_layers:
             break
 
@@ -180,8 +190,13 @@ def _effective_bits_matrix(quantizers, candidates):
     return matrix
 
 
-def _evaluate_errors(candidates, raw_bits, *, a_diag=None, b_diag=None, logger):
-    """Evaluate RTN errors for all (layer, candidate) pairs."""
+def _evaluate_errors(candidates, quantizers, *, a_diag=None, b_diag=None, logger):
+    """Evaluate RTN errors for all (layer, candidate) pairs.
+
+    Each quantizer's ``groupsize`` is respected so that grouped
+    quantisation (finer scale/zero granularity) yields a more accurate
+    error estimate than per-channel.
+    """
 
     n_modules = len(candidates)
     errors = [None] * n_modules
@@ -190,7 +205,7 @@ def _evaluate_errors(candidates, raw_bits, *, a_diag=None, b_diag=None, logger):
     for i, (name, module) in enumerate(candidates):
         a = a_diag[name] if a_diag is not None else None
         b = b_diag[name] if b_diag is not None else None
-        errors[i] = _rtn_errors(module.weight.data, raw_bits, a_diag=a, b_diag=b)
+        errors[i] = _rtn_errors(module.weight.data, quantizers, logger, a_diag=a, b_diag=b)
         params_per_module[i] = module.weight.numel()
 
     tag = "Activation-aware" if a_diag is not None else "RTN"
@@ -198,13 +213,17 @@ def _evaluate_errors(candidates, raw_bits, *, a_diag=None, b_diag=None, logger):
         "%s evaluation: %d modules × %d candidates",
         tag,
         n_modules,
-        len(raw_bits),
+        len(quantizers),
     )
     return errors, params_per_module
 
 
-def _rtn_errors(weight, candidate_bits, *, a_diag=None, b_diag=None):
-    """RTN quantisation error for each candidate bit-width.
+def _rtn_errors(weight, quantizers, logger, *, a_diag=None, b_diag=None):
+    """RTN quantisation error for each candidate quantizer.
+
+    Each quantizer's ``groupsize`` determines the quantisation
+    granularity: ``groupsize > 0`` uses per-group scale/zero (groups of
+    ``groupsize`` columns), while ``groupsize <= 0`` uses per-channel.
 
     When both ``a_diag`` and ``b_diag`` are provided, returns the
     activation-weighted error (diagonal approximation of ΔL):
@@ -222,16 +241,16 @@ def _rtn_errors(weight, candidate_bits, *, a_diag=None, b_diag=None):
         a = a_diag.to(w.device).float()  # (d_in,)
         b = b_diag.to(w.device).float()  # (d_out,)
 
-    w_min = w.min(dim=1, keepdim=True).values
-    w_max = w.max(dim=1, keepdim=True).values
-
     errors = []
-    for bits in candidate_bits:
-        maxq = 2**bits - 1
-        scale = ((w_max - w_min) / maxq).clamp(min=1e-10)
-        zero = torch.round(-w_min / scale)
-        w_q = torch.clamp(torch.round(w / scale) + zero, 0, maxq)
-        w_deq = scale * (w_q - zero)
+    for q in quantizers:
+        bits = raw_bits_for_quantizer(q)
+        gs = getattr(q, "groupsize", None)
+        if gs is None:
+            logger.warning(
+                f"Group size is not set for quantizer {q.name}, use default groupsize -1"
+            )
+            gs = -1
+        w_deq, *_ = pseudo_quantize_tensor(w, n_bit=bits, q_group_size=gs)
         dw = w - w_deq
         if use_activation:
             error = b @ (dw.pow(2) @ a)

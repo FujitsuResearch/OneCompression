@@ -8,8 +8,10 @@ Author: Keiji Kimura
 
 from .__version__ import __version__
 
+from .calibration import CalibrationConfig
 from .model_config import ModelConfig
 from .qep import QEPConfig
+from .lpcd import LPCDConfig
 from .rotated_model_config import RotatedModelConfig
 from .runner import Runner
 from .quantizer import *

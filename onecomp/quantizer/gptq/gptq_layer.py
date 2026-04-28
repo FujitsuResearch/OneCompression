@@ -44,6 +44,10 @@ def _pack_rows(matrix: torch.Tensor, wbits: int) -> torch.Tensor:
     """
     rows, cols = matrix.shape
     matrix = matrix.int()
+    # Mask inputs to wbits so any out-of-range or negative value does not
+    # corrupt neighboring slots of the packed INT32 word via sign-extended bits.
+    # This also covers the GPTQ v1 qzero=0 case, where qzero - 1 is stored as -1.
+    mask = (1 << wbits) - 1
 
     if wbits in (2, 4, 8):
         pack_factor = 32 // wbits
@@ -53,7 +57,7 @@ def _pack_rows(matrix: torch.Tensor, wbits: int) -> torch.Tensor:
         reshaped = matrix.reshape(rows // pack_factor, pack_factor, cols)
         packed = torch.zeros(rows // pack_factor, cols, dtype=torch.int32, device=matrix.device)
         for i in range(pack_factor):
-            packed |= reshaped[:, i, :] << (i * wbits)
+            packed |= (reshaped[:, i, :] & mask) << (i * wbits)
         return packed
 
     if wbits == 3:
@@ -66,7 +70,7 @@ def _pack_rows(matrix: torch.Tensor, wbits: int) -> torch.Tensor:
             start_bit = k * 3
             word_idx = start_bit // 32
             bit_offset = start_bit % 32
-            val = reshaped[:, k, :]
+            val = reshaped[:, k, :] & mask
             if bit_offset + 3 <= 32:
                 packed[:, word_idx, :] |= val << bit_offset
             else:
@@ -341,8 +345,12 @@ class GPTQLinear(nn.Module):
         """
         # Fast path when using GemLite
         if self.using_gemlite and self._gemlite_layer is not None:
-            # GemLite handles all quantization internally
-            output = self._gemlite_layer(x)
+            # GemLite is initialized with fp16 weights; cast input to fp16
+            # to avoid Triton dtype mismatch (e.g. bf16 models like Gemma 4),
+            # then restore the original dtype.
+            orig_dtype = x.dtype
+            output = self._gemlite_layer(x.to(torch.float16))
+            output = output.to(orig_dtype)
             if self.bias is not None:
                 output = output + self.bias.to(output.dtype)
             return output
@@ -358,19 +366,25 @@ class GPTQLinear(nn.Module):
         # Unpack zeros: (num_groups, out_features)
         # OneComp always writes v1 (qzeros stored with -1 offset), but from_saved_state
         # may load external checkpoints saved as gptq_v2 (qzeros stored as-is, no offset).
+        # The v1 restoration is modular: stored 2^wbits-1 (from qzero=0) must wrap to 0,
+        # matching the AutoGPTQ/vLLM exllama kernel's modular arithmetic.
         _v1 = getattr(self, "checkpoint_format", "gptq") != "gptq_v2"
+        wbits_mask = (1 << self.wbits) - 1
         if self._weight_is_packed:
             zeros = unpack_zeros(self.qzeros, self.wbits, self.out_features)
             if _v1:
-                zeros = zeros + 1
+                zeros = (zeros + 1) & wbits_mask
         else:
-            zeros = self.qzeros + 1 if _v1 else self.qzeros
+            zeros = ((self.qzeros + 1) & wbits_mask) if _v1 else self.qzeros
 
         # Dequantize: weight = scale * (weight_int - zero)
         # scales: (num_groups, out_features), g_idx: (in_features,)
         scale_expanded = self.scales[self.g_idx, :].T  # (out_features, in_features)
         zero_expanded = zeros[self.g_idx, :].T  # (out_features, in_features)
         weight = scale_expanded * (weight_int.float() - zero_expanded)
+
+        # Cast dequantized weight to input dtype (e.g. float32 -> float16)
+        weight = weight.to(x.dtype)
 
         # Cast dequantized weight to input dtype (e.g. float32 -> float16)
         weight = weight.to(x.dtype)

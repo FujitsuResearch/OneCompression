@@ -57,7 +57,7 @@ class BitLinearPacked(nn.Module):
         self,
         packed_binary: Optional[torch.Tensor] = None,
         shape: Optional[Tuple[int, int]] = None,
-        preunpack: bool = True
+        preunpack: bool = True,
     ):
         super().__init__()
 
@@ -123,9 +123,8 @@ class DBFLinear_NAIVE(nn.Module):
         binary1 (BitLinearPacked): First binary linear transform module, built from ``bp1``.
         binary3 (BitLinearPacked): Second binary linear transform module, built from ``bp3``.
     """
-    def __init__(
-        self, w_bit, in_features, out_features, bias, dev, training=False
-    ):
+
+    def __init__(self, w_bit, in_features, out_features, bias, dev, training=False):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -133,8 +132,7 @@ class DBFLinear_NAIVE(nn.Module):
         # Compute the number of intermediate features.
         # Use the w_bit-based formula and clip by min(in_features, out_features)
         # to control factorization cost while avoiding unnecessary dimension growth.
-        mid_features1 = int(
-            w_bit * (in_features * out_features)/(in_features + out_features))
+        mid_features1 = int(w_bit * (in_features * out_features) / (in_features + out_features))
         mid_features = min(min(in_features, out_features), mid_features1)
         self.mid_features = mid_features
         self.w_bit = w_bit
@@ -160,7 +158,7 @@ class DBFLinear_NAIVE(nn.Module):
         self.register_buffer(
             "bp1",
             torch.zeros(
-                ((mid_features*in_features + (8) - 1) // (8)),
+                ((mid_features * in_features + (8) - 1) // (8)),
                 dtype=torch.uint8,
                 device=dev,
             ),
@@ -179,7 +177,7 @@ class DBFLinear_NAIVE(nn.Module):
         self.register_buffer(
             "bp3",
             torch.zeros(
-                ((out_features*mid_features + (8) - 1) // (8)),
+                ((out_features * mid_features + (8) - 1) // (8)),
                 dtype=torch.uint8,
                 device=dev,
             ),
@@ -208,8 +206,11 @@ class DBFLinear_NAIVE(nn.Module):
 
     @classmethod
     def from_linear(
-        cls, linear, w_bit, init_only=False,
-    ) -> 'DBFLinear_NAIVE':
+        cls,
+        linear,
+        w_bit,
+        init_only=False,
+    ) -> "DBFLinear_NAIVE":
         """
         Class method to create a DBFLinear_NAIVE instance from a torch.nn.Linear layer.
 
@@ -235,10 +236,8 @@ class DBFLinear_NAIVE(nn.Module):
         return dbf_linear
 
     def post_init(self):
-        self.binary1 = BitLinearPacked(
-            self.bp1, (self.mid_features, self.in_features))
-        self.binary3 = BitLinearPacked(
-            self.bp3, (self.out_features, self.mid_features))
+        self.binary1 = BitLinearPacked(self.bp1, (self.mid_features, self.in_features))
+        self.binary3 = BitLinearPacked(self.bp3, (self.out_features, self.mid_features))
 
     def forward(self, x):
         """

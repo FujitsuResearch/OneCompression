@@ -39,12 +39,14 @@ from __future__ import annotations
 
 import copy
 import os
+import time
 from logging import getLogger
 from typing import TYPE_CHECKING
 
 import torch
 from transformers import AutoModelForCausalLM
 
+from ..calibration import CalibrationConfig
 from ..model_config import ModelConfig
 from .rotation_utils import cleanup_memory
 
@@ -54,6 +56,89 @@ if TYPE_CHECKING:
 
 logger = getLogger(__name__)
 
+_VALID_ROTATION_MODES = ("random_hadamard", "hadamard", "random", "identity")
+_VALID_SCALING_MODES = ("identity", "random_ones", "random")
+_VALID_CALIBRATION_STRATEGIES = ("concat_chunk", "concat_chunk_align", "drop_head", "drop_rand")
+
+
+def _validate_prepare_rotated_model_params(
+    *,
+    rotation,
+    scaling,
+    rotation_mode,
+    scaling_mode,
+    seed,
+    enable_training,
+    calibration_config: CalibrationConfig,
+    wbits,
+    sym,
+    groupsize,
+    mse,
+    norm,
+    grid,
+    fp32_had,
+    use_sdpa,
+    training_args_override,
+):
+    """Validate parameters for :func:`prepare_rotated_model`.
+
+    Accepts all keyword arguments of :func:`prepare_rotated_model`.
+    Boolean and complex-type parameters are received for completeness
+    but only enum/numeric parameters are range-checked.
+
+    Raises:
+        ValueError: If any parameter is out of its valid range.
+    """
+    bad = []
+
+    if rotation_mode not in _VALID_ROTATION_MODES:
+        bad.append(
+            f"Invalid rotation_mode: {rotation_mode!r} "
+            f"(expected one of {_VALID_ROTATION_MODES})."
+        )
+
+    if scaling_mode not in _VALID_SCALING_MODES:
+        bad.append(
+            f"Invalid scaling_mode: {scaling_mode!r} " f"(expected one of {_VALID_SCALING_MODES})."
+        )
+
+    calibration_strategy = calibration_config.strategy
+    if calibration_strategy not in _VALID_CALIBRATION_STRATEGIES:
+        bad.append(
+            f"Invalid calibration_strategy: {calibration_strategy!r} "
+            f"(expected one of {_VALID_CALIBRATION_STRATEGIES})."
+        )
+
+    if not (isinstance(wbits, int) and 1 <= wbits <= 64):
+        bad.append(f"Invalid wbits: {wbits!r} (expected int in 1..64).")
+
+    if not (isinstance(groupsize, int) and (groupsize == -1 or groupsize >= 1)):
+        bad.append(f"Invalid groupsize: {groupsize!r} (expected int: -1 or >= 1).")
+
+    num_calibration_samples = calibration_config.num_calibration_samples
+    if not (isinstance(num_calibration_samples, int) and num_calibration_samples >= 1):
+        bad.append(
+            f"Invalid num_calibration_samples: {num_calibration_samples!r} "
+            f"(expected int >= 1)."
+        )
+
+    max_length = calibration_config.max_length
+    if not (isinstance(max_length, int) and max_length >= 1):
+        bad.append(f"Invalid max_length: {max_length!r} (expected int >= 1).")
+
+    if not (isinstance(seed, int) and seed >= 0):
+        bad.append(f"Invalid seed: {seed!r} (expected int >= 0).")
+
+    if mse:
+        if not (isinstance(grid, int) and grid >= 1):
+            bad.append(f"Invalid grid: {grid!r} (expected int >= 1 when mse=True).")
+
+        if not (isinstance(norm, (int, float)) and norm > 0):
+            bad.append(f"Invalid norm: {norm!r} (expected numeric > 0 when mse=True).")
+
+    if bad:
+        raise ValueError("; ".join(bad))
+
 
 def prepare_rotated_model(
     model_config: ModelConfig,
@@ -61,29 +146,29 @@ def prepare_rotated_model(
     *,
     rotation: bool = True,
     scaling: bool = False,
-    rotation_mode: str = "random",
+    rotation_mode: str = "random_hadamard",
     scaling_mode: str = "identity",
     seed: int = 0,
     enable_training: bool = True,
-    calibration_dataset=None,
-    max_length: int = 2048,
-    num_calibration_samples: int = 128,
-    calibration_strategy: str = "drop_rand",
+    calibration_config: CalibrationConfig | None = None,
     wbits: int = 4,
     sym: bool = False,
     groupsize: int = -1,
+    mse: bool = False,
+    norm: float = 2.4,
+    grid: int = 100,
     fp32_had: bool = False,
     use_sdpa: bool = False,
     training_args_override: dict | None = None,
 ) -> RotatedModelConfig:
-    """Train rotation matrices, apply them to model weights, and save.
+    """Optionally train rotation/scaling matrices, apply them to model weights, and save.
 
     Args:
         model_config: Original model configuration (``model_id`` or ``path``).
         save_directory: Directory to save the rotated model.
         rotation: Whether to apply rotation matrices (R1, R2).
         scaling: Whether to apply scaling diagonals (S_*).
-        rotation_mode: ``"random"`` or ``"identity"``.
+        rotation_mode: ``"random_hadamard"`` | ``"hadamard"`` | ``"random"`` | ``"identity"``.
         scaling_mode: ``"identity"`` | ``"random_ones"`` | ``"random"``.
         seed: Random seed for rotation matrix initialisation and
             calibration data preparation.  Note that the Trainer uses a
@@ -91,21 +176,24 @@ def prepare_rotated_model(
             data shuffling and training reproducibility.
         enable_training: If ``True``, train the rotation/scaling matrices;
             otherwise use the randomly initialised matrices directly.
-        calibration_dataset: List of texts for calibration.
-            If ``None``, the C4 dataset is used (same as ``Runner``).
-        max_length: Sequence length for calibration data (default: 2048).
-        num_calibration_samples: Number of calibration samples.
-            Default matches ``Runner`` (128).
-        calibration_strategy: Strategy for preparing calibration inputs
-            (``"drop_rand"``, ``"concat_chunk"``, etc.).
-            See :func:`~onecomp.utils.calibration.prepare_calibration_dataset`.
+        calibration_config: Calibration data configuration.  When ``None``
+            (default), a :class:`CalibrationConfig` with default values
+            is created automatically (``calibration_dataset="c4"``,
+            ``max_length=2048``, ``num_calibration_samples=512``,
+            ``strategy="drop_rand"``).
+            See :class:`~onecomp.calibration.CalibrationConfig`.
         wbits: Weight quantisation bit-width for the RTN proxy during
-            training.  Should match the quantizer's ``wbits``.
+            training (default: 4).  Should match the quantizer's ``wbits``.
         sym: Symmetric quantisation for the RTN proxy.
-        groupsize: Group size for the RTN proxy (``-1`` = per-channel).
-            Should match the quantizer's ``groupsize``.  When positive,
-            the value must evenly divide the ``out_features`` of every
-            ``nn.Linear`` layer in the model.
+        groupsize: Group size for the RTN proxy (``-1`` = per-channel,
+            default: -1).  Should match the quantizer's ``groupsize``.
+            When positive, the value must evenly divide the
+            ``out_features`` of every ``nn.Linear`` layer in the model.
+        mse: Enable MSE grid search for optimal clipping in the RTN
+            proxy during training.
+        norm: Lp norm exponent for the MSE grid search (default: 2.4).
+        grid: Number of candidate shrink levels for the MSE grid search
+            (default: 100).
         fp32_had: Use FP32 for the online Hadamard transform.
         use_sdpa: Use SDPA attention implementation during training.
         training_args_override: Override ``TrainingArguments`` fields (dict).
@@ -132,19 +220,44 @@ def prepare_rotated_model(
         ...     enable_training=False,
         ... )
     """
+    if calibration_config is None:
+        calibration_config = CalibrationConfig()
     from .train_rotation import (
         PreprocessManager,
         apply_preprocess_eval,
         apply_preprocess_train,
     )
-    from ..utils import prepare_calibration_dataset
+    from ..calibration import prepare_calibration_dataset
+
+    _validate_prepare_rotated_model_params(
+        rotation=rotation,
+        scaling=scaling,
+        rotation_mode=rotation_mode,
+        scaling_mode=scaling_mode,
+        seed=seed,
+        enable_training=enable_training,
+        calibration_config=calibration_config,
+        wbits=wbits,
+        sym=sym,
+        groupsize=groupsize,
+        mse=mse,
+        norm=norm,
+        grid=grid,
+        fp32_had=fp32_had,
+        use_sdpa=use_sdpa,
+        training_args_override=training_args_override,
+    )
+
+    total_start_time = time.time()
 
     model_path = model_config.get_model_id_or_path()
 
     # 1. Load the original model and tokenizer
     logger.info("Loading original model from %s ...", model_path)
+    t0 = time.time()
     model = model_config.load_model()
     tokenizer = model_config.load_tokenizer()
+    logger.info("Model loading done (%.2f s)", time.time() - t0)
 
     # Free GPU memory — the original model is only needed on CPU from here on.
     if next(model.parameters()).is_cuda:
@@ -168,15 +281,14 @@ def prepare_rotated_model(
     need_train = (rotation or scaling) and enable_training
     if need_train:
         logger.info("Preparing calibration data ...")
+        t0 = time.time()
         calibration_inputs = prepare_calibration_dataset(
             tokenizer=tokenizer,
             device="cpu",
-            calibration_dataset=calibration_dataset,
-            max_length=max_length,
-            num_calibration_samples=num_calibration_samples,
-            strategy=calibration_strategy,
-            seed=seed,
+            calibration_config=calibration_config,
+            model=model,
         )
+        logger.info("Calibration data preparation done (%.2f s)", time.time() - t0)
 
         # Release the original model to halve peak CPU memory during training.
         # Training only needs config and model_type (already extracted above);
@@ -186,6 +298,7 @@ def prepare_rotated_model(
         cleanup_memory()
 
         logger.info("Starting rotation training ...")
+        t0 = time.time()
         apply_preprocess_train(
             model_config_hf,
             model_type,
@@ -196,13 +309,18 @@ def prepare_rotated_model(
             wbits=wbits,
             sym=sym,
             groupsize=groupsize,
+            mse=mse,
+            norm=norm,
+            grid=grid,
             use_sdpa=use_sdpa,
             fp32_had=fp32_had,
             training_args_override=training_args_override,
         )
+        logger.info("Rotation training done (%.2f s)", time.time() - t0)
 
         # Re-load the original model on CPU for rotation application.
         logger.info("Re-loading original model on CPU ...")
+        t0 = time.time()
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             torch_dtype="auto",
@@ -210,21 +328,26 @@ def prepare_rotated_model(
             low_cpu_mem_usage=True,
         )
         model.eval()
+        logger.info("Model re-loading done (%.2f s)", time.time() - t0)
 
     # 4. Apply rotation to model weights (eval path)
     rotation_dev = "cuda:0" if torch.cuda.is_available() else "cpu"
+    t0 = time.time()
     apply_preprocess_eval(
         model,
         manager,
         fp32_had=fp32_had,
         dev=rotation_dev,
     )
+    logger.info("Rotation application done (%.2f s)", time.time() - t0)
 
     # 5. Save the rotated model and tokenizer
     os.makedirs(save_directory, exist_ok=True)
     logger.info("Saving rotated model to %s ...", save_directory)
+    t0 = time.time()
     model.save_pretrained(save_directory)
     tokenizer.save_pretrained(save_directory)
+    logger.info("Model saving done (%.2f s)", time.time() - t0)
 
     # Embed rotation metadata into config.json
     import json
@@ -236,7 +359,12 @@ def prepare_rotated_model(
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_dict, f, indent=2)
 
-    logger.info("Rotation preprocessing complete. Saved to %s", save_directory)
+    total_elapsed = time.time() - total_start_time
+    logger.info(
+        "Rotation preprocessing complete (total: %.2f s). Saved to %s",
+        total_elapsed,
+        save_directory,
+    )
 
     del model
     cleanup_memory()

@@ -217,6 +217,10 @@ class GPTQ(Quantizer):
     def __post_init__(self):
         if self.name is None:
             self.name = f"GPTQ_{self.wbits}bit"
+        if self.groupsize == -1:
+            self.name += "_perchannel"
+        else:
+            self.name += f"_gs{self.groupsize}"
         super().__post_init__()
 
     def validate_params(self):
@@ -459,6 +463,53 @@ class GPTQ(Quantizer):
         )
 
 
+def _compute_inverse_hessian(
+    hessian: torch.Tensor,
+    percdamp: float,
+    max_retries: int = 5,
+) -> torch.Tensor:
+    """Compute the upper-triangular Cholesky factor of the inverse Hessian.
+
+    Applies damping to the diagonal for numerical stability.  If the
+    Cholesky decomposition fails (non-positive-definite), progressively
+    increases damping and retries up to *max_retries* times.
+
+    Args:
+        hessian: Square Hessian matrix (modified in-place).
+        percdamp: Base damping as a fraction of the mean diagonal.
+        max_retries: Maximum number of retry attempts with increased damping.
+
+    Returns:
+        Upper-triangular Cholesky factor of the inverse Hessian.
+    """
+    damp = percdamp * torch.mean(torch.diag(hessian))
+    diag = torch.arange(hessian.shape[0], device=hessian.device)
+    hessian[diag, diag] += damp
+
+    damp_scale = 1.0
+    for attempt in range(max_retries):
+        try:
+            cholesky_lower = torch.linalg.cholesky(hessian)
+            break
+        except torch._C._LinAlgError:
+            damp_scale *= 10.0
+            extra = damp_scale * damp
+            hessian[diag, diag] += extra
+            logger.warning(
+                "Cholesky failed (attempt %d/%d); adding extra damping %.2e",
+                attempt + 1,
+                max_retries,
+                extra,
+            )
+    else:
+        raise RuntimeError(
+            "Cholesky decomposition failed after %d damping attempts. "
+            "The Hessian may be severely ill-conditioned." % max_retries
+        )
+    hessian = torch.cholesky_inverse(cholesky_lower)
+    return torch.linalg.cholesky(hessian, upper=True)
+
+
 def run_gptq(  # pylint: disable=too-many-positional-arguments
     hessian: torch.Tensor,
     layer: torch.nn.Module,
@@ -514,13 +565,7 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
 
     Q_int = torch.zeros_like(matrix_W, dtype=torch.int32)
 
-    damp = percdamp * torch.mean(torch.diag(hessian))
-    diag = torch.arange(hessian.shape[0], device=hessian.device)
-    hessian[diag, diag] += damp
-    hessian = torch.linalg.cholesky(hessian)
-    hessian = torch.cholesky_inverse(hessian)
-    hessian = torch.linalg.cholesky(hessian, upper=True)
-    Hinv = hessian
+    Hinv = _compute_inverse_hessian(hessian, percdamp)
 
     # Accumulate per-group scale/zero for grouped quantization
     if groupsize != -1:

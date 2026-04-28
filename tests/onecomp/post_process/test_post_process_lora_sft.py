@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from onecomp import GPTQ, ModelConfig, Runner, setup_logger
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, Runner, setup_logger
 from onecomp.post_process.post_process_lora_sft import (
     LoRAGPTQLinear,
     PostProcessLoraSFT,
@@ -43,8 +43,7 @@ def quantized_model_and_config():
     runner = Runner(
         model_config=model_config,
         quantizer=quantizer,
-        max_length=512,
-        num_calibration_samples=8,
+        calibration_config=CalibrationConfig(num_calibration_samples=8, max_length=512),
     )
     runner.run()
 
@@ -121,8 +120,7 @@ class TestPostProcessLoraSFTViaRunner:
         runner = Runner(
             model_config=model_config,
             quantizer=quantizer,
-            max_length=512,
-            num_calibration_samples=8,
+            calibration_config=CalibrationConfig(num_calibration_samples=8, max_length=512),
             post_processes=[post_process],
         )
         runner.run()

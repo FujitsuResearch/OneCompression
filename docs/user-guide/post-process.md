@@ -1,6 +1,9 @@
-# Post-Process (LoRA SFT)
+# Post-Process (Block-wise PTQ / LoRA SFT)
 
-OneComp supports **post-quantization processing** — additional steps applied to a quantized model to improve accuracy or inject domain-specific knowledge. The main implementation is **LoRA SFT**, which fine-tunes quantized models using Low-Rank Adaptation (LoRA) adapters.
+OneComp supports **post-quantization processing** — additional steps applied to a quantized model to improve accuracy or inject domain-specific knowledge. Two implementations are available:
+
+- **Block-wise PTQ** — Minimises intermediate-representation MSE against an FP16 teacher model at Transformer-block granularity. No training data labelling required.
+- **LoRA SFT** — Fine-tunes quantized models using Low-Rank Adaptation (LoRA) adapters with SFT loss, optional teacher distillation, and intermediate block alignment.
 
 ## Overview
 
@@ -8,8 +11,100 @@ The post-process framework integrates into the `Runner` pipeline via the `post_p
 
 ```
 Quantize ──► Build Model ──► Post-Process 1 ──► Post-Process 2 ──► Evaluate / Save
-                              (e.g. LoRA SFT)
+                              (e.g. BlockWisePTQ)   (e.g. LoRA SFT)
 ```
+
+---
+
+## Block-wise PTQ
+
+Block-wise PTQ improves quantized model accuracy by minimising intermediate-representation MSE against an FP16 teacher at Transformer-block granularity. It supports GPTQ, DBF, and OneBit quantizers.
+
+### How it works
+
+1. **Phase 1 (Greedy per-block distillation)** — For each Transformer block, optimise quantization parameters (scales, zeros, binary matrices) so the block's output matches the FP16 teacher block's output.
+2. **Phase 2 CBQ (Cross-Block Quantisation)** — Jointly optimise pairs of adjacent blocks with a sliding window (K=2) to reduce error accumulation from the greedy Phase 1.
+
+Only 1–2 blocks are loaded onto GPU at a time, so large models can be processed without loading the entire model into GPU memory.
+
+### Usage via Runner
+
+```python
+from onecomp import GPTQ, BlockWisePTQ, ModelConfig, Runner, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="meta-llama/Llama-2-7b-hf",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=4, groupsize=128)
+
+blockwise_ptq = BlockWisePTQ(
+    lr=1e-4,
+    epochs=10,
+    cbq_enable=True,
+    gptq_lr=1e-3,
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    post_processes=[blockwise_ptq],
+)
+runner.run()
+
+original_ppl, _, quantized_ppl = runner.calculate_perplexity(
+    original_model=True, quantized_model=True,
+)
+print(f"Original PPL:                    {original_ppl:.4f}")
+print(f"Quantized + BlockWisePTQ PPL:    {quantized_ppl:.4f}")
+```
+
+### Direct invocation
+
+You can also call BlockWisePTQ directly on an existing quantized model to compare before/after PPL without re-running quantization:
+
+```python
+runner = Runner(model_config=model_config, quantizer=gptq)
+runner.run()
+
+# Baseline PPL
+_, _, baseline_ppl = runner.calculate_perplexity(quantized_model=True)
+
+# Apply BlockWisePTQ
+model, _ = runner.create_quantized_model(pack_weights=False, use_gemlite=False)
+blockwise_ptq.run(model, model_config)
+runner.quantized_model = model
+
+# Improved PPL
+_, _, improved_ppl = runner.calculate_perplexity(quantized_model=True)
+```
+
+!!! tip
+    A complete working example is available at
+    [`example/post_process/example_blockwise_ptq.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_blockwise_ptq.py).
+
+### Key Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `lr` | `1e-4` | Learning rate for block-wise optimisation (DBF / OneBit / generic) |
+| `epochs` | `10` | Number of optimisation epochs per block |
+| `cbq_enable` | `False` | Enable Phase 2 Cross-Block Quantisation |
+| `gptq_lr` | `1e-3` | Learning rate for GPTQ scales/zeros optimisation |
+| `gptq_optimize_intweight` | `False` | Optimise integer weights via Smooth STE (GPTQ) |
+| `gptq_intweight_lr` | `1e-4` | Learning rate for integer weight optimisation |
+| `grad_clip` | `1.0` | Gradient clipping norm |
+| `optimize_binary` | `True` | Optimise binary/sign matrices (DBF / OneBit) |
+| `k_smooth` | `100.0` | SmoothSign STE temperature |
+| `num_calibration_samples` | `128` | Number of calibration samples |
+| `max_length` | `2048` | Sequence length for calibration data |
+
+See the [API Reference](../api/post_process.md) for the full parameter list.
+
+!!! warning "Save / Load"
+    Saving and loading BlockWisePTQ-optimised models via `save_quantized_model()` / `load_quantized_model()` is not yet supported. This will be addressed in a future release.
 
 ---
 

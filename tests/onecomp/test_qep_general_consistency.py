@@ -35,7 +35,7 @@ import gc
 import pytest
 import torch
 
-from onecomp import ModelConfig, Runner, setup_logger
+from onecomp import CalibrationConfig, ModelConfig, Runner, setup_logger
 from onecomp.qep import QEPConfig
 from onecomp.quantizer.gptq import GPTQ
 
@@ -79,11 +79,13 @@ def _run_qep(general: bool) -> dict:
 
     runner = Runner(
         model_config=model_config,
-        max_length=512,
-        num_calibration_samples=128,
-        calibration_strategy="drop_rand",
-        calibration_seed=0,
         quantizer=quantizer,
+        calibration_config=CalibrationConfig(
+            max_length=512,
+            num_calibration_samples=128,
+            strategy="drop_rand",
+            seed=0,
+        ),
         qep=True,
         qep_config=qep_config,
     )

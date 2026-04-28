@@ -15,7 +15,7 @@ Usage:
 import logging
 from pathlib import Path
 
-from onecomp import ModelConfig, Runner
+from onecomp import CalibrationConfig, ModelConfig, Runner
 from onecomp.qep import QEPConfig
 from onecomp.quantizer.gptq import GPTQ
 from onecomp import setup_logger
@@ -52,11 +52,13 @@ def run_qep_gptq_quantization():
     # Create Runner with QEP enabled (generic implementation)
     runner = Runner(
         model_config=model_config,
-        max_length=512,
-        num_calibration_samples=128,
-        calibration_strategy="drop_rand",
-        calibration_seed=0,
         quantizer=quantizer,
+        calibration_config=CalibrationConfig(
+            max_length=512,
+            num_calibration_samples=128,
+            strategy="drop_rand",
+            seed=0,
+        ),
         qep=True,
         qep_config=QEPConfig(general=True),
     )

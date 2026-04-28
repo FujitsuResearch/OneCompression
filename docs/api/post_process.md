@@ -1,12 +1,20 @@
 # Post-Process
 
-Post-quantization process classes for fine-tuning quantized models.
+Post-quantization process classes for improving quantized model accuracy.
 
 ## Base Class
 
 ::: onecomp.post_process.PostQuantizationProcess
     options:
       show_source: false
+
+## Block-wise PTQ
+
+::: onecomp.post_process.BlockWisePTQ
+    options:
+      show_source: false
+      members:
+        - run
 
 ## LoRA SFT
 

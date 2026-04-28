@@ -4,10 +4,11 @@ OneComp provides the `onecomp` command for quantizing models directly from the t
 
 ## Installation
 
-The `onecomp` command is installed automatically with the package:
+First, install PyTorch for your environment (see [Installation](../getting-started/installation.md#step-1-install-pytorch) for details).
+Then install OneComp:
 
 ```bash
-pip install git+https://github.com/FujitsuResearch/OneCompression.git
+pip install onecomp
 ```
 
 Verify the installation:

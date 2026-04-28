@@ -15,7 +15,7 @@ import itertools
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from onecomp import GPTQ, ModelConfig, Runner
+from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner
 
 
 def create_quantizers(cfg: DictConfig):
@@ -63,11 +63,13 @@ def main(cfg: DictConfig):
     runner = Runner(
         model_config=model_config,
         quantizers=quantizers,
-        max_length=cfg.max_length,
-        num_calibration_samples=cfg.num_calibration_samples,
-        calibration_strategy=cfg.calibration_strategy,
-        calibration_seed=cfg.calibration_seed,
-        calibration_batch_size=cfg.calibration_batch_size,
+        calibration_config=CalibrationConfig(
+            max_length=cfg.max_length,
+            num_calibration_samples=cfg.num_calibration_samples,
+            strategy=cfg.calibration_strategy,
+            seed=cfg.calibration_seed,
+            batch_size=cfg.calibration_batch_size,
+        ),
     )
 
     runner.run()
@@ -78,10 +80,18 @@ def main(cfg: DictConfig):
         )
 
     if cfg.calc_ppl:
-        runner.benchmark_perplexity(original_model=cfg.calc_original_ppl)
+        runner.benchmark_perplexity(
+            original_model=cfg.calc_original_ppl,
+            dequantized_model=True,
+            quantized_model=False,
+        )
 
     if cfg.calc_acc:
-        runner.benchmark_accuracy(original_model=cfg.calc_original_acc)
+        runner.benchmark_accuracy(
+            original_model=cfg.calc_original_acc,
+            dequantized_model=True,
+            quantized_model=False,
+        )
 
 
 if __name__ == "__main__":

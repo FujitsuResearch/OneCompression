@@ -34,6 +34,9 @@ def quantize(
     ils_num_clones=8,
     ils_num_channels=None,
     log_level=2,  # 0: none, 1: minimal, 2: detailed, 3: debug
+    enable_clip_optimize=True,
+    enable_clip_optimize_ep=True,
+    initial_solutions=None,
 ):
     """Quantize the weight matrix
 
@@ -88,6 +91,16 @@ def quantize(
         When None, automatically set to min(dim_p, 1024). Default is None.
     log_level : int, optional
         The log level. Default is 2.
+    enable_clip_optimize : bool, optional
+        Whether to enable the Clip-Optimize initialization strategy. Default is True.
+    enable_clip_optimize_ep : bool, optional
+        Whether to enable the Clip-Optimize with Error Propagation initialization
+        strategy. Default is True.
+    initial_solutions : dict[str, Solution], optional
+        Pre-built Solution objects to include in the candidate pool.
+        Keys are names used for logging, values are Solution objects.
+        Must be on the correct device with shapes matching the quantization
+        configuration. Default is None.
 
     Returns
     -------
@@ -175,6 +188,9 @@ def quantize(
         matrix_Y=matrix_Y,
         matrix_XX=matrix_XX,
         dim_n=dim_n,
+        enable_clip_optimize=enable_clip_optimize,
+        enable_clip_optimize_ep=enable_clip_optimize_ep,
+        initial_solutions=initial_solutions,
     )
 
     # When group_size=None, set to m (no group splitting)
@@ -213,6 +229,9 @@ def quantize(
         device=device,
         group_size=group_size,
         log_level=log_level,
+        enable_clip_optimize=enable_clip_optimize,
+        enable_clip_optimize_ep=enable_clip_optimize_ep,
+        initial_solutions=initial_solutions,
     )
 
     if ils_num_iterations is not None:
@@ -247,7 +266,16 @@ def quantize(
     return solution
 
 
-def _validate_quantize_args(matrix_W, matrix_X, matrix_Y, matrix_XX, dim_n):
+def _validate_quantize_args(
+    matrix_W,
+    matrix_X,
+    matrix_Y,
+    matrix_XX,
+    dim_n,
+    enable_clip_optimize=True,
+    enable_clip_optimize_ep=True,
+    initial_solutions=None,
+):
     """Validate arguments for quantize / quantize_multi_gpu.
 
     Performs the following validations:
@@ -270,6 +298,10 @@ def _validate_quantize_args(matrix_W, matrix_X, matrix_Y, matrix_XX, dim_n):
     - matrix_XX and matrix_W: matrix_XX.shape[0] == matrix_W.shape[1] must hold.
     - matrix_Y and matrix_X: matrix_Y.shape[1] == matrix_X.shape[0] must hold.
 
+    Initialization strategy checks:
+    - At least one initialization strategy must be enabled or initial_solutions
+      must be provided.
+
     Parameters
     ----------
     matrix_W : torch.Tensor or None
@@ -277,6 +309,9 @@ def _validate_quantize_args(matrix_W, matrix_X, matrix_Y, matrix_XX, dim_n):
     matrix_Y : torch.Tensor or None
     matrix_XX : torch.Tensor or None
     dim_n : int or None
+    enable_clip_optimize : bool
+    enable_clip_optimize_ep : bool
+    initial_solutions : dict[str, Solution] or None
 
     Returns
     -------
@@ -341,6 +376,14 @@ def _validate_quantize_args(matrix_W, matrix_X, matrix_Y, matrix_XX, dim_n):
                 "matrix_Y must have shape (p, n) where n = matrix_X.shape[0]. "
                 f"Got matrix_Y.shape={matrix_Y.shape}, matrix_X.shape={matrix_X.shape}."
             )
+
+    # --- Initialization strategy checks ---
+    if not (enable_clip_optimize or enable_clip_optimize_ep
+            or initial_solutions):
+        raise ValueError(
+            "At least one initialization strategy must be enabled or "
+            "initial_solutions must be provided."
+        )
 
     return dim_n
 
@@ -474,6 +517,9 @@ def run_init_local_search(
     device,
     group_size,
     log_level,
+    enable_clip_optimize=True,
+    enable_clip_optimize_ep=True,
+    initial_solutions=None,
 ):
     """Run the initial local search.
 
@@ -507,6 +553,14 @@ def run_init_local_search(
         The device to use for quantization.
     group_size : int
         The size of each group.
+    enable_clip_optimize : bool, optional
+        Whether to enable the Clip-Optimize initialization strategy. Default is True.
+    enable_clip_optimize_ep : bool, optional
+        Whether to enable the Clip-Optimize with Error Propagation initialization
+        strategy. Default is True.
+    initial_solutions : dict[str, Solution], optional
+        Pre-built Solution objects to include in the candidate pool.
+        Keys are names for logging, values are Solution objects. Default is None.
 
     Returns
     -------
@@ -575,16 +629,26 @@ def run_init_local_search(
         cand_solutions = []
         cand_names = []
 
-        cand_solutions.append(quantizer.initialize_solution_1(tilde_W))
-        cand_names.append("Clip-Optimize")
+        if enable_clip_optimize:
+            cand_solutions.append(quantizer.initialize_solution_clip_optimize(tilde_W))
+            cand_names.append("Clip-Optimize")
 
-        if num_groups > 1:
-            # When group_size = m, solution_2 yields the same result as solution_1, so skip
-            cand_solutions.append(quantizer.initialize_solution_2(tilde_W))
+        if num_groups > 1 and enable_clip_optimize_ep:
+            # When group_size = m, clip_optimize_ep yields the same result as clip_optimize, so skip
+            cand_solutions.append(quantizer.initialize_solution_clip_optimize_ep(tilde_W))
             cand_names.append("Clip-Optimize-EP")
 
-        cand_solutions.append(quantizer.initialize_solution_3(tilde_W))
-        cand_names.append("GPTQ")
+        if initial_solutions is not None:
+            for name, sol in initial_solutions.items():
+                sol.compute_objective_value(**quantizer.objective_args)
+                if quantizer.log_level >= 1:
+                    quantizer.display_log(sol, name, ignore_log_level=True)
+                result = quantizer._optimize_scales(sol)
+                quantizer.display_log(sol, f"OptS ({result}/{quantizer.dim_p})")
+                if quantizer.log_level >= 1:
+                    quantizer.display_log(sol, name, ignore_log_level=True)
+                cand_solutions.append(sol)
+                cand_names.append(name)
 
         del tilde_W
         solution = select_best_solution(
@@ -864,7 +928,7 @@ def run_iterated_local_search(
     torch.manual_seed(0)
 
     for i in range(ils_num_iterations):
-        if log_level >= 1:
+        if log_level >= 2:
             print(f"<{device}>: === ILS: Iteration {i + 1} of {ils_num_iterations} ====")
 
         # setup
@@ -932,7 +996,7 @@ def run_iterated_local_search(
             early_stopping_ratio=early_stopping_ratio,
             log_level=2 if log_level >= 2 else 0,
         )
-        if log_level >= 1:
+        if log_level >= 2:
             quantizer.display_information()
             quantizer.display_gpu_memory_usage()
         quantizer.set_begin_time()
@@ -952,7 +1016,7 @@ def run_iterated_local_search(
 
         error = torch.sum(squared_errors)
         if log_level >= 1:
-            print(f"<{device}>: Result: error = {error:.4e}, MSE = {(error / num_element):.4e}")
+            print(f"<{device}>: <ILS {i + 1}> Result: error = {error:.4e}, MSE = {(error / num_element):.4e}")
 
     return solution
 

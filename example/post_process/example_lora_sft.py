@@ -20,6 +20,7 @@ Usage:
 import torch
 
 from onecomp import (
+    CalibrationConfig,
     GPTQ,
     ModelConfig,
     PostProcessLoraSFT,
@@ -79,10 +80,22 @@ post_process = PostProcessLoraSFT(
 runner = Runner(
     model_config=model_config,
     quantizer=gptq,
+    calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
     post_processes=[post_process],
-    max_length=512,
-    num_calibration_samples=128,
 )
+# NOTE: The calibration settings above are kept compact so the demo runs
+# fast and may be insufficient for real quantisation.  For higher quality,
+# prefer the CalibrationConfig() defaults
+# (max_length=2048, num_calibration_samples=512).
+# For qep=False runs with large calibration data, also pass ``batch_size``
+# as a CalibrationConfig argument, e.g.
+#   CalibrationConfig(
+#       max_length=2048,
+#       num_calibration_samples=512,
+#       batch_size=128,
+#   )
+# so that Runner.quantize_with_calibration_chunked runs instead of a
+# single all-at-once forward pass.
 runner.run()
 
 # ================================================================

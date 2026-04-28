@@ -65,12 +65,18 @@ def _map_candidates_to_blocks(blocks, candidates):
     return block_to_candidates
 
 
+def _is_kv_shared_block(block):
+    """Return True if the block reuses KV states from an earlier layer.
+    """
+    attn = getattr(block, "self_attn", None)
+    return getattr(attn, "is_kv_shared_layer", False)
+
+
 def collect_activation_stats_blockwise(
     model,
     candidates,
+    calibration_config,
     *,
-    num_samples=128,
-    seqlen=256,
     use_curvature_b=True,
     batch_size=16,
     device=None,
@@ -82,7 +88,7 @@ def collect_activation_stats_blockwise(
         tuple[dict, dict]: (a_diag, b_diag)
     """
     from transformers import AutoTokenizer
-    from onecomp.utils.calibration import prepare_calibration_dataset
+    from onecomp.calibration import prepare_calibration_dataset
 
     if device is None:
         device = torch.device("cuda")
@@ -95,19 +101,18 @@ def collect_activation_stats_blockwise(
         torch.cuda.empty_cache()
 
     model_id = getattr(model.config, "_name_or_path", None)
-
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     calib_data = prepare_calibration_dataset(
         tokenizer=tokenizer,
         device=torch.device("cpu"),
-        max_length=seqlen,
-        num_calibration_samples=num_samples,
+        calibration_config=calibration_config,
+        model=model,
     )
 
+    num_samples = calibration_config.num_calibration_samples
     actual_samples = min(num_samples, calib_data["input_ids"].shape[0])
     model_inputs = {
-        "input_ids": calib_data["input_ids"][:actual_samples],
-        "attention_mask": calib_data["attention_mask"][:actual_samples],
+        k: v[:actual_samples] for k, v in calib_data.items()
     }
 
     blocks, inps, kwargs = get_blocks_and_inputs(model, model_inputs, batch_size)
@@ -131,7 +136,7 @@ def collect_activation_stats_blockwise(
             "Block-wise activation stats (%s): %d samples, seqlen=%d, " "%d blocks, %d layers",
             tag,
             actual_samples,
-            seqlen,
+            calibration_config.max_length,
             len(blocks),
             len(candidates),
         )
@@ -140,6 +145,7 @@ def collect_activation_stats_blockwise(
     saved_inps = [inps]
 
     for block_idx, block in enumerate(blocks):
+
         block.to(device)
 
         hooks = []
@@ -177,6 +183,7 @@ def collect_activation_stats_blockwise(
 
         for block_idx in range(len(blocks) - 1, -1, -1):
             block = blocks[block_idx]
+
             block.to(device)
 
             orig_grad_flags = {}

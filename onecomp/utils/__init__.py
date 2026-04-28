@@ -8,11 +8,6 @@ Author: Keiji Kimura
 
 from .perplexity import calculate_perplexity
 from .accuracy import calculate_accuracy
-from .calibration import (
-    prepare_calibration_dataset,
-    load_c4_for_aligned_chunks,
-    load_c4_for_n_samples_min_length,
-)
 
 from .activation_check import (
     check_activations,
@@ -32,9 +27,13 @@ from .vram_estimator import (
     VRAMBitwidthEstimation,
 )
 
+from .model_inputs import add_model_specific_inputs
+
 from .blockwise import (
     get_blocks_and_inputs,
     forward_input,
     move_kwargs_to_device,
     expand_kwargs_batch,
 )
+
+from .dtype import needs_bfloat16

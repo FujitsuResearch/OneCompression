@@ -65,6 +65,9 @@ markdown_extensions:
       generic: true
   - pymdownx.snippets:
       base_path: ["."]
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - attr_list
   - md_in_html
   - toc:
@@ -84,20 +87,25 @@ nav:
       - CLI: user-guide/cli.md
       - Configuration: user-guide/configuration.md
       - Pre-Process (Rotation): user-guide/pre-process.md
-      - Post-Process (LoRA SFT): user-guide/post-process.md
+      - Post-Process (Block-wise PTQ / LoRA SFT): user-guide/post-process.md
       - vLLM Inference: user-guide/vllm-inference.md
       - Examples: user-guide/examples.md
   - Algorithms:
       - Overview: algorithms/overview.md
       - QEP (Quantization Error Propagation): algorithms/qep.md
+      - LPCD (Layer-Projected Coordinate Descent): algorithms/lpcd.md
       - GPTQ: algorithms/gptq.md
       - DBF (Double Binary Factorization): algorithms/dbf.md
       - RTN (Round-To-Nearest): algorithms/rtn.md
+      - AutoBit (Mixed-Precision ILP): algorithms/autobit.md
+      - JointQ (Joint Optimization): algorithms/jointq.md
   - API Reference:
       - api/index.md
       - Runner: api/runner.md
       - ModelConfig: api/model_config.md
+      - CalibrationConfig: api/calibration_config.md
       - QEPConfig: api/qep_config.md
+      - LPCDConfig: api/lpcd_config.md
       - Quantizers:
           - Base Classes: api/quantizers/base.md
           - AutoBit: api/quantizers/autobit.md
@@ -105,6 +113,7 @@ nav:
           - DBF: api/quantizers/dbf.md
           - RTN: api/quantizers/rtn.md
           - JointQ: api/quantizers/jointq.md
+          - OneBit: api/quantizers/onebit.md
       - QuantizedModelLoader: api/quantized_model_loader.md
       - Pre-Process: api/pre_process.md
       - Post-Process: api/post_process.md

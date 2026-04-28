@@ -19,7 +19,7 @@ import gc
 import pytest
 import torch
 
-from onecomp import GPTQ, ModelConfig, Runner, setup_logger
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, Runner, setup_logger
 
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 
@@ -92,10 +92,10 @@ def ppl_dict():
     runner = Runner(
         model_config=model_config,
         quantizers=quantizers,
+        calibration_config=CalibrationConfig(
+            batch_size=128, max_length=512, num_calibration_samples=128
+        ),
         qep=False,
-        calibration_batch_size=128,
-        max_length=512,
-        num_calibration_samples=128,
     )
     runner.run()
 

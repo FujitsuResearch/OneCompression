@@ -13,20 +13,21 @@ input activations, so they can be captured once and reused.
 
 """
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
-
 import math
 import copy
 from logging import getLogger
 from collections import OrderedDict
 
 import torch
+import torch.nn.functional as F
 from torch import nn
+from onecomp.calibration import CalibrationConfig, prepare_calibration_dataset
 from onecomp.model_config import ModelConfig
 from onecomp.qep._qep_config import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
-from onecomp.utils import prepare_calibration_dataset
 from onecomp.utils.blockwise import (
+    _PER_LAYER_INPUTS_KEY,
+    prepare_block_kwargs,
     get_blocks_and_inputs,
     forward_input,
     move_kwargs_to_device,
@@ -34,11 +35,6 @@ from onecomp.utils.blockwise import (
 )
 
 logger = getLogger(__name__)
-
-
-def _make_tensor_id(x: torch.Tensor):
-    ptr = x.untyped_storage().data_ptr()
-    return (id(x), ptr)
 
 
 def make_grouped_module(
@@ -59,14 +55,13 @@ def make_grouped_module(
         list[list[nn.Module]]: A list of groups, where each group is a list of modules
         that share the same input activations.
     """
-    groups = OrderedDict()
+    # Store (module, raw_tensor) pairs.
+    captured: list[tuple[nn.Module, torch.Tensor]] = []
 
     def hook(module, inp, _):
-        key = _make_tensor_id(inp[0] if isinstance(inp, tuple) else inp)
-        if key not in groups:
-            groups[key] = [module]
-        else:
-            groups[key].append(module)
+        tensor = inp[0] if isinstance(inp, tuple) else inp
+        # Keep the tensor reference alive to prevent GC from reusing its id().
+        captured.append((module, tensor))
 
     handlers = []
     for module in block.modules():
@@ -75,12 +70,42 @@ def make_grouped_module(
 
     with torch.no_grad():
         inp = inps[0].unsqueeze(0).to(device)
-        _ = block(inp, **kwargs)
+        pli = kwargs.get(_PER_LAYER_INPUTS_KEY)
+        block_kwargs = expand_kwargs_batch(kwargs, 1)
+        block_kwargs = prepare_block_kwargs(block_kwargs, block, pli, 0, 1, device)
+        _ = block(inp, **block_kwargs)
 
     for handler in handlers:
         handler.remove()
 
-    return list(groups.values())
+    # Group by tensor identity: modules that received the exact same
+    # Python object share one input activation.  This avoids the false
+    # positives that value-based comparison (torch.equal)
+    groups: list[list[nn.Module]] = []
+    tid_to_idx: dict[int, int] = {}
+    for module, tensor in captured:
+        tid = id(tensor)
+        if tid in tid_to_idx:
+            groups[tid_to_idx[tid]].append(module)
+        else:
+            tid_to_idx[tid] = len(groups)
+            groups.append([module])
+
+    del captured
+
+    # Split groups by in_features so that modules with different input
+    # dimensions (e.g. MoE router vs expert down_proj) stay separate.
+    result = []
+    for group in groups:
+        by_dim = OrderedDict()
+        for module in group:
+            dim = module.in_features
+            if dim not in by_dim:
+                by_dim[dim] = []
+            by_dim[dim].append(module)
+        result.extend(by_dim.values())
+
+    return result
 
 
 @torch.no_grad()
@@ -118,7 +143,6 @@ def compute_hessian_and_crossterm(
     def make_hook(name):
         def hook(module, inp, out):
             dest[name] = inp[0] if isinstance(inp, tuple) else inp
-
         return hook
 
     handlers = [
@@ -134,11 +158,14 @@ def compute_hessian_and_crossterm(
     # compute Hessian and crossterm
     N = inps_q.size(0)
     nsamples = 0
+    pli = kwargs.get(_PER_LAYER_INPUTS_KEY)
 
     # compute Hessian and crossterm in batches
     for first in range(0, N, batch_size):
         last = min(first + batch_size, N)
-        batch_kwargs = expand_kwargs_batch(kwargs, last - first)
+        bs = last - first
+        batch_kwargs = expand_kwargs_batch(kwargs, bs)
+        batch_kwargs = prepare_block_kwargs(batch_kwargs, block_q, pli, first, bs, device)
 
         _ = block_q(inps_q[first:last].to(device), **batch_kwargs)
         _ = block_f(inps_f[first:last].to(device), **batch_kwargs)
@@ -166,15 +193,76 @@ def compute_hessian_and_crossterm(
 
 
 @torch.no_grad()
+def _compute_per_module_hessians(
+    block: nn.Module,
+    modules: list[nn.Module],
+    inps: torch.Tensor,
+    kwargs: dict[str, torch.Tensor],
+    batch_size: int,
+    device: torch.device,
+) -> dict[nn.Module, torch.Tensor | None]:
+    """Compute independent Hessians for each module via shared forward passes.
+
+    Used for MoE expert layers where the standard cross-term computation
+    is invalid (the router in quantized vs full-precision blocks may route
+    different tokens to the same expert).  Each module gets its own Hessian
+    built solely from the quantized block's activations.
+    """
+    dest: dict[int, torch.Tensor] = {}
+
+    def _make_hook(key):
+        def hook(_, inp, __):
+            dest[key] = inp[0] if isinstance(inp, tuple) else inp
+        return hook
+
+    handlers = [m.register_forward_hook(_make_hook(i)) for i, m in enumerate(modules)]
+
+    hessians: dict[int, torch.Tensor] = {}
+    nsamples: dict[int, int] = {}
+    for i, m in enumerate(modules):
+        dim = m.in_features
+        hessians[i] = torch.zeros((dim, dim), device=device)
+        nsamples[i] = 0
+
+    N = inps.size(0)
+    pli = kwargs.get(_PER_LAYER_INPUTS_KEY)
+
+    for first in range(0, N, batch_size):
+        last = min(first + batch_size, N)
+        bs = last - first
+        batch_kwargs = expand_kwargs_batch(kwargs, bs)
+        batch_kwargs = prepare_block_kwargs(batch_kwargs, block, pli, first, bs, device)
+        _ = block(inps[first:last].to(device), **batch_kwargs)
+
+        for i, m in enumerate(modules):
+            if i not in dest:
+                continue
+            x = dest[i].view(-1, m.in_features).float()
+            tmp = x.size(0)
+            if tmp == 0:
+                continue
+            hessians[i] *= nsamples[i] / (nsamples[i] + tmp)
+            nsamples[i] += tmp
+            x_scaled = math.sqrt(2 / nsamples[i]) * x
+            hessians[i] += x_scaled.t() @ x_scaled
+
+        dest.clear()
+
+    for h in handlers:
+        h.remove()
+
+    return {
+        modules[i]: (hessians[i] if nsamples[i] > 0 else None)
+        for i in range(len(modules))
+    }
+
+
+@torch.no_grad()
 def run_quantize_with_qep_arch(
     model_config: ModelConfig,
     quantizer: Quantizer,
     qep_config: QEPConfig,
-    calibration_dataset,
-    max_length: int,
-    num_calibration_samples: int,
-    calibration_strategy: str,
-    calibration_seed: int,
+    calibration_config: CalibrationConfig,
 ):
     """Run architecture-aware quantization with QEP.
 
@@ -190,12 +278,7 @@ def run_quantize_with_qep_arch(
         quantizer (Quantizer): The quantizer to use.
         qep_config (QEPConfig): Configuration for QEP
             (percdamp, perccorr, exclude_layer_keywords).
-        calibration_dataset: Calibration dataset. If None, a default dataset
-            is loaded.
-        max_length (int): Maximum sequence length for calibration inputs.
-        num_calibration_samples (int): Number of calibration samples.
-        calibration_strategy (str): Strategy for preparing calibration inputs.
-        calibration_seed (int): Random seed for calibration data preparation.
+        calibration_config (CalibrationConfig): Calibration parameters.
 
     """
 
@@ -209,11 +292,8 @@ def run_quantize_with_qep_arch(
     model_inputs = prepare_calibration_dataset(
         tokenizer=tokenizer,
         device=torch.device("cpu"),
-        calibration_dataset=calibration_dataset,
-        max_length=max_length,
-        num_calibration_samples=num_calibration_samples,
-        strategy=calibration_strategy,
-        seed=calibration_seed,
+        calibration_config=calibration_config,
+        model=model,
         logger=logger,
     )
 
@@ -275,12 +355,26 @@ def run_quantize_with_qep_arch(
             for gq in groups_q
         ]
 
-        # 3. For each group of layers, perform the following sequentially
-        for group_q, group_f in zip(groups_q, groups_f):
+        # Partition groups into regular and MoE-expert groups.
+        # Expert layers need per-module Hessians because MoE routing
+        # produces different token subsets in block_q vs block_f.
+        regular_pairs: list[tuple[list, list]] = []
+        expert_modules_q: list[nn.Module] = []
 
-            # Skip groups that contain no quantization targets
-            if not any(m in quantizer.module_to_name for m in group_q):
+        for group_q, group_f in zip(groups_q, groups_f):
+            targets = [m for m in group_q if m in quantizer.module_to_name]
+            if not targets:
                 continue
+            is_expert = any(
+                ".experts." in quantizer.module_to_name[m] for m in targets
+            )
+            if is_expert:
+                expert_modules_q.extend(targets)
+            else:
+                regular_pairs.append((group_q, group_f))
+
+        # 3. Process regular (non-expert) groups with full QEP
+        for group_q, group_f in regular_pairs:
 
             logger.info(
                 "Processing group of layers: %s",
@@ -349,9 +443,60 @@ def run_quantize_with_qep_arch(
                     )
                 remaining_targets.discard(name)
 
+        # 4. Process MoE expert layers with per-module Hessians (no cross-term)
+        if expert_modules_q:
+            logger.info(
+                "Computing per-expert Hessians for %d MoE expert layers "
+                "(weight correction disabled for expert layers)",
+                len(expert_modules_q),
+            )
+            expert_hessians = _compute_per_module_hessians(
+                block_q, expert_modules_q, inps_q, kwargs, batch_size, device,
+            )
+            for module_q in expert_modules_q:
+                name = quantizer.module_to_name[module_q]
+                H = expert_hessians[module_q]
+                if H is None:
+                    logger.warning(
+                        "Expert layer %s received no tokens during calibration; skipping",
+                        name,
+                    )
+                    remaining_targets.discard(name)
+                    continue
+
+                logger.info(
+                    "Processing layer: %s (no weight correction) =================================================",
+                    name,
+                )
+                quantizer.quantize_with_qep(
+                    module_q,
+                    quant_input_activation=None,
+                    original_input_activation=None,
+                    percdamp=qep_config.percdamp,
+                    perccorr=qep_config.perccorr,
+                    hessian=H,
+                    delta_hatX=None,
+                )
+                try:
+                    dtype = module_q.weight.data.dtype
+                    module_q.weight.data = (
+                        quantizer.results[name].compute_dequantized_weight().to(device).to(dtype)
+                    )
+                except (ValueError, NotImplementedError):
+                    logger.error(
+                        "Failed to compute dequantized weight for %s. "
+                        "Keeping original weights.",
+                        name,
+                    )
+                remaining_targets.discard(name)
+
         # forward input to the next block
         inps_q = forward_input(inps_q, block_q, kwargs, batch_size, device)
         inps_f = forward_input(inps_f, block_f, kwargs, batch_size, device)
+
+        # Compute MSE between quantized and full-precision block outputs
+        mse = F.mse_loss(inps_q.float(), inps_f.float()).item()
+        logger.info(f"[INFO] Layer {block_idx + 1} MSE: {mse:.6e}")
 
         # free memory
         block_q.cpu()

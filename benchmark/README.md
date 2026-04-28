@@ -32,92 +32,127 @@ python -c "import hydra; print(hydra.__version__)"
 
 ## Results Summary
 
-Benchmark results using OneComp v0.3.7 on NVIDIA B200 × 1.
+### GPTQ vs. JointQ
 
-PPL = perplexity on WikiText-2 (↓ lower is better). Accuracy = 0-shot `acc_norm` where available, `acc` otherwise (winogrande) (↑ higher is better).
+- Referenced GPTQ directories:
+  - [`llama3-8b-gptq/`](llama3-8b-gptq/)
+  - [`qwen3-8b-gptq/`](qwen3-8b-gptq/)
+  - [`qwen3-14b-gptq/`](qwen3-14b-gptq/)
+- Referenced JointQ directories:
+  - [`llama3-8b-jointq/`](llama3-8b-jointq/)
+  - [`qwen3-8b-jointq/`](qwen3-8b-jointq/)
+  - [`qwen3-14b-jointq/`](qwen3-14b-jointq/)
+- GPTQ rows use the `num_calibration_samples=1024`, `max_length=2048` results from each GPTQ benchmark README.
+- JointQ diagonal rows use `λ=0.05` (4-bit) / `λ=0.1` (3-bit) for gs128, and `λ=0.01` (4-bit) / `λ=0.1` (3-bit) for per-channel.
+- JointQ diagonal+mse+actorder rows use the same `λ` values.
+- Values are judged separately within the `gs128` and `per-channel` groups in each table.
+- `PPL` / `Time` mark the best value in each group in bold.
+- Accuracy columns mark the best value in each group in bold, and values that match or exceed `Original` are marked with `*`.
 
-### Llama-3-8B: GPTQ vs JointQ
+#### Llama-3-8B (4-bit)
 
-| Method | bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
-|---|---|---|---|---|---|---|---|---|
-| Original | — | — | 6.14 | 0.5401 | 0.7761 | 0.8063 | 0.7380 | — |
-| | | | | | | | | |
-| GPTQ | 4 | 128 | 12.66 | 0.5026 | 0.7710 | 0.7922 | 0.7206 | **276.8** |
-| JointQ | 4 | 128 | **6.67** | **0.5196** | **0.7837** | **0.7954** | **0.7230** | 1196.8 |
-| | | | | | | | | |
-| GPTQ | 4 | per-channel | 665.94 | 0.3089 | 0.5076 | 0.6861 | 0.6298 | **268.9** |
-| JointQ | 4 | per-channel | **8.46** | **0.4753** | **0.7277** | **0.7726** | **0.7269** | 3110.7 |
-| | | | | | | | | |
-| GPTQ | 3 | 128 | 45.22 | 0.3097 | 0.4886 | 0.6610 | 0.6259 | **273.8** |
-| JointQ | 3 | 128 | **9.26** | **0.4454** | **0.6831** | **0.7644** | **0.7064** | 1895.3 |
-| | | | | | | | | |
-| GPTQ | 3 | per-channel | 1721.06 | 0.2167 | 0.2862 | 0.5419 | 0.5004 | **268.4** |
-| JointQ | 3 | per-channel | **21.15** | **0.3567** | **0.5707** | **0.7089** | **0.6946** | 2946.2 |
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 6.14 | 0.5410 | 0.7757 | 0.8058 | 0.7372 | — |
+| GPTQ (gs128) | 12.55 | 0.4974 | 0.7731 | 0.7938 | 0.7174 | **261.0** |
+| GPTQ (gs128, mse+actorder) | **6.55** | **0.5427*** | 0.7891* | 0.7971 | 0.7348 | 1334.8 |
+| JointQ (gs128, diagonal λ=0.05) | 6.66 | 0.5401 | 0.7870* | **0.7992** | 0.7293 | 908.4 |
+| JointQ (gs128, diagonal λ=0.05, mse+actorder) | 6.59 | 0.5410* | **0.8001*** | 0.7933 | **0.7364** | 2088.5 |
 
-See [llama3-8b-gptq/](llama3-8b-gptq/) and [llama3-8b-jointq/](llama3-8b-jointq/) for full details.
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 6.14 | 0.5410 | 0.7757 | 0.8058 | 0.7372 | — |
+| GPTQ (per-channel) | 581.81 | 0.3174 | 0.5101 | 0.6828 | 0.6290 | **254.1** |
+| GPTQ (per-channel, mse+actorder) | 8.19 | 0.4727 | 0.7391 | **0.7894** | **0.7435*** | 351.2 |
+| JointQ (per-channel, diagonal λ=0.01) | 7.86 | **0.5051** | **0.7694** | 0.7889 | 0.7285 | 2119.6 |
+| JointQ (per-channel, diagonal λ=0.01, mse+actorder) | **7.27** | 0.4761 | 0.7428 | 0.7797 | 0.7380* | 2348.7 |
 
-### Llama-3-8B: GPTQ vs QEP+GPTQ
+#### Llama-3-8B (3-bit)
 
-PPL = perplexity on WikiText-2 (↓ lower is better). Accuracy = 0-shot `acc_norm` where available, `acc` otherwise (winogrande) (↑ higher is better).
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 6.14 | 0.5410 | 0.7757 | 0.8058 | 0.7372 | — |
+| GPTQ (gs128) | 47.74 | 0.3029 | 0.4886 | 0.6665 | 0.6369 | **259.0** |
+| GPTQ (gs128, mse+actorder) | **8.06** | **0.4753** | 0.7176 | 0.7661 | **0.7340** | 1571.1 |
+| JointQ (gs128, diagonal λ=0.1) | 8.82 | 0.4428 | 0.6974 | 0.7693 | 0.7222 | 1398.7 |
+| JointQ (gs128, diagonal λ=0.1, mse+actorder) | 8.32 | 0.4565 | **0.7302** | **0.7709** | 0.7119 | 2774.2 |
 
-| Method | bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
-|---|---|---|---|---|---|---|---|---|
-| Original | — | — | 6.14 | 0.5401 | 0.7761 | 0.8063 | 0.7380 | — |
-| | | | | | | | | |
-| GPTQ | 4 | 128 | 12.66 | 0.5026 | 0.7710 | 0.7922 | 0.7206 | **276.8** |
-| QEP+GPTQ | 4 | 128 | **6.66** | **0.5265** | **0.7942** | **0.7916** | **0.7293** | 300.7 |
-| | | | | | | | | |
-| GPTQ | 4 | per-channel | 665.94 | 0.3089 | 0.5076 | 0.6861 | 0.6298 | **268.9** |
-| QEP+GPTQ | 4 | per-channel | **7.67** | **0.4957** | **0.7542** | **0.7758** | **0.7269** | 297.7 |
-| | | | | | | | | |
-| GPTQ | 3 | 128 | 45.22 | 0.3097 | 0.4886 | 0.6610 | 0.6259 | **273.8** |
-| QEP+GPTQ | 3 | 128 | **8.95** | **0.4352** | **0.6498** | **0.7546** | **0.6946** | 272.7 |
-| | | | | | | | | |
-| GPTQ | 3 | per-channel | 1721.06 | 0.2167 | 0.2862 | 0.5419 | 0.5004 | **268.4** |
-| QEP+GPTQ | 3 | per-channel | **17.93** | **0.2688** | **0.4184** | **0.6806** | **0.6156** | 292.7 |
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 6.14 | 0.5410 | 0.7757 | 0.8058 | 0.7372 | — |
+| GPTQ (per-channel) | 1640.28 | 0.2312 | 0.2942 | 0.5365 | 0.5099 | **253.4** |
+| GPTQ (per-channel, mse+actorder) | 22.53 | 0.3106 | 0.4819 | 0.6855 | 0.6780 | 356.1 |
+| JointQ (per-channel, diagonal λ=0.1) | 14.84 | **0.3584** | **0.6351** | **0.7388** | **0.7111** | 2669.9 |
+| JointQ (per-channel, diagonal λ=0.1, mse+actorder) | **14.48** | 0.3515 | 0.5715 | 0.7182 | 0.6969 | 3016.9 |
 
-See [llama3-8b-gptq/](llama3-8b-gptq/) and [llama3-8b-qep-gptq/](llama3-8b-qep-gptq/) for full details.
+#### Qwen3-8B (4-bit)
 
-### Qwen3-8B: GPTQ vs JointQ
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 9.72 | 0.5648 | 0.8093 | 0.7769 | 0.6756 | — |
+| GPTQ (gs128) | 10.26 | **0.5580** | 0.7934 | 0.7671 | 0.6669 | **259.4** |
+| GPTQ (gs128, mse+actorder) | **9.91** | 0.5384 | **0.8056** | **0.7791*** | 0.6835* | 1517.6 |
+| JointQ (gs128, diagonal λ=0.05) | 10.17 | 0.5367 | 0.7795 | 0.7682 | **0.6985*** | 982.5 |
+| JointQ (gs128, diagonal λ=0.05, mse+actorder) | 9.96 | 0.5461 | 0.7997 | 0.7742 | 0.6867* | 1960.1 |
 
-PPL = perplexity on WikiText-2 (↓ lower is better). Accuracy = 0-shot `acc_norm` where available, `acc` otherwise (winogrande) (↑ higher is better).
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 9.72 | 0.5648 | 0.8093 | 0.7769 | 0.6756 | — |
+| GPTQ (per-channel) | 10.88 | 0.5119 | 0.7466 | 0.7622 | 0.6740 | **252.3** |
+| GPTQ (per-channel, mse+actorder) | 11.22 | 0.5401 | **0.7828** | **0.7715** | 0.6693 | 395.0 |
+| JointQ (per-channel, diagonal λ=0.01) | **10.62** | 0.5324 | 0.7614 | 0.7704 | **0.6843*** | 1262.4 |
+| JointQ (per-channel, diagonal λ=0.01, mse+actorder) | 11.05 | **0.5478** | 0.7799 | 0.7688 | 0.6764* | 1672.5 |
 
-| Method | bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
-|---|---|---|---|---|---|---|---|---|
-| Original | — | — | 9.72 | 0.5657 | 0.8093 | 0.7775 | 0.6756 | — |
-| | | | | | | | | |
-| GPTQ | 4 | 128 | 10.29 | **0.5538** | **0.7946** | **0.7677** | 0.6709 | **275.8** |
-| JointQ | 4 | 128 | 10.29 | 0.5469 | 0.7849 | 0.7650 | **0.6819** | 1183.8 |
-| | | | | | | | | |
-| GPTQ | 4 | per-channel | **10.97** | **0.5085** | 0.7412 | **0.7688** | **0.6693** | **269.0** |
-| JointQ | 4 | per-channel | 11.33 | 0.4974 | **0.7483** | 0.7617 | 0.6330 | 2334.3 |
-| | | | | | | | | |
-| GPTQ | 3 | 128 | **11.71** | 0.4966 | 0.7273 | 0.7486 | 0.6440 | **275.2** |
-| JointQ | 3 | 128 | 12.38 | 0.4966 | **0.7395** | **0.7568** | **0.6772** | 1895.9 |
-| | | | | | | | | |
-| GPTQ | 3 | per-channel | **20.21** | **0.3234** | 0.4293 | **0.6806** | **0.5501** | **269.1** |
-| JointQ | 3 | per-channel | 42.10 | 0.2986 | **0.4987** | 0.6779 | 0.5478 | 2443.9 |
+#### Qwen3-8B (3-bit)
 
-See [qwen3-8b-gptq/](qwen3-8b-gptq/) and [qwen3-8b-jointq/](qwen3-8b-jointq/) for full details.
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 9.72 | 0.5648 | 0.8093 | 0.7769 | 0.6756 | — |
+| GPTQ (gs128) | 11.75 | 0.4846 | 0.7222 | 0.7481 | 0.6488 | **257.2** |
+| GPTQ (gs128, mse+actorder) | **11.24** | **0.5307** | 0.7597 | **0.7601** | **0.6867*** | 1794.6 |
+| JointQ (gs128, diagonal λ=0.1) | 11.73 | 0.5154 | **0.7601** | 0.7563 | **0.6867*** | 1546.6 |
+| JointQ (gs128, diagonal λ=0.1, mse+actorder) | 12.08 | 0.5196 | 0.7546 | 0.7579 | 0.6756* | 2455.2 |
 
-### Qwen3-14B: GPTQ vs JointQ
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 9.72 | 0.5648 | 0.8093 | 0.7769 | 0.6756 | — |
+| GPTQ (per-channel) | **20.02** | 0.3200 | 0.4217 | 0.6703 | 0.5391 | **251.9** |
+| GPTQ (per-channel, mse+actorder) | 41.77 | 0.3259 | 0.4524 | 0.6801 | 0.5643 | 401.0 |
+| JointQ (per-channel, diagonal λ=0.1) | 23.97 | **0.4420** | **0.6709** | **0.7383** | **0.6425** | 2227.4 |
+| JointQ (per-channel, diagonal λ=0.1, mse+actorder) | 28.91 | 0.3942 | 0.5875 | 0.7301 | 0.6014 | 2406.3 |
 
-PPL = perplexity on WikiText-2 (↓ lower is better). Accuracy = 0-shot `acc_norm` where available, `acc` otherwise (winogrande) (↑ higher is better).
+#### Qwen3-14B (4-bit)
 
-| Method | bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
-|---|---|---|---|---|---|---|---|---|
-| Original | — | — | 8.64 | 0.6032 | 0.8283 | 0.7971 | 0.7293 | — |
-| | | | | | | | | |
-| GPTQ | 4 | 128 | **8.85** | 0.5947 | 0.8182 | 0.7982 | 0.7316 | **481.9** |
-| JointQ | 4 | 128 | 8.88 | **0.6007** | **0.8215** | **0.7992** | **0.7332** | 3024.7 |
-| | | | | | | | | |
-| GPTQ | 4 | per-channel | **9.15** | 0.5802 | 0.8056 | 0.7873 | 0.7056 | **470.1** |
-| JointQ | 4 | per-channel | 9.96 | **0.5845** | **0.8110** | 0.7873 | **0.7080** | 5545.2 |
-| | | | | | | | | |
-| GPTQ | 3 | 128 | 10.10 | 0.5307 | 0.7727 | **0.7873** | 0.7001 | **480.1** |
-| JointQ | 3 | 128 | **9.99** | **0.5401** | **0.7761** | 0.7791 | **0.7088** | 4936.1 |
-| | | | | | | | | |
-| GPTQ | 3 | per-channel | **13.72** | 0.3976 | 0.5745 | 0.7356 | 0.6172 | **468.4** |
-| JointQ | 3 | per-channel | 23.55 | **0.4727** | **0.7247** | **0.7546** | **0.6504** | 5632.7 |
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 8.64 | 0.6024 | 0.8283 | 0.7982 | 0.7285 | — |
+| GPTQ (gs128) | 8.84 | 0.5947 | 0.8228 | **0.8003*** | 0.7261 | **430.2** |
+| GPTQ (gs128, mse+actorder) | 8.87 | **0.6195*** | 0.8237 | 0.7949 | 0.7285* | 2264.1 |
+| JointQ (gs128, diagonal λ=0.05) | **8.83** | 0.6101* | 0.8178 | 0.7954 | 0.7182 | 2784.6 |
+| JointQ (gs128, diagonal λ=0.05, mse+actorder) | 8.90 | 0.6067* | **0.8258** | 0.7933 | **0.7348*** | 3779.8 |
 
-See [qwen3-14b-gptq/](qwen3-14b-gptq/) and [qwen3-14b-jointq/](qwen3-14b-jointq/) for full details.
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 8.64 | 0.6024 | 0.8283 | 0.7982 | 0.7285 | — |
+| GPTQ (per-channel) | **9.11** | 0.5862 | 0.8098 | 0.7862 | 0.6953 | **419.9** |
+| GPTQ (per-channel, mse+actorder) | 9.26 | 0.5990 | 0.8215 | 0.7960 | 0.7253 | 583.8 |
+| JointQ (per-channel, diagonal λ=0.01) | 9.45 | 0.6075* | **0.8363*** | 0.7911 | 0.7214 | 3116.7 |
+| JointQ (per-channel, diagonal λ=0.01, mse+actorder) | 9.14 | **0.6092*** | 0.8220 | **0.8047*** | **0.7324*** | 3769.9 |
+
+#### Qwen3-14B (3-bit)
+
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 8.64 | 0.6024 | 0.8283 | 0.7982 | 0.7285 | — |
+| GPTQ (gs128) | 10.11 | 0.5384 | 0.7774 | 0.7878 | 0.6890 | **427.2** |
+| GPTQ (gs128, mse+actorder) | **9.47** | **0.5853** | **0.8241** | **0.7927** | 0.7190 | 2672.7 |
+| JointQ (gs128, diagonal λ=0.1) | 9.93 | 0.5538 | 0.7959 | 0.7889 | 0.6993 | 4045.5 |
+| JointQ (gs128, diagonal λ=0.1, mse+actorder) | 9.67 | 0.5768 | 0.8161 | 0.7873 | **0.7253** | 4933.7 |
+
+| Configuration | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|
+| Original | 8.64 | 0.6024 | 0.8283 | 0.7982 | 0.7285 | — |
+| GPTQ (per-channel) | **13.61** | 0.4138 | 0.5690 | 0.7296 | 0.6069 | **419.5** |
+| GPTQ (per-channel, mse+actorder) | 15.73 | **0.4872** | 0.7336 | 0.7650 | 0.6551 | 589.7 |
+| JointQ (per-channel, diagonal λ=0.1) | 20.94 | 0.4855 | **0.7471** | **0.7688** | **0.7096** | 5049.6 |
+| JointQ (per-channel, diagonal λ=0.1, mse+actorder) | 16.93 | 0.4684 | 0.7092 | 0.7650 | 0.6780 | 5633.6 |

@@ -26,7 +26,7 @@ from pathlib import Path
 
 import torch
 
-from onecomp import GPTQ, ModelConfig, Runner, PostProcessLoraSFT, setup_logger
+from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner, PostProcessLoraSFT, setup_logger
 
 setup_logger()
 
@@ -63,8 +63,7 @@ gptq = GPTQ(wbits=4, groupsize=128)
 runner = Runner(
     model_config=model_config,
     quantizer=gptq,
-    max_length=512,
-    num_calibration_samples=128,
+    calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
 )
 runner.run()
 

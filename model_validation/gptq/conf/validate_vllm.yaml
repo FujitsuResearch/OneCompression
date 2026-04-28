@@ -1,0 +1,26 @@
+# Path to a saved quantized model directory (produced by validate_gptq.py)
+quantized_path: null
+
+# vLLM dtype string. Accepted: "float16" / "bfloat16" / "float32" / "auto".
+# Use "bfloat16" for models such as Gemma 3/4 that were saved as bfloat16,
+# otherwise vLLM may hit a Half / BFloat16 dtype mismatch at lm_head.
+dtype: float16
+
+# vLLM engine settings
+max_model_len: 512
+
+# Generation settings used to verify the loaded model produces output
+prompt: "Fujitsu is"
+max_tokens: 32
+
+# Output directory (Hydra chdir's into this for each run). Distinct from
+# validate_gptq.py's outputs/<name> (which holds the saved quantized
+# directory this run depends on) and validate_load.py's outputs/<name>_load.
+output_dir: outputs/${oc.env:SLURM_JOB_NAME,run}_vllm_${oc.env:SLURM_ARRAY_TASK_ID,0}
+
+# Hydra
+hydra:
+  run:
+    dir: ${output_dir}
+  job:
+    chdir: true

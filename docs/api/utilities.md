@@ -20,7 +20,7 @@
 
 ## Calibration Dataset
 
-::: onecomp.utils.calibration.prepare_calibration_dataset
+::: onecomp.calibration.calibration_data_loader.prepare_calibration_dataset
     options:
       show_source: false
 

@@ -20,7 +20,7 @@ def pad_to_multiple(tensor, multiple=32, value=0):
         size = tensor.shape[dim]
         padding_needed = (multiple - size % multiple) % multiple
         pad.extend([0, padding_needed])
-    return F.pad(tensor, pad, mode='constant', value=value)
+    return F.pad(tensor, pad, mode="constant", value=value)
 
 
 def pad_cols_to_multiple(t: torch.Tensor, multiple: int, value: int) -> torch.Tensor:
@@ -51,35 +51,42 @@ def get_gemlite_linear(weights: torch.Tensor):
         weights = _pad_to_group(weights, GROUP_SIZE, 1)
         out_features, in_features = weights.shape
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        linear = nn.Linear(in_features, out_features,
-                           bias=False, device=device)
-        linear.weight = nn.Parameter(weights.to(
-            torch.bfloat16), requires_grad=False)
+        linear = nn.Linear(in_features, out_features, bias=False, device=device)
+        linear.weight = nn.Parameter(weights.to(torch.bfloat16), requires_grad=False)
 
         quant_config = BaseQuantizeConfig(
-            nbits=W_nbits, group_size=GROUP_SIZE,
-            quant_zero=False, quant_scale=False, axis=1
+            nbits=W_nbits, group_size=GROUP_SIZE, quant_zero=False, quant_scale=False, axis=1
         )
-        quant_config['weight_quant_params']['optimize'] = False
+        quant_config["weight_quant_params"]["optimize"] = False
 
-        hqq_layer = HQQLinear(linear, quant_config=quant_config,
-                              compute_dtype=torch.bfloat16, device=device, del_orig=False)
+        hqq_layer = HQQLinear(
+            linear,
+            quant_config=quant_config,
+            compute_dtype=torch.bfloat16,
+            device=device,
+            del_orig=False,
+        )
 
         gemlite_linear = GemLiteLinearTriton(
-            W_nbits=W_nbits, group_size=GROUP_SIZE,
-            in_features=in_features, out_features=out_features,
-            input_dtype=DType.BF16, output_dtype=DType.BF16
+            W_nbits=W_nbits,
+            group_size=GROUP_SIZE,
+            in_features=in_features,
+            out_features=out_features,
+            input_dtype=DType.BF16,
+            output_dtype=DType.BF16,
         )
 
         # Fall back to a zero tensor when 'zero' is absent in meta (avoid passing None)
-        scale = hqq_layer.meta['scale'].clone()
-        zero = hqq_layer.meta['zero'].clone(
-        ) if 'zero' in hqq_layer.meta else torch.zeros_like(scale)
+        scale = hqq_layer.meta["scale"].clone()
+        zero = (
+            hqq_layer.meta["zero"].clone() if "zero" in hqq_layer.meta else torch.zeros_like(scale)
+        )
 
         gemlite_linear.pack(
-            hqq_layer.unpack(dtype=torch.uint8).view(
-                (out_features, in_features)),
-            scale, zero, bias=None
+            hqq_layer.unpack(dtype=torch.uint8).view((out_features, in_features)),
+            scale,
+            zero,
+            bias=None,
         )
         return gemlite_linear
     except Exception as e:
@@ -124,21 +131,18 @@ def unpack_sign_bits(packed: torch.Tensor, original_shape: torch.Size) -> torch.
 
 
 class DBFLinear_GEMLITE(nn.Module):
-    def __init__(
-        self, w_bit, in_features, out_features, bias, dev, training=False
-    ):
+    def __init__(self, w_bit, in_features, out_features, bias, dev, training=False):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        mid_features1 = int(
-            w_bit * (in_features * out_features)/(in_features + out_features))
+        mid_features1 = int(w_bit * (in_features * out_features) / (in_features + out_features))
         mid_features = min(min(in_features, out_features), mid_features1)
         self.mid_features = mid_features
         self.w_bit = w_bit
         self.training = training
 
-        #logger.debug(f"in_features={in_features} out_features={out_features} mid_features={mid_features} w_bit={w_bit} ")
-        #assert in_features % (8 // self.w_bit) == 0
+        # logger.debug(f"in_features={in_features} out_features={out_features} mid_features={mid_features} w_bit={w_bit} ")
+        # assert in_features % (8 // self.w_bit) == 0
         self.register_buffer(
             "scaling0",
             torch.zeros(
@@ -150,7 +154,7 @@ class DBFLinear_GEMLITE(nn.Module):
         self.register_buffer(
             "bp1",
             torch.zeros(
-                ((mid_features*in_features + (8) - 1) // (8)),
+                ((mid_features * in_features + (8) - 1) // (8)),
                 dtype=torch.uint8,
                 device=dev,
             ),
@@ -166,7 +170,7 @@ class DBFLinear_GEMLITE(nn.Module):
         self.register_buffer(
             "bp3",
             torch.zeros(
-                ((out_features*mid_features + (8) - 1) // (8)),
+                ((out_features * mid_features + (8) - 1) // (8)),
                 dtype=torch.uint8,
                 device=dev,
             ),
@@ -193,7 +197,10 @@ class DBFLinear_GEMLITE(nn.Module):
 
     @classmethod
     def from_linear(
-        cls, linear, w_bit, init_only=False,
+        cls,
+        linear,
+        w_bit,
+        init_only=False,
     ):
         dbf_linear = cls(
             w_bit,
@@ -208,10 +215,10 @@ class DBFLinear_GEMLITE(nn.Module):
         return dbf_linear
 
     def post_init(self):
-        bp1_int8 = unpack_sign_bits(
-            self.bp1, (self.mid_features, self.in_features)).to(torch.int8)
-        bp3_int8 = unpack_sign_bits(
-            self.bp3, (self.out_features, self.mid_features)).to(torch.int8)
+        bp1_int8 = unpack_sign_bits(self.bp1, (self.mid_features, self.in_features)).to(torch.int8)
+        bp3_int8 = unpack_sign_bits(self.bp3, (self.out_features, self.mid_features)).to(
+            torch.int8
+        )
         bp1_gemlite = pad_cols_to_multiple(bp1_int8, GROUP_SIZE, 1)
         bp3_gemlite = pad_cols_to_multiple(bp3_int8, GROUP_SIZE, 1)
         self.binary1 = get_gemlite_linear(bp1_gemlite)
@@ -231,21 +238,21 @@ class DBFLinear_GEMLITE(nn.Module):
         x = x * self.scaling0.to(x.dtype)
         if torch.bfloat16 != x.dtype:
             x = x.bfloat16()
-        if x.shape[-1] != ((x.shape[-1] + GROUP_SIZE - 1) // GROUP_SIZE)*GROUP_SIZE:
-            pad_size = ((x.shape[-1] + GROUP_SIZE - 1) //
-                        GROUP_SIZE)*GROUP_SIZE - x.shape[-1]  # 24
-            x = F.pad(x, (0, pad_size), mode='constant', value=0)
+        if x.shape[-1] != ((x.shape[-1] + GROUP_SIZE - 1) // GROUP_SIZE) * GROUP_SIZE:
+            pad_size = ((x.shape[-1] + GROUP_SIZE - 1) // GROUP_SIZE) * GROUP_SIZE - x.shape[
+                -1
+            ]  # 24
+            x = F.pad(x, (0, pad_size), mode="constant", value=0)
         x = self.binary1(x)
-        x = x[..., :self.mid_features]
+        x = x[..., : self.mid_features]
         x = x * self.scaling2.to(x.dtype)
         if torch.bfloat16 != x.dtype:
             x = x.bfloat16()
-        if x.shape[-1] != ((x.shape[-1] + GROUP_SIZE - 1) // GROUP_SIZE)*GROUP_SIZE:
-            pad_size = ((x.shape[-1] + GROUP_SIZE - 1) //
-                        GROUP_SIZE)*GROUP_SIZE - x.shape[-1]
-            x = F.pad(x, (0, pad_size), mode='constant', value=0)
+        if x.shape[-1] != ((x.shape[-1] + GROUP_SIZE - 1) // GROUP_SIZE) * GROUP_SIZE:
+            pad_size = ((x.shape[-1] + GROUP_SIZE - 1) // GROUP_SIZE) * GROUP_SIZE - x.shape[-1]
+            x = F.pad(x, (0, pad_size), mode="constant", value=0)
         x = self.binary3(x)
-        x = x[..., :self.out_features]
+        x = x[..., : self.out_features]
         x = x * self.scaling4.to(x.dtype)
         if self.bias is not None:
             x = x + self.bias.to(x.dtype)

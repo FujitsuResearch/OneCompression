@@ -1,5 +1,245 @@
 # Change log
 
+## [v1.1.0] 2026-04-16
+
+### Gemma 3 / Gemma 4 & VLM Support
+
+- Auto-detect `language_model` / `text_model` sub-modules in `setup()` so only the language model is quantized; `vision_tower`, `audio_tower`, etc. are automatically excluded (`quantizer/_quantizer.py`)
+- Added `unfuse_moe.py`: MoE models (e.g. Gemma 4) store all expert weights as fused 3D `nn.Parameter` tensors (`gate_up_proj [E, 2*inter, hidden]`, `down_proj [E, hidden, inter]`), but GPTQ and other layer-wise PTQ methods require 2D `nn.Linear` layers. `unfuse_moe_experts()` splits the fused tensors into per-expert modules, producing paths like `experts.0.gate_proj`, `experts.0.up_proj`, `experts.0.down_proj` (`utils/unfuse_moe.py`)
+- Set `quant_method` to `mixed_gptq` for MoE models during save, enabling vLLM to handle a mix of quantized and unquantized expert layers via `UnquantizedFusedMoEMethod` (`runner.py`)
+- Introduced `prepare_block_kwargs` to reproduce Gemma 4-specific additional inputs during block-wise forward (`runner_methods/chunked_quantization.py`, `qep/_quantize_with_qep_arch.py`)
+  - `_per_layer_inputs`: pre-compute per-layer embeddings for all calibration samples
+  - `_position_embeddings_map`: hook into `rotary_emb` to capture position embeddings per layer type
+  - `_attention_mask_map`: pre-compute masks per layer type via `create_causal_mask` / `create_sliding_window_causal_mask`
+- Updated `Catcher.forward` to accept `*args` (Gemma 4 passes `per_layer_input` as a positional argument)
+- Added a guard to safely skip KV-shared layers where `k_proj` / `v_proj` are never called during forward and X^TX is not accumulated (`runner_methods/chunked_quantization.py`)
+- Added `token_type_ids` (`mm_token_type_ids`) required by Gemma 4 to calibration data and PPL computation (`utils/calibration.py`, `utils/perplexity.py`)
+  - Added `model` argument to `prepare_calibration_dataset`; model-specific inputs are appended via `add_model_specific_inputs()`
+  - Changed `model.device` to `next(model.parameters()).device` to support VLM `device_map="auto"`
+- Fixed MoE block partitioning (`down_proj` and `router.proj` were incorrectly placed in the same block) and relaxed Hessian input shape assertion for 2D tensors after router dispatch
+- Added layer-suffix fallback lookup for Gemma 3's shared sub-modules where `named_modules()` paths differ from `state_dict()` keys (`quantized_model_loader.py`)
+- `save_quantized_model()` now copies `processor_config.json` from the source model so the quantized model directory is self-contained for multi-modal inference (`runner.py`)
+- Added skip logic in vLLM plugin to prevent vision / audio encoder layers from being incorrectly matched to language model quantization configs (`vllm_plugins/utils/module.py`)
+- Override `ModelConfig` `dtype` to `bfloat16` for Gemma 3/4 models whose values exceed the float16 range, preventing performance degradation (`model_config.py`)
+- Fixed an issue where non-language-model layers in multi-modal models were included in AutoBit bit allocation
+- Bumped `transformers` requirement from `>= 5.3.0` to `>= 5.5.0` (`pyproject.toml`)
+  - Gemma 4's `model_type: gemma4` is registered in `CONFIG_MAPPING` starting from 5.5.0 (released 2026-04-02); 5.3.0 fails to load it
+- Added `cu130` extra for the validation environment (NVIDIA B200, CUDA 13.0); under `cu128`, torch (cu130) and torchvision (cu128) had a CUDA version mismatch
+
+### New Feature: LPCD (Layer-Projected Coordinate Descent)
+
+- Added `onecomp/lpcd/` sub-package implementing the LPCD unified framework (arXiv:2512.01546) that extends layer-wise PTQ by jointly optimising sub-module groups (QK / VO / MLP / residual) with closed-form and gradient-based solvers
+- Added `benchmark/llama3-8b-lpcd-gptq/`: Llama-3-8B LPCD+GPTQ SLURM array benchmark (Hydra config `conf/benchmark_llama3-8b.yaml`, `quant_benchmark.py`, `README.md` with WikiText-2 PPL / lm-eval-harness accuracy / quantization time for 4-bit and 3-bit × {q_proj·k_proj, v_proj·o_proj, up_proj·down_proj, all, residual} on NVIDIA B200)
+- Added `example/example_lpcd_gptq.py`: TinyLlama GPTQ 3-bit (groupsize=128) + QEP + LPCD end-to-end example with residual-only closed-form refinement (`enable_residual=True`, `use_closed_form=True`) and original / dequantized / quantized perplexity reporting
+- Updated `README.md`: added LPCD to Features, Examples, and Citation sections
+
+### New Feature: BlockWisePTQ
+
+- Implemented `BlockWisePTQ.run()` pipeline (`onecomp/post_process/blockwise_ptq.py`)
+  - Phase 1: per-block distillation with teacher model (GPTQ / DBF / OneBit / Generic)
+  - Phase 2: Cross-Block Quantisation (CBQ) sliding-window optimisation (K=2)
+  - Teacher model loaded via `model_config.load_model(device_map="cpu")`
+  - Calibration inputs collected via Catcher hook on first transformer block
+- Added `onecomp/post_process/_blockwise/` sub-package (9 modules)
+  - `helpers.py`: `collect_layer_inputs`, `auto_detect_quantization_strategy`, `get_transformer_layers`, `layer_kwargs_to_device`, etc.
+  - Phase 1 optimisers: `gptq_block_optimizer.py`, `dbf_block_optimizer.py`, `onebit_block_optimizer.py`, `generic_block_optimizer.py`
+  - Phase 2 CBQ optimisers: `gptq_cbq_optimizer.py`, `dbf_cbq_optimizer.py`, `onebit_cbq_optimizer.py`
+  - All optimisers use float32 promotion, best-state tracking with rollback, and hard MSE evaluation
+- Set `use_gemlite=False` in `Runner.run_post_processes()` (`onecomp/runner.py`) to avoid GemLite fp16-only Triton kernel incompatibility with float32 block optimisation
+- Added VLM support for BlockWisePTQ (Qwen3-VL, Qwen2.5-VL, etc.)
+  - `helpers.py`: `get_transformer_layers` / `_get_language_model_backbone` handle `model.model.language_model.*` path
+  - `model_config.py`: `load_model()` falls back to `AutoModelForImageTextToText` for VLM configs
+- Fixed `Quantizer.calculate_hessian` / `calculate_delta_hatX` (`onecomp/quantizer/_quantizer.py`): handle 2D activations from OPT-style architectures
+
+### Quantizer Unification
+
+- Unified scale/zero/integer logic across `WeightQuantizer`, `RTN`, and `GPTQExcecutor` for both symmetric and asymmetric quantisation
+  - `WeightQuantizer.configure` / `find_params` / `quantize` (`quant_models.py`), `STEQuantize.forward` (`quant_models.py`), `pseudo_quantize_tensor` / `quantize` (`rtn/quantizer.py`), `GPTQExcecutor.configure` / `find_params` (`gptq/_gptq.py`)
+- Added optional MSE grid search (`mse`, `norm`, `grid`) to `WeightQuantizer`, `RTN`, and `prepare_rotated_model`
+  - `WeightQuantizer.configure` / `find_params` (`quant_models.py`), `pseudo_quantize_tensor` (`rtn/quantizer.py`), `run_rtn` (`rtn/rtn_impl.py`), `RTN` dataclass / `validate_params` (`rtn/_rtn.py`), `prepare_rotated_model` (`prepare_rotated_model.py`), `apply_preprocess_train` / `_insert_weight_quantizer` (`train_rotation.py`)
+- Removed `perchannel` and `maxshrink` from public APIs; `perchannel=True` is now always used internally
+  - Removed from `RTN` dataclass (`rtn/_rtn.py`) and `prepare_rotated_model` (`prepare_rotated_model.py`). Internally, `run_rtn` (`rtn/rtn_impl.py`) and `_insert_weight_quantizer` (`train_rotation.py`) pass `perchannel=True` unconditionally. Low-level APIs `pseudo_quantize_tensor` (`rtn/quantizer.py`) and `WeightQuantizer.configure` (`quant_models.py`) still accept the parameters
+
+### Rotation Preprocessing Improvements
+
+- Added `"random_hadamard"` and `"hadamard"` rotation modes (existing: `"random"`, `"identity"`)
+  - `PreprocessManager._ortho` (`train_rotation.py`), `_VALID_ROTATION_MODES` (`prepare_rotated_model.py`)
+- Changed `prepare_rotated_model` defaults: `rotation_mode` → `"random_hadamard"`, `num_calibration_samples` → `512`
+  - `prepare_rotated_model` (`prepare_rotated_model.py`), `PreprocessManager.__init__` (`train_rotation.py`)
+- Added input validation (`_validate_prepare_rotated_model_params`) for all `prepare_rotated_model` parameters
+  - `_validate_prepare_rotated_model_params` (`prepare_rotated_model.py`)
+- Added per-step and total execution time logging to `prepare_rotated_model`
+  - `prepare_rotated_model` (`prepare_rotated_model.py`): timed sections for model load, calibration prep, training, reload, `apply_preprocess_eval`, and save
+- Added explicit `gradient_accumulation_steps=1` to `TrainingArguments` defaults
+  - `TrainingArguments.gradient_accumulation_steps` (`preprocess_args.py`)
+
+### AutoBit: per-quantizer groupsize support
+
+- `AutoBitQuantizer` supports each candidate quantizer's `groupsize` individually, enabling mixed group-size configurations (`onecomp/quantizer/autobit/_autobit.py`)
+  - RTN error evaluation uses per-quantizer grouped quantisation (`onecomp/quantizer/autobit/ilp.py`)
+  - Added test for mixed group-size autobit (`tests/onecomp/quantizer/autobit/test_autobit.py`)
+- Remove default quantizer from AutoBit; a quantizer must be explicitly provided. (`onecomp/quantizer/autobit/_autobit.py`)
+
+### CalibrationConfig: unified calibration configuration
+
+- **Breaking change:** Introduced `CalibrationConfig` dataclass (`onecomp/calibration/calibration_config.py`) to consolidate all calibration-related parameters
+  - `Runner.__init__` now accepts `calibration_config: CalibrationConfig` instead of individual parameters (`calibration_dataset`, `max_length`, `num_calibration_samples`, `calibration_strategy`, `calibration_seed`, `calibration_batch_size`, `num_layers_per_group`)
+  - `AutoBitQuantizer` now accepts `calibration_config: CalibrationConfig` instead of `num_calib_samples`, `calib_seqlen`, `calibration_dataset`
+  - `prepare_rotated_model()` now accepts `calibration_config: CalibrationConfig` instead of `calibration_dataset`, `max_length`, `num_calibration_samples`, `calibration_strategy`
+  - `BlockWisePTQ` now accepts `calibration_config: CalibrationConfig` instead of `num_calibration_samples`, `max_length`, `calibration_strategy`, `calibration_seed`
+  - When `calibration_config=None`, default values are created automatically (`calibration_dataset="c4"`, `max_length=2048`, `num_calibration_samples=512`)
+  - New user-configurable parameters exposed via `CalibrationConfig`: `text_key`, `use_quality_filter`, `max_documents` (previously hard-coded in `calibration_data_loader.py`)
+- Added cross-validation in `Runner.check()`: if both Runner and AutoBitQuantizer specify `calibration_dataset`, they must match
+- Removed backward-compatibility re-exports from `onecomp/utils/__init__.py` (`prepare_calibration_dataset`, `load_c4_for_aligned_chunks`, `load_c4_for_n_samples_min_length`); import from `onecomp.calibration` instead
+- Added unit tests for calibration module (`tests/onecomp/calibration/`)
+- Internal functions now accept `CalibrationConfig` directly instead of individual parameters:
+  - `prepare_calibration_dataset()` (`calibration_data_loader.py`): replaced 8 individual parameters with `calibration_config: CalibrationConfig` (required argument)
+  - `run_chunked_quantization()` (`runner_methods/chunked_quantization.py`): `calibration_dataset`, `max_length`, `num_calibration_samples`, `calibration_strategy`, `calibration_seed`, `calibration_batch_size`, `num_layers_per_group` replaced by `calibration_config`
+  - `run_multi_gpu_quantization()`, `run_capture_phase()`, `get_calibration_config_dict()` (`runner_methods/multi_gpu_quantization.py`): same consolidation
+  - `run_quantize_with_qep()` (`qep/_quantize_with_qep.py`), `run_quantize_with_qep_arch()` (`qep/_quantize_with_qep_arch.py`): same consolidation
+  - `collect_activation_stats_blockwise()` (`quantizer/autobit/activation_stats.py`): `num_samples`, `seqlen`, `calibration_dataset` replaced by `calibration_config`
+- Code quality improvements:
+  - `CalibrationConfig.calibration_dataset` defaults to `"c4"` instead of `None` (no more implicit fallback)
+  - Removed implicit dataset inheritance from quantizer to Runner; use explicit `CalibrationConfig` instead
+  - Cross-validation uses `isinstance(quantizer, AutoBitQuantizer)` instead of duck typing
+  - Consolidated `from .calibration import CalibrationConfig, prepare_calibration_dataset` into single import
+  - Added missing `"concat_rand"` strategy to `prepare_calibration_dataset()` docstring
+  - Documented `batch_size` and `num_layers_per_group` in `CalibrationConfig` as chunked-quantization-only parameters
+
+### Calibration data: support WikiText-2, custom datasets, and C4 quality filtering
+
+- Refactored `onecomp/utils/calibration.py` into `onecomp/calibration/` folder with submodules
+  - `calibration_data_loader.py`: unified entry point `prepare_calibration_dataset()` that dispatches by dataset name or file path
+  - `c4.py`: C4 dataset loader with optional quality filtering (`check_text_quality()`)
+  - `wikitext.py`: WikiText-2 dataset loader (new; loads from `Salesforce/wikitext`)
+  - `custom.py`: custom dataset loader supporting `.txt`, `.json`, `.jsonl`, `.csv`, `.tsv`, `.parquet`, `.arrow`, and HuggingFace Dataset directories
+  - `chunking.py`: shared chunking strategies (`concat_chunk`, `concat_chunk_align`, `concat_rand`, `drop_head`, `drop_rand`) extracted as reusable helpers
+- Added `calibration_dataset` parameter to `AutoBitQuantizer` to specify the calibration data source (`onecomp/quantizer/autobit/_autobit.py`)
+
+### JointQ:
+
+- Added `incremental_lambda` regularization mode (`lambda_mode="incremental_lambda"`): for each layer, tries increasing lambda values from `lambda_list` with warm start, accepting candidates that improve weight error without substantially degrading output error. Stops at the first rejection. Controlled by `lambda_list`, `incremental_eps_y`, `incremental_eps_w` parameters
+- Added `incremental_initial_skip_ew_threshold` to skip an unstable initial `lambda=0.0` candidate when its relative weight error is excessively large
+- Added `accepted_lambda` field to `JointQResult` to record the per-layer lambda chosen in incremental mode
+- Added `execute_post_processing` override to log accepted lambda statistics (mean, median, min, max, per-value counts) after all layers are quantized
+- Added `regularization_mode` parameter: `"identity"` (standard Tikhonov λI) or `"diagonal"` (default, importance-aware λ·diag(a) where a_i scales with activation magnitude). Diagonal mode reduces over-regularization of less important columns. Only supported with `fixed_lambda` mode
+- Added `regularization_gamma` parameter (default 0.5): exponent for diagonal weights in `"diagonal"` mode; smaller values reduce the spread between weak and strong columns
+- Added initialization strategy control: `enable_clip_optimize`, `enable_clip_optimize_ep`, `enable_gptq` parameters to `JointQ` class
+- Added `gptq` attribute (`GPTQ` instance) to `JointQ` class for customizing GPTQ parameters (`blocksize`, `percdamp`, `mse`, `q_grid`, `q_norm`). Default GPTQ is auto-created from `bits`/`group_size`/`symmetric`
+- Replaced JointQ internal GPTQ module (`jointq/core/gptq.py`) with OneComp GPTQ (`onecomp.quantizer.gptq.GPTQ`); GPTQ initial solution is now generated via the shared GPTQ implementation
+- Improved numerical stability of scale optimization for ill-conditioned matrices
+- Fixed potential division-by-zero in scale computation
+
+### Breaking Changes
+
+- **`AutoBitQuantizer.enable_fused_groups` now defaults to `True`** (`onecomp/quantizer/autobit/_autobit.py`)
+  - Ensures that vLLM fused layers (qkv_proj, gate_up_proj) are assigned the same quantizer (same bits and groupsize), which is required for vLLM inference.
+  - Previously defaulted to `False`, which could cause vLLM to reject the model at load time when fused-layer constituents had mismatched configurations.
+  - `Runner.auto_run()` already set `enable_fused_groups=True`, so this change has no effect on `auto_run` users.
+  - **Migration:** If you use `AutoBitQuantizer` with candidate bit-widths not supported by vLLM (e.g. `wbits=5`), pass `enable_fused_groups=False` explicitly.
+- Quantisation levels unified to unsigned `[0, 2^b − 1]` (symmetric uses centred zero point); rounding order changed from `round(x/s + z)` to `round(x/s) + z`. Outputs are not bit-exact with prior RTN versions
+- Changed `prepare_rotated_model` defaults: `rotation_mode` `"random"` → `"random_hadamard"`, `num_calibration_samples` `128` → `512`
+- Introduced `CalibrationConfig` dataclass; see CalibrationConfig section above for migration details
+- `JointQ` class: removed `batch_size` parameter (use `onecomp.quantizer.jointq.core.quantize()` directly if batch processing is needed)
+- `JointQ`: GPTQ initial solution is now generated via OneComp GPTQ instead of the internal implementation. Quantization results are not bit-exact with prior versions (quality is equivalent or improved)
+- **`JointQ` regularization defaults changed** (`onecomp/quantizer/jointq/_jointq.py`)
+  - `regularization_lambda`: `0.2` → `0.1`
+  - `regularization_mode`: `"identity"` → `"diagonal"`
+  - Quantization results are not bit-exact with prior versions.
+  - **Migration:** to reproduce the previous behavior, pass
+    `JointQ(..., regularization_lambda=0.2, regularization_mode="identity")` explicitly.
+
+### Bug Fix
+
+- Fixed `model_config.py`: `load_model()` VLM fallback did not trigger for models raising `"Unrecognized configuration class"` (e.g. Cohere2VisionForConditionalGeneration). Added the error pattern to `_vlm_hints`
+- Fixed `gptq/_gptq.py`: Cholesky decomposition in `run_gptq` could fail with `LinAlgError` on ill-conditioned Hessians (observed on large VLMs at deeper layers). Extracted `_compute_inverse_hessian()` with progressive damping fallback (up to 5 retries, 10x damping increase per retry). No impact on normal operation
+- Fixed `TypeError` in `QuantLinear.forward` when `S_qk` scaling was applied to MLP layers (`onecomp/pre_process/quant_models.py`)
+- Fixed `JointQ` `group_size=None` (per-channel quantization) raising `TypeError`
+- Fixed wrong module grouping in `make_grouped_module` where GC-driven `id()` reuse caused attention projections (q/k/v) and MLP projections (gate/up) to be merged into the same group.  (`qep/_quantize_with_qep_arch.py`)
+- Fixed silent weight corruption in `GPTQLinear` when `qzero=0` was stored through the GPTQ v1 zero-point path (`onecomp/quantizer/gptq/gptq_layer.py`)
+  - Root cause: AutoGPTQ v1 stores `raw_zero - 1`, so `qzero=0` becomes `-1`; without masking, its sign-extended bits corrupted neighboring packed slots
+  - Pack-side fix (`_pack_rows`): mask each value with `(1 << wbits) - 1` before shift/OR (2/4/8-bit and 3-bit paths)
+  - Forward-side fix (`GPTQLinear.forward`): apply `& wbits_mask` after the v1 `+1` restoration so stored `2^wbits - 1` wraps back to `0`; the `gptq_v2` path remains unchanged
+  - Added regression tests for per-slot pack corruption, packed/unpacked forward paths, the `gptq_v2` branch, and the `from_saved_state` path for GPTQ v1 tensors
+  - **NOTE**: If you have GPTQ models quantized with previous versions, please re-quantize them with this release, as they may contain corrupted internal data.
+
+### Examples
+
+- Added `example/example_custom_calibration.py`: Demonstrates `CalibrationConfig` with a custom calibration dataset (Python code snippets in `example/data/python_calibration.txt`).  Quantizes TinyLlama with GPTQ 3-bit using both default C4 and custom Python-code calibration, then compares inference outputs across multiple prompts to show how calibration data choice affects quantization quality.
+- Added `example/post_process/example_blockwise_ptq.py`: GPTQ 4-bit quantization + BlockWisePTQ (Phase 1 greedy + Phase 2 CBQ) with PPL comparison
+- Added `example/example_lpcd_gptq.py`: TinyLlama GPTQ 3-bit (groupsize=128) + QEP + LPCD end-to-end example (residual-only closed-form refinement, original / dequantized / quantized perplexity reporting)
+- Updated `example/vllm_inference/example_gptq_vllm_inference.py`: changed model to `TinyLlama-1.1B-Chat-v1.0` (chat model), disabled QEP, added `CalibrationConfig(num_calibration_samples=128, max_length=512)`
+- Added `NOTE` comments across all `example/` scripts (`example_gptq.py`, `example_qep_gptq.py`, `example_jointq.py`, `example_autobit.py`, `example_save_load.py`, `example_lpcd_gptq.py`, `example_custom_calibration.py`, `post_process/example_blockwise_ptq.py`, `post_process/example_lora_sft.py`, `post_process/example_lora_sft_knowledge.py`, `pre_process/example_preprocess_save_load.py`, `vllm_inference/example_gptq_vllm_inference.py`) clarifying that the compact `CalibrationConfig(max_length=512, num_calibration_samples=128)` settings are demo-only and recommending the `CalibrationConfig()` defaults (`max_length=2048`, `num_calibration_samples=512`) for real quantisation; `qep=False` examples additionally recommend setting `batch_size` so that `Runner.quantize_with_calibration_chunked` is used with large calibration data
+
+### Documentation
+
+- Updated `docs/algorithms/jointq.md`: added incremental lambda mode description, acceptance criteria, diagonal regularization mode, new parameters (`lambda_mode`, `lambda_list`, `incremental_eps_y`, `incremental_eps_w`, `incremental_initial_skip_ew_threshold`, `regularization_mode`, `regularization_gamma`), and usage examples
+- Added `docs/algorithms/lpcd.md`: LPCD overview, motivation, supported submodule groups, usage examples, QEP relationship, parameters, and current support
+- Added `docs/api/lpcd_config.md` and updated `mkdocs.yml` navigation to include LPCD in the Algorithms and API Reference sections
+- Updated LPCD references across docs: `docs/index.md`, `docs/algorithms/overview.md`, `docs/user-guide/basic-usage.md`, `docs/user-guide/configuration.md`, `docs/user-guide/examples.md`, and `docs/getting-started/quickstart.md`
+- Updated `docs/algorithms/rtn.md`: corrected defaults, added MSE parameters, updated algorithm description
+- Updated `docs/user-guide/pre-process.md`: expanded key parameters table, added validation note
+- Added "Chat with Open WebUI" section to `docs/user-guide/vllm-inference.md`: step-by-step guide for connecting Open WebUI to a vLLM server (Docker / pip install with dedicated venv, connection settings, chat usage)
+- Added Open WebUI mention to `README.md` Features and vLLM Inference sections, and `docs/index.md` Key Features
+- Fixed broken `example/example1.py` references in `README.md` and `docs/getting-started/installation.md` (replaced with `example/example_gptq.py`)
+- Added `example/example_custom_calibration.py` to `README.md` Examples table under new "Calibration" category
+- Removed scratch files from `example/`: `buf.py`, `buf2.py`, `run_example.sh`
+- Fixed outdated install command in `docs/user-guide/cli.md` (`git+URL` → `pip install onecomp`) and added PyTorch prerequisite with link to installation guide
+- Removed duplicate "Chunked Calibration" section (was a copy of JointQ section) in `docs/user-guide/examples.md`
+- Added missing `CalibrationConfig` import to Block-wise PTQ code snippet in `docs/user-guide/examples.md`
+- Fixed eval support note in `docs/getting-started/quickstart.md` to include AutoBitQuantizer (was "GPTQ and DBF only")
+- Added algorithm pages: `docs/algorithms/autobit.md` (ILP-based mixed-precision) and `docs/algorithms/jointq.md` (joint optimization)
+- Added AutoBit and JointQ with links to `docs/algorithms/overview.md` Available Algorithms table
+- Added `docs/api/quantizers/onebit.md` (OneBit API reference)
+- Updated `mkdocs.yml` nav: added AutoBit/JointQ algorithm pages, OneBit API page; renamed Post-Process nav title to include Block-wise PTQ
+- Added example script links to `docs/user-guide/pre-process.md`
+- Updated `docs/algorithms/jointq.md`: added initialization strategy parameters, GPTQ customization examples, removed `batch_size` from parameter table, added `group_size=None` per-channel documentation
+- Added a Troubleshooting section to `docs/user-guide/vllm-inference.md` describing how to bypass the unconditional DeepGEMM (FP8) kernel warmup for non-FP8 quantization (GPTQ / DBF / Mixed-GPTQ) by setting `VLLM_USE_DEEP_GEMM=0` and `VLLM_DEEP_GEMM_WARMUP=skip`
+
+### Tests
+
+- Updated `test_jointq.py`: added `incremental_lambda` boundary parameters (`lambda_mode`, `lambda_list`, `incremental_eps_y`, `incremental_eps_w`, `incremental_initial_skip_ew_threshold`), abnormal parameter cases (invalid mode, empty list, negative values), GPU integration tests (`test_incremental_lambda_basic`, `test_incremental_lambda_single_step`), `_accept_candidate` unit tests covering all acceptance rules and edge cases; removed `batch_size` from boundary/abnormal parameter tests
+- Added `test_prepare_rotated_model.py`: validation, E2E pipeline, output threshold (80 combinations), save/load round-trip
+- Added `test_weight_quantizer.py`: RTN/GPTQ consistency, symmetric/asymmetric, group-wise, MSE, STE
+- Expanded `test_rtn.py`: MSE boundary/abnormal parameters
+- Added vLLM mixed group-size tests (`tests/vllm_plugins/gptq/test_mixed_gptq.py`, `tests/vllm_plugins/gptq/test_mixed_gptq_e2e.py`)
+- Updated `regression_quantize_helper.py`: updated `EXPECTED_MSE` baseline for OneComp GPTQ integration
+
+### Benchmarking
+
+- Updated all benchmark directories for v1.1.0
+- **Results will be added after benchmark runs complete.**
+
+### Dependencies
+
+- Updated `pyproject.toml` and `uv.lock`: added `hydra-core` to `dev` optional dependencies
+- Added LPCD tests (`tests/onecomp/lpcd/`, 25 cases)
+  - `test_lpcd_config.py`: `LPCDConfig` default / custom values, dataclass field set, top-level `from onecomp import LPCDConfig` (CPU only)
+  - `test_lpcd_metrics.py`: `make_lpcd_metrics()` dispatch on synthetic Llama / Qwen3 blocks for every `enable_*` flag combination, `NotImplementedError` for unsupported architectures, `LpcdMetricGroup.mark_as_ready` / `is_refineable` state transitions (CPU only, no weight download)
+  - `test_lpcd_runner.py`: end-to-end GPTQ + QEP + LPCD on the first TinyLlama decoder block — smoke (`Runner.run()` completes, all linear layers quantized, dequantized weights finite), QEP + LPCD combination with explicit `QEPConfig`, behavioural checks (residual-only LPCD modifies `o_proj` / `down_proj` beyond the QEP-only baseline while pre-attention `q/k/v_proj` match the baseline bit-for-bit); auto-skipped on non-CUDA hosts via `pytest.mark.skipif`
+
+### Model Validation
+
+- Added `model_validation/README.md`: parent overview of the operational validation suite that exercises OneComp's end-to-end quantize → save → load → inference workflow across multiple architectures and sizes. Provides cross-recipe At-a-Glance status tables (per-model × per-recipe quantization status, and per-model × per-recipe `(save, transformers inference, vllm inference)` status), per-recipe result tables, and a Summary section that explicitly cautions against cross-recipe PPL comparison (PPL is reported only as a per-recipe sanity check; the compact calibration in use sits below typical research settings, partly because the calibration size has to fit the DGX Spark 128 GB UMA budget for 7–8B models with QEP on).
+- Added `model_validation/gptq/`: Hydra-driven GPTQ (`wbits=4`, `groupsize=128`, `qep=False`) end-to-end validation across three phases:
+  - Phase 1 — quantize + save (`validate_gptq.py`, `conf/validate.yaml`): `CalibrationConfig(max_length=512, num_calibration_samples=128)`, saved via `runner.save_quantized_model(...)`, reports original / quantized PPL on `wikitext-2-raw-v1`.
+  - Phase 2 — load + greedy generation (`validate_load.py`, `conf/validate_load.yaml`): reloads each saved directory via `load_quantized_model` and runs `"Fujitsu is"` with `max_new_tokens=32`. `torch_dtype` is overridable (`float16` / `bfloat16` / `float32` / `null`); gemma-4-E2B requires `bfloat16` because the loader's default `float16` triggers a `Half` / `BFloat16` mismatch at `lm_head`.
+  - Phase 3 — vLLM offline inference (`validate_vllm.py`, `conf/validate_vllm.yaml`): reloads each saved directory via vLLM's offline `LLM` interface (OneComp's vLLM plugin is auto-registered, so no explicit `quantization=` argument is required) and runs `"Fujitsu is"` with `temperature=0.0`, `max_tokens=32`, `enforce_eager=True`, `max_model_len=512`. `LLM(...)` and `llm.generate(...)` are kept inside `main()` behind `if __name__ == "__main__":` so vLLM worker subprocess re-imports do not recursively spawn new engines. Currently `pending` for all five models.
+- Added `model_validation/qep_gptq/`: Hydra-driven GPTQ (`wbits=4`, `groupsize=128`, `qep=True`) end-to-end validation script (`validate_gptq.py`, `conf/validate.yaml`, `README.md`). Calibration: `max_length=1024`, `num_calibration_samples=128` (reduced from defaults to keep 7–8B models within the DGX Spark 128 GB UMA budget with QEP on). Quantize + save only; load / inference is not exercised in this subdirectory yet.
+- Added `model_validation/autobit/`: Hydra-driven AutoBit (`target_bit=4`, `qep=False`) end-to-end validation script (`validate_autobit.py`, `conf/validate.yaml`, `README.md`). Candidates `GPTQ(wbits=b, groupsize=128) for b in (2, 3, 4, 8)`, `assignment_strategy="activation_aware"`, `CalibrationConfig(max_length=512, num_calibration_samples=128)`. Quantize + save only.
+- Updated `model_validation/autobit_qep/`: AutoBit (`target_bit=4`, `qep=True`) validation. Reduced calibration to `max_length=1024`, `num_calibration_samples=128` to keep 7–8B models within the DGX Spark 128 GB UMA budget. README expanded with per-model bit-assignment counts (`GPTQ_<b>_gs128: <count> layers`) for TinyLlama-1.1B, Llama-2-7B, Llama-3-8B, Qwen3-8B, and gemma-4-E2B; documents the bimodal 8-bit / 2-bit ILP collapse on gemma-4-E2B (every module in the first 15 transformer blocks → 8-bit, remaining 20 blocks → 2-bit; quantized PPL diverges to ~10^14, reproduced after reducing calibration from `max_length=2048, num_calibration_samples=512`) and lists candidate follow-ups (restrict candidate set, disable QEP, switch `assignment_strategy`).
+- Added `model_validation/jointq/`: Hydra-driven JointQ (`bits=4`, `group_size=128`, `symmetric=True`, `qep=False`) end-to-end validation script (`validate_jointq.py`, `conf/validate.yaml`, `README.md`). Calibration: `CalibrationConfig(max_length=512, num_calibration_samples=128)`. JointQ does not currently expose a quantized-inference layer (no `save_quantized_model` / `create_quantized_model` path), so quality is sanity-checked on the dequantized model (weights reconstructed from JointQ's quantization parameters); save / inference are reported as `n/a` in the parent At-a-Glance table.
+- All five recipes share the same model selection contract: a single model selected via either `model_id` (Hugging Face Hub) or `model_path` (local directory), with any field in `conf/validate*.yaml` overridable on the command line. Default validation set across all recipes is TinyLlama-1.1B, gemma-4-E2B (base), Llama-2-7B, Llama-3-8B, and Qwen3-8B.
+
+### Packaging
+
+- Bumped minimum `transformers` requirement from `>=5.3.0` to `>=5.5.0` (`pyproject.toml`)
+- Added `cu130` optional-dependency extra and the `pytorch-cu130` wheel index (`https://download.pytorch.org/whl/cu130`) for CUDA 13 hosts (e.g. NVIDIA B200) (`pyproject.toml`)
+- Pinned the `vllm` extra to `vllm>=0.10` to prevent uv from falling back to legacy versions whose source build requires `CUDA_HOME` (`pyproject.toml`)
+- Added uv `conflicts` declarations between the `vllm` extra and the `cpu` / `cu118` / `cu121` / `cu124` / `cu126` / `cu128` extras: vLLM `>=0.20` requires `torch>=2.10`, which is only published for `cu130`. This forces `vllm` to be installed only with `--extra cu130` and prevents silent fallback to a `vllm` version incompatible with `transformers>=5` at runtime (`pyproject.toml`)
+- Restricted `tool.uv.environments` to `sys_platform == 'linux'` and `python_full_version >= '3.12', < '3.14'` to skip lock splits for unused Windows and out-of-range Python versions (`pyproject.toml`)
+- Added `hydra` extra to `pyproject.toml` so `hydra-core` (used by `example/example_autobit.py` and the `model_validation/{gptq,qep_gptq,autobit,autobit_qep,jointq}/validate_*.py` scripts) installs in one step via `uv sync --extra <cuXXX> --extra hydra` or `pip install "onecomp[hydra]"`, instead of a separate `pip install hydra-core` after sync. Documented the new extra in `README.md` and the `model_validation/*/README.md` files. The `model_validation/gptq/` Phase 3 (vLLM inference) additionally requires the `vllm` extra (`uv sync --extra <cuXXX> --extra hydra --extra vllm` or `pip install "onecomp[hydra]" vllm`).
+
 ## [v1.0.2] 2026-03-31
 
 ### Bug Fix
@@ -201,7 +441,7 @@ SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error 
   - `_quantize_with_qep_arch.py`: Catch `ValueError`/`NotImplementedError` from `compute_dequantized_weight()`, log the error, and keep QEP-adjusted weights for the failed layer
 - Fixed GemLite import crash when PyTorch version is incompatible (`onecomp/quantizer/gemlite.py`)
   - Broadened `except ImportError` to `except (ImportError, AttributeError)` so that GemLite gracefully falls back when `torch` lacks newer dtypes (e.g. `float8_e8m0fnu`)
-- Fixed `test_dbf_gemlite.py` to skip when GemLite is unavailable instead of crashing (`tests/vllm-plugins/dbf/test_dbf_gemlite.py`)
+- Fixed `test_dbf_gemlite.py` to skip when GemLite is unavailable instead of crashing (`tests/vllm_plugins/dbf/test_dbf_gemlite.py`)
 
 ### Dependency and documentation updates
 
@@ -226,7 +466,7 @@ SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error 
   - New `vllm_plugins` package: `vllm_plugins/__init__.py`, DBF and GPTQ plugin entry points (`vllm_plugins/dbf/`, `vllm_plugins/gptq/`)
   - DBF: `vllm_plugins/dbf/vllm_plugin.py` and modules (`vllm_plugins/dbf/modules/gemlite_linear.py`, `vllm_plugins/dbf/modules/naive.py`); shared utilities in `vllm_plugins/utils/module.py`
   - GPTQ: `vllm_plugins/gptq/vllm_plugin.py` for Mixed-GPTQ inference
-  - Tests: `tests/vllm-plugins/dbf/test_dbf_gemlite.py`, `tests/vllm-plugins/dbf/test_dbf_naive.py`
+  - Tests: `tests/vllm_plugins/dbf/test_dbf_gemlite.py`, `tests/vllm_plugins/dbf/test_dbf_naive.py`
   - Package and dependency wiring in `pyproject.toml`
 
 ### Fixes

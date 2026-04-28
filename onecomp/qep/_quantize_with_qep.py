@@ -18,17 +18,15 @@ Current procedure:
 
 """
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
-
 from logging import getLogger
 
 import torch
 
+from onecomp.calibration import CalibrationConfig, prepare_calibration_dataset
 from onecomp.model_config import ModelConfig
 from onecomp.qep._qep_config import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
 from onecomp.utils import capture_input_activations
-from onecomp.utils import prepare_calibration_dataset
 
 logger = getLogger(__name__)
 
@@ -37,11 +35,7 @@ def run_quantize_with_qep(
     model_config: ModelConfig,
     quantizer: Quantizer,
     qep_config: QEPConfig,
-    calibration_dataset,
-    max_length: int,
-    num_calibration_samples: int,
-    calibration_strategy: str,
-    calibration_seed: int,
+    calibration_config: CalibrationConfig,
 ):
     """Run quantization with Quantization Error Propagation (QEP).
 
@@ -56,12 +50,7 @@ def run_quantize_with_qep(
         quantizer (Quantizer): The quantizer to use.
         qep_config (QEPConfig): Configuration for QEP
             (percdamp, perccorr, exclude_layer_keywords).
-        calibration_dataset: Calibration dataset. If None, a default dataset
-            is loaded.
-        max_length (int): Maximum sequence length for calibration inputs.
-        num_calibration_samples (int): Number of calibration samples.
-        calibration_strategy (str): Strategy for preparing calibration inputs.
-        calibration_seed (int): Random seed for calibration data preparation.
+        calibration_config (CalibrationConfig): Calibration parameters.
 
     """
     model = model_config.load_model()
@@ -71,11 +60,8 @@ def run_quantize_with_qep(
     inputs = prepare_calibration_dataset(
         tokenizer=tokenizer,
         device=input_device,
-        calibration_dataset=calibration_dataset,
-        max_length=max_length,
-        num_calibration_samples=num_calibration_samples,
-        strategy=calibration_strategy,
-        seed=calibration_seed,
+        calibration_config=calibration_config,
+        model=model,
         logger=logger,
     )
 

@@ -13,7 +13,7 @@ import pytest
 from onecomp.quantizer.autobit._autobit import AutoBitQuantizer
 from onecomp.quantizer.gptq import GPTQ
 from onecomp.utils import estimate_wbits_from_vram
-from onecomp import Runner, ModelConfig
+from onecomp import CalibrationConfig, Runner, ModelConfig
 
 pytestmark = pytest.mark.slow
 
@@ -28,12 +28,34 @@ _skip_large = pytest.mark.skipif(
 SMALL_MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 LARGE_MODEL_ID = "meta-llama/Meta-Llama-3-70B"
 
-CANDIDATES = [GPTQ(wbits=b) for b in (2, 3, 4, 5)]
+CANDIDATES = [GPTQ(wbits=b, groupsize=128) for b in (2, 3, 4, 5)]
+CANDIDATES2 = [
+    GPTQ(wbits=2, groupsize=128),
+    GPTQ(wbits=4, groupsize=128),
+    GPTQ(wbits=4, groupsize=32),
+]
 
 
 def _estimate(model_id, total_vram_gb):
     result = estimate_wbits_from_vram(model_id, total_vram_gb=total_vram_gb)
     return result.target_bitwidth
+
+
+def test_autobit_small_model_ilp_with_groupsize():
+    target_bit = _estimate(SMALL_MODEL_ID, total_vram_gb=0.8)
+    quantizer = AutoBitQuantizer(
+        assignment_strategy="activation_aware",
+        target_bit=target_bit,
+        quantizers=CANDIDATES2,
+    )
+
+    runner = Runner(
+        model_config=ModelConfig(model_id=SMALL_MODEL_ID, device="cpu"),
+        quantizer=quantizer,
+        calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
+        qep=True,
+    )
+    runner.run()
 
 
 def test_autobit_small_model_ilp():
@@ -42,14 +64,14 @@ def test_autobit_small_model_ilp():
         assignment_strategy="activation_aware",
         target_bit=target_bit,
         quantizers=CANDIDATES,
+        enable_fused_groups=False,
     )
 
     runner = Runner(
         model_config=ModelConfig(model_id=SMALL_MODEL_ID, device="cpu"),
         quantizer=quantizer,
+        calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=True,
-        max_length=512,
-        num_calibration_samples=128,
     )
     runner.run()
 
@@ -63,14 +85,14 @@ def test_autobit_small_model_dbf():
         target_bit=target_bit,
         dbf_iters=10,
         quantizers=CANDIDATES,
+        enable_fused_groups=False,
     )
 
     runner = Runner(
         model_config=ModelConfig(model_id=SMALL_MODEL_ID, device="cpu"),
         quantizer=quantizer,
+        calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=True,
-        max_length=512,
-        num_calibration_samples=128,
     )
     runner.run()
 
@@ -88,14 +110,14 @@ def test_autobit_small_model_error():
         assignment_strategy="activation_aware",
         target_bit=target_bit,
         quantizers=CANDIDATES,
+        enable_fused_groups=False,
     )
 
     runner = Runner(
         model_config=ModelConfig(model_id=SMALL_MODEL_ID, device="cpu"),
         quantizer=quantizer,
+        calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=True,
-        max_length=512,
-        num_calibration_samples=128,
     )
     with pytest.raises(ValueError, match="target_bit=.* is below 1.0 bpw"):
         runner.run()
@@ -108,13 +130,13 @@ def test_autobit_large_model():
         assignment_strategy="activation_aware",
         target_bit=target_bit,
         quantizers=CANDIDATES,
+        enable_fused_groups=False,
     )
 
     runner = Runner(
         model_config=ModelConfig(model_id=LARGE_MODEL_ID, device="cpu"),
         quantizer=quantizer,
+        calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=True,
-        max_length=512,
-        num_calibration_samples=128,
     )
     runner.run()

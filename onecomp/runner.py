@@ -7,6 +7,7 @@ Author: Keiji Kimura
 """
 
 # pylint: disable=too-many-arguments, too-many-positional-arguments
+import copy
 import math
 import gc
 import json
@@ -19,12 +20,14 @@ from pathlib import Path
 import torch
 
 from .__version__ import __version__
+from .calibration import CalibrationConfig, prepare_calibration_dataset
 from .model_config import ModelConfig
 from .qep import QEPConfig
+from .lpcd import LPCDConfig
 from .quantizer import GPTQ, Quantizer
+from .quantizer.autobit import AutoBitQuantizer
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
-from .utils import prepare_calibration_dataset as prepare_calib_dataset
 from .log import setup_logger
 
 
@@ -73,19 +76,15 @@ class Runner:
     def __init__(
         self,
         model_config=None,
-        calibration_dataset=None,
-        max_length=2048,
-        num_calibration_samples=512,
         quantizer=None,
         quantizers=None,
+        calibration_config=None,
         qep=False,
         qep_config=None,
-        calibration_strategy="drop_rand",
-        calibration_seed=0,
+        lpcd=False,
+        lpcd_config=None,
         multi_gpu=False,
         gpu_ids=None,
-        calibration_batch_size=None,
-        num_layers_per_group=7,
         post_processes=None,
     ):
         """__init__ method
@@ -93,72 +92,38 @@ class Runner:
         Args:
             model_config (ModelConfig):
                 Model configuration.  Required.
-            calibration_dataset (datasets.Dataset):
-            max_length (int):
-                The maximum length of the input sequence.
-            num_calibration_samples (int):
-                The number of calibration samples to use when loading default dataset.
             quantizer (Quantizer):
                 The quantizer to use. Specify either ``quantizer`` or
                 ``quantizers``, not both.  At least one must be given.
             quantizers (list[Quantizer]):
                 Specify multiple quantizers. When used with
-                calibration_batch_size, the X^T X accumulation is shared,
-                reducing the forward pass to a single execution.
+                ``calibration_config.batch_size``, the X^T X accumulation
+                is shared, reducing the forward pass to a single execution.
                 Specify either ``quantizer`` or ``quantizers``, not both.
                 Currently, this is only available when
-                ``calibration_batch_size`` is set and ``qep=False``.
+                ``calibration_config.batch_size`` is set and ``qep=False``.
+            calibration_config (CalibrationConfig or None):
+                Calibration data configuration.  When ``None`` (default),
+                a :class:`CalibrationConfig` with default values is
+                created automatically.
+
+                See :class:`CalibrationConfig` for available fields.
             qep (bool):
                 Whether to use QEP.
             qep_config (QEPConfig or None):
                 Configuration for QEP. If None and ``qep=True``,
                 a default ``QEPConfig()`` is used.
-            calibration_strategy (str):
-                Strategy for preparing calibration inputs.
-                Default is "drop_rand".
-
-                Available strategies:
-                - "concat_chunk":
-                    Concatenate all texts, tokenize once, and split into
-                    fixed-length chunks (max_length).
-                    Creates as many chunks as possible from the data.
-                - "concat_chunk_align":
-                    Same as concat_chunk, but adjusts the number of loaded
-                    samples so that num_chunks == num_calibration_samples.
-                    This ensures consistent token counts across experiments.
-                - "drop_head":
-                    No cross-document mixing. Tokenize each document
-                    independently; drop samples with token length < max_length;
-                    take the head window (first max_length tokens).
-                - "drop_rand":
-                    Same as above, but take a random window of length max_length
-                    from each long document (reproducible with calibration_seed).
-            calibration_seed (int):
-                Random seed used by some calibration strategies
-                (e.g., "drop_rand").
+            lpcd (bool):
+                Whether to use LPCD.
+            lpcd_config (LPCDConfig or None):
+                Configuration for LPCD. If None and ``lpcd=True``,
+                a default ``LPCDConfig()`` is used.
             multi_gpu (bool):
                 Whether to use multi-GPU for layer-wise parallel quantization.
                 Default is False.
             gpu_ids (list[int]):
                 List of GPU IDs to use for multi-GPU quantization.
                 If None and multi_gpu is True, all available GPUs will be used.
-            calibration_batch_size (int or None):
-                Batch size (number of sentences) for chunked calibration
-                forward passes. Default is None (all calibration data in
-                a single forward pass).
-                When set to a positive integer (e.g., 128), calibration
-                data is split into chunks of this size and forwarded in
-                multiple passes to reduce GPU memory usage. The necessary
-                statistics (e.g., X^T X for Hessian-based methods) are
-                accumulated across chunks. This is mathematically exact,
-                not an approximation.
-            num_layers_per_group (int):
-                Number of layers to process simultaneously in chunked
-                calibration mode. Default is 7 (one Transformer block
-                for Llama-like architectures: q,k,v,o,gate,up,down).
-                Controls the trade-off between CPU memory usage for
-                X^T X storage and the number of forward passes required.
-                Only used when calibration_batch_size is set.
             post_processes (list[PostQuantizationProcess] or None):
                 Optional list of post-quantization processes to execute
                 after the main quantization step.  Each process receives
@@ -175,31 +140,36 @@ class Runner:
 
             Chunked calibration with GPTQ (large-scale calibration data):
 
-            >>> from onecomp import Runner, ModelConfig
+            >>> from onecomp import Runner, ModelConfig, CalibrationConfig
             >>> from onecomp.quantizer.gptq import GPTQ
             >>> model_config = ModelConfig(
             ...     model_id_or_path="meta-llama/Llama-2-7b-hf"
             ... )
             >>> quantizer = GPTQ(wbits=4, groupsize=128)
+            >>> calib_config = CalibrationConfig(
+            ...     max_length=2048,
+            ...     num_calibration_samples=1024,
+            ...     batch_size=128,
+            ... )
             >>> runner = Runner(
             ...     model_config=model_config,
             ...     quantizer=quantizer,
-            ...     max_length=2048,
-            ...     num_calibration_samples=1024,
-            ...     calibration_batch_size=128,  # Forward 128 sentences at a time
+            ...     calibration_config=calib_config,
             ... )
             >>> runner.run()
 
             With custom num_layers_per_group:
 
-            >>> # When memory is sufficient: process 2 blocks (14 layers) simultaneously
+            >>> calib_config = CalibrationConfig(
+            ...     max_length=2048,
+            ...     num_calibration_samples=1024,
+            ...     batch_size=128,
+            ...     num_layers_per_group=14,
+            ... )
             >>> runner = Runner(
             ...     model_config=model_config,
             ...     quantizer=quantizer,
-            ...     max_length=2048,
-            ...     num_calibration_samples=1024,
-            ...     calibration_batch_size=128,
-            ...     num_layers_per_group=14,
+            ...     calibration_config=calib_config,
             ... )
             >>> runner.run()
 
@@ -210,36 +180,41 @@ class Runner:
             >>> gptq = GPTQ(wbits=4, groupsize=128, calc_quant_error=True)
             >>> jointq = JointQ(bits=4, group_size=128, calc_quant_error=True,
             ...                 device=torch.device(0))
+            >>> calib_config = CalibrationConfig(
+            ...     max_length=2048,
+            ...     num_calibration_samples=1024,
+            ...     batch_size=128,
+            ... )
             >>> runner = Runner(
             ...     model_config=model_config,
             ...     quantizers=[gptq, jointq],
-            ...     max_length=2048,
-            ...     num_calibration_samples=1024,
-            ...     calibration_batch_size=128,
+            ...     calibration_config=calib_config,
             ... )
             >>> runner.run()
             >>> # Results are stored in gptq.results and jointq.results respectively
         """
 
         self.model_config = model_config
-        self.calibration_dataset = calibration_dataset
-        self.max_length = max_length
-        self.num_calibration_samples = num_calibration_samples
         self.logger = getLogger(__name__)
 
         self.quantizer = quantizer
         self.quantizers = quantizers
+
+        if calibration_config is None:
+            calibration_config = CalibrationConfig()
+        self.calibration_config = calibration_config
+
         self.qep = qep
-        self.calibration_strategy = calibration_strategy
-        self.calibration_seed = calibration_seed
         self.multi_gpu = multi_gpu
         self.gpu_ids = gpu_ids
-        self.calibration_batch_size = calibration_batch_size
-        self.num_layers_per_group = num_layers_per_group
         self.post_processes = post_processes or []
         self.quantized_model = None
+        self.qep_config = None
         if qep:
             self.qep_config = qep_config if qep_config is not None else QEPConfig()
+        self.lpcd_config = None
+        if lpcd:
+            self.lpcd_config = lpcd_config if lpcd_config is not None else LPCDConfig()
 
     def check(self):
         """Check the settings
@@ -255,15 +230,15 @@ class Runner:
 
         Valid parameter combinations:
 
-        ===========  ====  ==========  ======================
-        quantizers   qep   multi_gpu   calibration_batch_size
-        ===========  ====  ==========  ======================
+        ===========  ====  ==========  ================================
+        quantizers   qep   multi_gpu   calibration_config.batch_size
+        ===========  ====  ==========  ================================
         Specified    False False       Specified
         None         True  False       None
         None         False True        None
         None         False False       Specified
         None         False False       None
-        ===========  ====  ==========  ======================
+        ===========  ====  ==========  ================================
 
         Note:
             ``multi_gpu=True`` requires a quantizer with ``flag_calibration=True``.
@@ -293,24 +268,80 @@ class Runner:
             raise ValueError("Either 'quantizer' or 'quantizers' must be specified.")
 
         # Parameter combination check
+        batch_size = self.calibration_config.batch_size
         if self.quantizers is not None:
-            # quantizers mode: qep=False, multi_gpu=False, calibration_batch_size required
+            # quantizers mode: qep=False, multi_gpu=False, batch_size required
             if self.qep:
                 raise ValueError("'quantizers' cannot be used with qep=True.")
             if self.multi_gpu:
                 raise ValueError("'quantizers' cannot be used with multi_gpu=True.")
-            if self.calibration_batch_size is None:
-                raise ValueError("'quantizers' requires 'calibration_batch_size' to be set.")
+            if batch_size is None:
+                raise ValueError(
+                    "'quantizers' requires 'calibration_config.batch_size' to be set."
+                )
         else:
             # Single quantizer mode: combination check
             if self.qep and self.multi_gpu:
                 raise ValueError("'qep' and 'multi_gpu' cannot be used together.")
-            if self.qep and self.calibration_batch_size is not None:
-                raise ValueError("'qep' cannot be used with 'calibration_batch_size'.")
-            if self.multi_gpu and self.calibration_batch_size is not None:
-                raise ValueError("'multi_gpu' cannot be used with 'calibration_batch_size'.")
+            if self.qep and batch_size is not None:
+                raise ValueError("'qep' cannot be used with 'calibration_config.batch_size'.")
+            if self.multi_gpu and batch_size is not None:
+                raise ValueError(
+                    "'multi_gpu' cannot be used with 'calibration_config.batch_size'."
+                )
             if self.multi_gpu and not self.quantizer.flag_calibration:
                 raise ValueError("'multi_gpu' requires a quantizer with flag_calibration=True.")
+
+        # Cross-validate calibration_dataset when AutoBitQuantizer is used
+        quantizer = self.quantizer or (self.quantizers[0] if self.quantizers else None)
+        if isinstance(quantizer, AutoBitQuantizer) and quantizer.calibration_config is not None:
+            runner_ds = self.calibration_config.calibration_dataset
+            quantizer_ds = quantizer.calibration_config.calibration_dataset
+            if runner_ds != quantizer_ds:
+                raise ValueError(
+                    f"Calibration dataset mismatch: Runner uses "
+                    f"{runner_ds!r} but quantizer uses {quantizer_ds!r}. "
+                    f"Set the same calibration_dataset in both "
+                    f"CalibrationConfig objects."
+                )
+
+    def _exclude_moe_router_if_needed(self):
+        """Exclude MoE router layers from quantization.
+
+        vLLM's GateLinear (used for MoE routing) hardcodes
+        quant_config=None, so router weights must stay unquantized.
+        """
+        config = self.model_config.load_config()
+        num_experts = (
+            getattr(config, "num_experts", 0)
+            or getattr(
+                getattr(config, "text_config", None), "num_experts", 0
+            ) or 
+            0
+        )
+        if num_experts == 0:
+            return
+
+        keyword = "router"
+        target_quantizers = (
+            self.quantizers
+            if self.quantizers is not None
+            else [self.quantizer]
+        )
+        for q in target_quantizers:
+            if q.exclude_layer_keywords is None:
+                q.exclude_layer_keywords = [keyword]
+            elif keyword not in q.exclude_layer_keywords:
+                q.exclude_layer_keywords = list(q.exclude_layer_keywords) + [
+                    keyword
+                ]
+
+        self.logger.info(
+            "MoE model (num_experts=%d): excluding '%s' layers from "
+            "quantization (vLLM GateLinear does not support quantization)",
+            num_experts,
+            keyword,
+        )
 
     def run(self):
         """Execute quantization (and related) processing"""
@@ -324,8 +355,12 @@ class Runner:
 
         logger.info("Checking the settings...")
         self.check()
+        self._exclude_moe_router_if_needed()
 
-        if self.qep:
+        if self.lpcd_config is not None:
+            logger.info("Start quantization with LPCD")
+            self.quantize_with_lpcd()
+        elif self.qep:
             logger.info("Start quantization with error propagation (QEP)")
             self.quantize_with_qep()
         else:
@@ -461,23 +496,47 @@ class Runner:
                 result.total_vram_gb,
             )
 
-        if save_dir == "auto":
-            model_name = model_id.rstrip("/").split("/")[-1]
-            save_dir = f"{model_name}-autobit-{wbits}bit"
-
-        from .quantizer.autobit import AutoBitQuantizer
-
+        _id_lower = model_id.lower()
+        is_gemma4 = any(key in _id_lower for key in ("gemma-4", "gemma4", "gemma_4"))
         model_config = ModelConfig(model_id=model_id, device=device)
-        candidate_quantizers = [
-            GPTQ(wbits=b, groupsize=groupsize, **kwargs) for b in candidate_bits
-        ]
-        quantizer = AutoBitQuantizer(
-            assignment_strategy="activation_aware",
-            quantizers=candidate_quantizers,
-            target_bit=wbits,
-            save_path=save_dir if save_dir is not None else None,
-            enable_fused_groups=True,
-        )
+
+        if is_gemma4:
+            valid_wbits = [b for b in candidate_bits if b <= wbits]
+            if not valid_wbits:
+                raise ValueError(
+                    f"target wbits={wbits:.2f} is below all candidate "
+                    f"bit-widths {candidate_bits}; cannot select a "
+                    f"uniform GPTQ configuration for Gemma 4"
+                )
+            uniform_bit = max(valid_wbits)
+            if save_dir == "auto":
+                model_name = model_id.rstrip("/").split("/")[-1]
+                save_dir = (
+                    f"{model_name}-gptq-{uniform_bit}bit"
+                )
+            logger.warning(
+                "Gemma 4 detected → falling back to uniform GPTQ %d-bit "
+                "(target wbits=%.2f)",
+                uniform_bit,
+                wbits,
+            )
+            quantizer = GPTQ(wbits=uniform_bit, groupsize=groupsize, **kwargs)
+        else:
+            if save_dir == "auto":
+                model_name = model_id.rstrip("/").split("/")[-1]
+                save_dir = f"{model_name}-autobit-{wbits}bit"
+
+            from .quantizer.autobit import AutoBitQuantizer
+            candidate_quantizers = [
+                GPTQ(wbits=b, groupsize=groupsize, **kwargs) for b in candidate_bits
+            ]
+            quantizer = AutoBitQuantizer(
+                assignment_strategy="activation_aware",
+                quantizers=candidate_quantizers,
+                target_bit=wbits,
+                save_path=save_dir if save_dir is not None else None,
+                enable_fused_groups=True,
+            )
         runner = cls(model_config=model_config, quantizer=quantizer, qep=qep)
         runner.run()
 
@@ -513,7 +572,7 @@ class Runner:
         elif self.multi_gpu:
             # Multi-GPU quantization (flag_calibration=True is guaranteed by check())
             self.quantize_with_calibration_on_multi_gpu()
-        elif self.calibration_batch_size is not None:
+        elif self.calibration_config.batch_size is not None:
             # Chunked quantization (single quantizer)
             self.quantize_with_calibration_chunked()
         elif self.quantizer.flag_calibration:
@@ -529,7 +588,7 @@ class Runner:
         model = self.model_config.load_model()
         logger = self.logger
         input_device = next(model.parameters()).device
-        inputs = self.prepare_calibration_dataset(input_device)
+        inputs = self.prepare_calibration_dataset(input_device, model=model)
 
         # Setup the quantizer
         self.quantizer.setup(model)
@@ -576,13 +635,7 @@ class Runner:
         run_chunked_quantization(
             model_config=self.model_config,
             quantizers=self.quantizers if self.quantizers is not None else [self.quantizer],
-            calibration_dataset=self.calibration_dataset,
-            max_length=self.max_length,
-            num_calibration_samples=self.num_calibration_samples,
-            calibration_strategy=self.calibration_strategy,
-            calibration_seed=self.calibration_seed,
-            calibration_batch_size=self.calibration_batch_size,
-            num_layers_per_group=self.num_layers_per_group,
+            calibration_config=self.calibration_config,
         )
 
     def quantize_with_calibration_on_multi_gpu(self):
@@ -609,11 +662,7 @@ class Runner:
         result = run_multi_gpu_quantization(
             model_config=self.model_config,
             quantizer=self.quantizer,
-            calibration_dataset=self.calibration_dataset,
-            max_length=self.max_length,
-            num_calibration_samples=self.num_calibration_samples,
-            calibration_strategy=self.calibration_strategy,
-            calibration_seed=self.calibration_seed,
+            calibration_config=self.calibration_config,
             gpu_ids=self.gpu_ids,
         )
 
@@ -662,11 +711,7 @@ class Runner:
             model_config=self.model_config,
             quantizer=self.quantizer,
             qep_config=self.qep_config,
-            calibration_dataset=self.calibration_dataset,
-            max_length=self.max_length,
-            num_calibration_samples=self.num_calibration_samples,
-            calibration_strategy=self.calibration_strategy,
-            calibration_seed=self.calibration_seed,
+            calibration_config=self.calibration_config,
         )
 
         if self.qep_config.general:
@@ -681,6 +726,20 @@ class Runner:
             from .qep._quantize_with_qep_arch import run_quantize_with_qep_arch
 
             run_quantize_with_qep_arch(**kwargs)
+
+    def quantize_with_lpcd(self):
+        """Quantize the model with LPCD"""
+        # Lazy import: load submodule only when needed
+        # pylint: disable-next=import-outside-toplevel
+        from .lpcd._lpcd_runner import run_quantize_with_lpcd
+
+        run_quantize_with_lpcd(
+            model_config=self.model_config,
+            quantizer=self.quantizer,
+            qep_config=self.qep_config,
+            lpcd_config=self.lpcd_config,
+            calibration_config=self.calibration_config,
+        )
 
     def quantize_with_jointq_error_propagation(
         self,
@@ -738,7 +797,7 @@ class Runner:
         model = self.model_config.load_model()
         logger = self.logger
         input_device = next(model.parameters()).device
-        inputs = self.prepare_calibration_dataset(input_device)
+        inputs = self.prepare_calibration_dataset(input_device, model=model)
 
         run_jointq_error_propagation(
             model=model,
@@ -793,13 +852,15 @@ class Runner:
 
         self.quantized_model = quantized_model
 
-    def prepare_calibration_dataset(self, device):
+    def prepare_calibration_dataset(self, device, model=None):
         """Prepare calibration data for quantization methods such as GPTQ.
 
-        See utils.calibration.prepare_calibration_dataset for details.
+        See calibration.calibration_data_loader.prepare_calibration_dataset for details.
 
         Args:
             device (torch.device): Device to place tensors on (CPU or GPU)
+            model: Model instance (optional). Add model-specific fields 
+            (e.g. mm_token_type_ids for Gemma 4).
 
         Returns:
             dict: Input dictionary for the model
@@ -808,15 +869,12 @@ class Runner:
         """
         tokenizer = self.model_config.load_tokenizer()
 
-        return prepare_calib_dataset(
+        return prepare_calibration_dataset(
             tokenizer=tokenizer,
             device=device,
-            calibration_dataset=self.calibration_dataset,
-            max_length=self.max_length,
-            num_calibration_samples=self.num_calibration_samples,
-            strategy=self.calibration_strategy,
-            seed=self.calibration_seed,
+            calibration_config=self.calibration_config,
             logger=self.logger,
+            model=model,
         )
 
     def print_quantization_results(self, quantizer=None):
@@ -926,15 +984,7 @@ class Runner:
         logger.info("Saving the quantization statistics to %s", path)
 
         statistics = {
-            key: {
-                "quantization_time": result.quantization_time,
-                "output_squared_error": result.output_squared_error,
-                "mean_output_squared_error": result.mean_output_squared_error,
-                "weight_squared_error": result.weight_squared_error,
-                "mean_weight_squared_error": result.mean_weight_squared_error,
-                "relative_output_squared_error": result.relative_output_squared_error,
-                "relative_weight_squared_error": result.relative_weight_squared_error,
-            }
+            key: result.get_statistics()
             for key, result in quantizer.results.items()
         }
 
@@ -1559,6 +1609,12 @@ class Runner:
         model = self.model_config.load_model(device_map="cpu")
         tokenizer = self.model_config.load_tokenizer()
 
+        # Unfuse MoE experts so per-expert result keys can be resolved
+        from .utils.unfuse_moe import unfuse_moe_experts
+
+        if unfuse_moe_experts(model, self.logger):
+            self.logger.info("Unfused MoE expert tensors for quantized model save")
+
         # Replace Linear layers with quantized layers using quantizer.results
         self.logger.info("Replacing Linear layers with quantized inference layers...")
         quantizer.apply_results_to_model(model, pack_weights=pack_weights, use_gemlite=use_gemlite)
@@ -1602,10 +1658,105 @@ class Runner:
         quant_config["rotated"] = self.model_config.has_additional_data()
         quant_config["fp32_had"] = fp32_had
 
+        # MoE expert layers are not nn.Linear but fused3d tensors and are skipped by the
+        # quantizer.  vLLM's built-in "gptq" handler still assumes them
+        # GPTQ-quantized.  "mixed_gptq" returns None
+        # and passes the weights to UnquantizedFusedMoEMethod.
+        # cf) https://docs.vllm.ai/en/stable/features/quantization/#implementing-a-quantized-moe-method
+        num_experts = (
+            getattr(model.config, "num_experts", None)
+            or getattr(
+                getattr(model.config, "text_config", None), "num_experts", None
+            )
+            or 0
+        )
+        if (
+            quant_config.get("quant_method") == "gptq"
+            and num_experts > 0
+        ):
+            quant_config["quant_method"] = "mixed_gptq"
+            self.logger.info(
+                "MoE model detected (num_experts=%d): "
+                "switching quant_method to mixed_gptq for vLLM compatibility",
+                num_experts,
+            )
+
+        # Patch weights and quant config for architectures with shared
+        # K/V projections (e.g. Gemma4 attention_k_eq_v) so that vLLM's
+        # fused qkv_proj consistency check passes.
+        self._patch_k_eq_v_for_vllm(model, quant_config)
+
         # Add quantization config to model config
         model.config.quantization_config = quant_config
 
         return model, tokenizer
+
+    def _patch_k_eq_v_for_vllm(self, model, quant_config: dict) -> None:
+        """Add synthetic v_proj weights and config for attention_k_eq_v layers.
+
+        Gemma4 full-attention layers with attention_k_eq_v=True have no
+        v_proj weight — the model reuses key states as value states.
+        vLLM fuses q/k/v into a single qkv_proj and requires all shards
+        to share the same quantization status.  
+        """
+        text_cfg = getattr(model.config, "text_config", None)
+        if text_cfg is None or not getattr(text_cfg, "attention_k_eq_v", False):
+            return
+        layer_types = getattr(text_cfg, "layer_types", [])
+        k_eq_v_indices = {
+            i for i, lt in enumerate(layer_types) if lt == "full_attention"
+        }
+        if not k_eq_v_indices:
+            return
+
+        # (1) Model weights: duplicate k_proj → v_proj
+        layers = None
+        for name, mod in model.named_modules():
+            if name.endswith("language_model.layers"):
+                layers = mod
+                break
+
+        if layers is not None:
+            weight_count = 0
+            for idx in sorted(k_eq_v_indices):
+                if idx >= len(layers):
+                    continue
+                attn = getattr(layers[idx], "self_attn", None)
+                if attn is None:
+                    continue
+                k_proj = getattr(attn, "k_proj", None)
+                if k_proj is None or getattr(attn, "v_proj", None) is not None:
+                    continue
+                attn.v_proj = copy.deepcopy(k_proj)
+                weight_count += 1
+            if weight_count:
+                self.logger.info(
+                    "Added v_proj weights (copied from k_proj) to %d "
+                    "attention_k_eq_v layers for vLLM compatibility",
+                    weight_count,
+                )
+
+        # (2) Quant config: add v_proj entries cloned from k_proj
+        for idx, layer_cfg in enumerate(quant_config.get("quantization_bits", [])):
+            if (
+                idx in k_eq_v_indices
+                and "self_attn.k_proj" in layer_cfg
+                and "self_attn.v_proj" not in layer_cfg
+            ):
+                layer_cfg["self_attn.v_proj"] = copy.deepcopy(
+                    layer_cfg["self_attn.k_proj"]
+                )
+
+        for key in ("modules_in_block_to_quantize", "quantized_layer_names"):
+            names = quant_config.get(key, [])
+            added = [
+                f"model.language_model.layers.{idx}.self_attn.v_proj"
+                for idx in k_eq_v_indices
+                if f"model.language_model.layers.{idx}.self_attn.k_proj" in names
+                and f"model.language_model.layers.{idx}.self_attn.v_proj" not in names
+            ]
+            if added:
+                quant_config[key] = sorted(names + added)
 
     # ========================================
     # Unified Save/Load Methods (Using quantizer.results)
@@ -1629,10 +1780,15 @@ class Runner:
         logger = self.logger
         logger.info("Saving quantized model to %s", save_directory)
 
-        # Disable GemLite when saving to avoid extra params in safetensors
-        model, tokenizer = self.create_quantized_model(
-            pack_weights=pack_weights, use_gemlite=False
-        )
+        if self.quantized_model is not None:
+            logger.info("Using existing quantized model (post-process results preserved)")
+            model = self.quantized_model
+            tokenizer = self.model_config.load_tokenizer()
+        else:
+            # Disable GemLite when saving to avoid extra params in safetensors
+            model, tokenizer = self.create_quantized_model(
+                pack_weights=pack_weights, use_gemlite=False
+            )
 
         # Save model and tokenizer
         save_path = Path(save_directory)
@@ -1640,6 +1796,33 @@ class Runner:
 
         model.save_pretrained(save_directory)
         tokenizer.save_pretrained(save_directory)
+
+        # Gemma 4 PT models require BOS token for coherent generation but the
+        # upstream tokenizer_config.json omits add_bos_token.  Ensure it is
+        # set so that vLLM (and other runtimes) prepend <bos> automatically.
+        # See: https://github.com/vllm-project/vllm/issues/39827
+        tc_path = Path(save_directory) / "tokenizer_config.json"
+        if tc_path.exists():
+            tc = json.loads(tc_path.read_text())
+            if "add_bos_token" not in tc and tc.get("bos_token"):
+                tc["add_bos_token"] = True
+                tc_path.write_text(json.dumps(tc, indent=2, ensure_ascii=False) + "\n")
+                logger.info("Set add_bos_token=true in tokenizer_config.json")
+
+        # Copy processor config from original model (for VLMs with image/audio support)
+        import shutil
+
+        src_dir = self.model_config.get_model_id_or_path()
+        if src_dir and not os.path.isdir(src_dir):
+            # when the model_id is specified, the path is modifed to the local directory
+            from huggingface_hub import snapshot_download
+            src_dir = snapshot_download(src_dir, local_files_only=True)
+        if src_dir and os.path.isdir(src_dir):
+            for fname in ("processor_config.json", "preprocessor_config.json"):
+                src = os.path.join(src_dir, fname)
+                if os.path.isfile(src):
+                    shutil.copy2(src, save_directory)
+                    logger.info("Copied %s to save directory", fname)
 
         logger.info(f"Quantized model saved to {save_directory}")
         return save_directory
@@ -1785,7 +1968,7 @@ class Runner:
 
             model = self.model_config.load_model()
             input_device = next(model.parameters()).device
-            inputs = self.prepare_calibration_dataset(input_device)
+            inputs = self.prepare_calibration_dataset(input_device, model=model)
 
             combined_results = _analyze(model, inputs, quantizer.results, layer_keywords)
 
@@ -1809,7 +1992,7 @@ class Runner:
 
                 model = self.model_config.load_model()
                 input_device = next(model.parameters()).device
-                inputs = self.prepare_calibration_dataset(input_device)
+                inputs = self.prepare_calibration_dataset(input_device, model=model)
 
                 keyword_results = _analyze(model, inputs, quantizer.results, [keyword])
                 all_results[keyword] = {

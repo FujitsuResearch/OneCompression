@@ -19,6 +19,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 
 import torch
 from onecomp import (
+    CalibrationConfig,
     ModelConfig,
     Runner,
     GPTQ,
@@ -55,7 +56,9 @@ rotated_config = prepare_rotated_model(
     model_config=model_config,
     save_directory=ROTATED_DIR,
     seed=SEED,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    calibration_config=CalibrationConfig(
+        num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    ),
     wbits=WBITS,
     groupsize=GROUPSIZE,
 )
@@ -71,9 +74,11 @@ gptq = GPTQ(wbits=WBITS, groupsize=GROUPSIZE)
 runner = Runner(
     model_config=rotated_config,
     quantizer=gptq,
-    max_length=512,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    calibration_seed=SEED,
+    calibration_config=CalibrationConfig(
+        max_length=512,
+        num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+        seed=SEED,
+    ),
 )
 runner.run()
 

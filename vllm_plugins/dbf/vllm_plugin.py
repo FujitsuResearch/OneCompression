@@ -83,9 +83,7 @@ class DBFLinearMethod(LinearMethodBase):
         # DBF implementation in this plugin assumes TP size == 1.
         tp_size = get_tensor_model_parallel_world_size()
         if tp_size != 1:
-            raise ValueError(
-                "DBF quantization currently supports only tensor_parallel_size=1."
-            )
+            raise ValueError("DBF quantization currently supports only tensor_parallel_size=1.")
 
         del params_dtype  # not used (DBF weights are stored as fp16/uint8)
         del output_size  # derived from output_partition_sizes
@@ -95,9 +93,7 @@ class DBFLinearMethod(LinearMethodBase):
 
         mod_cfg = getattr(layer, "_dbf_mod_cfg", None)
         if mod_cfg is None:
-            logger.warning(
-                "DBF module config is missing on layer; defaulting bits=1.0."
-            )
+            logger.warning("DBF module config is missing on layer; defaulting bits=1.0.")
             w_bit = 1.0
         else:
             w_bit = mod_cfg.get("bits", 0)
@@ -106,9 +102,7 @@ class DBFLinearMethod(LinearMethodBase):
             _compute_mid_features(w_bit, in_features, out_features)
             for out_features in output_partition_sizes
         ]
-        bp1_sizes = [
-            (mid * in_features + 7) // 8 for mid in mid_sizes
-        ]
+        bp1_sizes = [(mid * in_features + 7) // 8 for mid in mid_sizes]
         bp3_sizes = [
             (out_features * mid + 7) // 8
             for out_features, mid in zip(output_partition_sizes, mid_sizes)
@@ -144,9 +138,7 @@ class DBFLinearMethod(LinearMethodBase):
             def _loader(param: Parameter, loaded_weight: torch.Tensor, shard_id: Any = None):
                 part_idx = _shard_id_to_index(shard_id)
                 if part_count > 1 and shard_id is None:
-                    raise ValueError(
-                        f"DBF expects shard_id for fused module parameter {kind}."
-                    )
+                    raise ValueError(f"DBF expects shard_id for fused module parameter {kind}.")
                 if kind == "scaling0":
                     if param.data.ndim == 2:
                         param.data[part_idx].copy_(loaded_weight)
@@ -195,9 +187,7 @@ class DBFLinearMethod(LinearMethodBase):
             scaling4,
             extra_weight_attrs
             | {
-                "weight_loader": _make_loader(
-                    "scaling4", scaling4_offsets, output_partition_sizes
-                )
+                "weight_loader": _make_loader("scaling4", scaling4_offsets, output_partition_sizes)
             },
         )
         layer.register_parameter("scaling4", scaling4)
@@ -208,8 +198,7 @@ class DBFLinearMethod(LinearMethodBase):
         )
         set_weight_attrs(
             bp1,
-            extra_weight_attrs
-            | {"weight_loader": _make_loader("bp1", bp1_offsets, bp1_sizes)},
+            extra_weight_attrs | {"weight_loader": _make_loader("bp1", bp1_offsets, bp1_sizes)},
         )
         layer.register_parameter("bp1", bp1)
 
@@ -219,8 +208,7 @@ class DBFLinearMethod(LinearMethodBase):
         )
         set_weight_attrs(
             bp3,
-            extra_weight_attrs
-            | {"weight_loader": _make_loader("bp3", bp3_offsets, bp3_sizes)},
+            extra_weight_attrs | {"weight_loader": _make_loader("bp3", bp3_offsets, bp3_sizes)},
         )
         layer.register_parameter("bp3", bp3)
 
@@ -254,9 +242,7 @@ class DBFLinearMethod(LinearMethodBase):
             bp1_packed = layer.bp1.narrow(0, bp1_offset, bp1_size)
             bp3_packed = layer.bp3.narrow(0, bp3_offset, bp3_size)
 
-            bp1_int8 = unpack_sign_bits(bp1_packed, (mid, meta["in_features"])).to(
-                torch.int8
-            )
+            bp1_int8 = unpack_sign_bits(bp1_packed, (mid, meta["in_features"])).to(torch.int8)
             bp3_int8 = unpack_sign_bits(bp3_packed, (out_size, mid)).to(torch.int8)
 
             binary1 = get_gemlite_linear(bp1_int8)
@@ -359,8 +345,15 @@ class DBFLinearMethod(LinearMethodBase):
             if use_gemlite and hasattr(layer, "_dbf_gemlite_parts"):
                 binary1, binary3 = layer._dbf_gemlite_parts[idx]
                 out = self._apply_gemlite(
-                    x, scaling0, scaling2, scaling4, binary1, binary3, group_size,
-                    meta["mid_sizes"][idx], meta["out_sizes"][idx],
+                    x,
+                    scaling0,
+                    scaling2,
+                    scaling4,
+                    binary1,
+                    binary3,
+                    group_size,
+                    meta["mid_sizes"][idx],
+                    meta["out_sizes"][idx],
                 )
             else:
                 out = self._apply_naive(
@@ -410,12 +403,10 @@ class DbfConfig(QuantizationConfig):
         quantization_bits = config.get("quantization_bits", [])
         return cls(quantization_bits=quantization_bits)
 
-    def get_quant_method(
-        self, layer: torch.nn.Module, prefix: str
-    ) -> LinearMethodBase | None:
+    def get_quant_method(self, layer: torch.nn.Module, prefix: str) -> LinearMethodBase | None:
         if not isinstance(layer, LinearBase):
             return None
-        
+
         layer_idx, module_suffix = _parse_layer_and_module(prefix)
         if layer_idx is None:
             return UnquantizedLinearMethod()
@@ -424,12 +415,15 @@ class DbfConfig(QuantizationConfig):
         if mod_cfg is None:
             logger.debug("No module config found for %s, using UnquantizedLinearMethod.", prefix)
             return UnquantizedLinearMethod()
-        
-        if not _validate_quant_config_within_shard(self.quantization_bits, layer_idx, module_suffix):
+
+        if not _validate_quant_config_within_shard(
+            self.quantization_bits, layer_idx, module_suffix
+        ):
             raise ValueError(
-                    f"Detected some but not all shards of {prefix} "
-                    "are quantized. All shards of fused layers "
-                    "to have the same precision.")
+                f"Detected some but not all shards of {prefix} "
+                "are quantized. All shards of fused layers "
+                "to have the same precision."
+            )
 
         bits = mod_cfg.get("bits", 0)
         method = mod_cfg.get("method", "dbf")
@@ -444,15 +438,17 @@ class DbfConfig(QuantizationConfig):
         if method != "dbf":
             logger.warning(
                 "DBF config for %s has unsupported method=%s, falling back to UnquantizedLinearMethod.",
-                prefix, method,
+                prefix,
+                method,
             )
             return UnquantizedLinearMethod()
 
         # create_weights() has no prefix argument, so carry per-module config on layer.
         layer._dbf_prefix = prefix
         layer._dbf_mod_cfg = mod_cfg
-        
+
         return self._method
+
 
 def register_vllm_plugin():
     # Register DBF quantization with vLLM's plugin system.

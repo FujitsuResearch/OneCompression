@@ -76,7 +76,7 @@ Available quantizers and their typical parameters:
 
 | Quantizer          | Key Parameters                          | Calibration Required |
 |--------------------|------------------------------------------|----------------------|
-| `AutoBitQuantizer` | `target_bit`, `assignment_strategy`      | Yes                  |
+| `AutoBitQuantizer` | `quantizers`, `target_bit`, `assignment_strategy`, `enable_fused_groups` | Yes                  |
 | `GPTQ`             | `wbits`, `groupsize`, `sym`              | Yes                  |
 | `RTN`              | `wbits`, `groupsize`, `sym`              | No                   |
 | `DBF`              | `target_bits`, `iters`                   | Yes                  |
@@ -186,3 +186,36 @@ runner.run()
 ```
 
 See [QEP Algorithm](../algorithms/qep.md) for the theory behind QEP.
+
+## Enabling LPCD
+
+LPCD refines quantization at the submodule level after moving beyond a purely
+layer-wise objective. In OneComp, it is enabled through `Runner` together with
+an `LPCDConfig`:
+
+```python
+from onecomp import LPCDConfig
+
+lpcd_config = LPCDConfig(
+    enable_residual=True,  # default and fastest mode
+    perccorr=0.5,
+    percdamp=0.01,
+    device="cuda:0",
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    qep=True,
+    lpcd=True,
+    lpcd_config=lpcd_config,
+)
+runner.run()
+```
+
+!!! tip
+    `LPCDConfig()` defaults to residual-only refinement (`enable_residual=True`),
+    which is a good starting point. Enable `enable_qk`, `enable_vo`, and
+    `enable_ud` for stronger but slower refinement.
+
+See [LPCD](../algorithms/lpcd.md) for the algorithm details.

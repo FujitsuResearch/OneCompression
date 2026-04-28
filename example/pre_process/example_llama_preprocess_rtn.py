@@ -35,12 +35,7 @@ rotated_config = prepare_rotated_model(
 # ============================================================
 
 rtn = RTN(wbits=3, groupsize=-1, sym=False)
-runner = Runner(
-    model_config=rotated_config,
-    quantizer=rtn,
-    max_length=512,
-    num_calibration_samples=128,
-)
+runner = Runner(model_config=rotated_config, quantizer=rtn)
 runner.run()
 
 # Calculate perplexity

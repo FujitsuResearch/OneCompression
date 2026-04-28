@@ -20,6 +20,7 @@ import threading
 
 import torch
 
+from onecomp.calibration import CalibrationConfig
 from onecomp.quantizer._quantizer import QuantizationResult
 from onecomp.utils import check_activations
 
@@ -50,21 +51,9 @@ def get_quantizer_config_dict(quantizer) -> Dict[str, Any]:
     return config
 
 
-def get_calibration_config_dict(
-    calibration_dataset,
-    max_length: int,
-    num_calibration_samples: int,
-    calibration_strategy: str,
-    calibration_seed: int,
-) -> Dict[str, Any]:
-    """Convert calibration settings to dict."""
-    return {
-        "calibration_dataset": calibration_dataset,
-        "max_length": max_length,
-        "num_calibration_samples": num_calibration_samples,
-        "calibration_strategy": calibration_strategy,
-        "calibration_seed": calibration_seed,
-    }
+def get_calibration_config_dict(calibration_config: CalibrationConfig) -> Dict[str, Any]:
+    """Convert CalibrationConfig to dict (for future multi-process support)."""
+    return asdict(calibration_config)
 
 
 # =============================================================================
@@ -75,29 +64,21 @@ def get_calibration_config_dict(
 def run_capture_phase(
     model_config,
     quantizer,
-    calibration_dataset,
-    max_length: int,
-    num_calibration_samples: int,
-    calibration_strategy: str,
-    calibration_seed: int,
+    calibration_config: CalibrationConfig,
 ) -> Dict[str, Any]:
     """Phase 1: Capture input activations and weights for all layers.
 
     Args:
         model_config: Model configuration.
         quantizer: Quantizer instance.
-        calibration_dataset: Calibration dataset.
-        max_length: Maximum sequence length.
-        num_calibration_samples: Number of calibration samples.
-        calibration_strategy: Calibration strategy.
-        calibration_seed: Random seed.
+        calibration_config (CalibrationConfig): Calibration parameters.
 
     Returns:
         Dict containing:
             - "layer_data": Dict[layer_name, {"weight": Tensor, "input_activation": Tensor}]
             - "layer_names": List of layer names in order
     """
-    from onecomp.utils import prepare_calibration_dataset
+    from onecomp.calibration import prepare_calibration_dataset
 
     logger.info("=== Phase 1: Capture ===")
     start_time = time.time()
@@ -113,11 +94,8 @@ def run_capture_phase(
     inputs = prepare_calibration_dataset(
         tokenizer=tokenizer,
         device=input_device,
-        calibration_dataset=calibration_dataset,
-        max_length=max_length,
-        num_calibration_samples=num_calibration_samples,
-        strategy=calibration_strategy,
-        seed=calibration_seed,
+        calibration_config=calibration_config,
+        model=model,
         logger=logger,
     )
 
@@ -362,11 +340,7 @@ def run_quantization_phase(
 def run_multi_gpu_quantization(
     model_config,
     quantizer,
-    calibration_dataset,
-    max_length: int,
-    num_calibration_samples: int,
-    calibration_strategy: str,
-    calibration_seed: int,
+    calibration_config: CalibrationConfig,
     gpu_ids: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """Main entry point for multi-GPU quantization.
@@ -374,11 +348,7 @@ def run_multi_gpu_quantization(
     Args:
         model_config: Model configuration.
         quantizer: Quantizer instance.
-        calibration_dataset: Calibration dataset.
-        max_length: Maximum sequence length.
-        num_calibration_samples: Number of calibration samples.
-        calibration_strategy: Calibration strategy.
-        calibration_seed: Random seed.
+        calibration_config (CalibrationConfig): Calibration parameters.
         gpu_ids: List of GPU IDs to use (all GPUs if None).
 
     Returns:
@@ -396,11 +366,7 @@ def run_multi_gpu_quantization(
     capture_result = run_capture_phase(
         model_config=model_config,
         quantizer=quantizer,
-        calibration_dataset=calibration_dataset,
-        max_length=max_length,
-        num_calibration_samples=num_calibration_samples,
-        calibration_strategy=calibration_strategy,
-        calibration_seed=calibration_seed,
+        calibration_config=calibration_config,
     )
 
     # Phase 2: Parallel quantization

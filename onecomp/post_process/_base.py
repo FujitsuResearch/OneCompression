@@ -9,6 +9,7 @@ Author: Keiji Kimura
 
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
+from typing import Optional
 
 import torch.nn as nn
 
@@ -47,7 +48,7 @@ class PostQuantizationProcess(metaclass=ABCMeta):
 
     """
 
-    name: str = None
+    name: Optional[str] = None
 
     def __post_init__(self):
         if self.name is None:
