@@ -72,6 +72,7 @@ class MDBFResult(QuantizationResult):
     gradient_lr: float = None
     activation_aware: bool = None
     act_init: str = None
+    actual_activation_aware: bool = None
     actual_bpw: float = None
     r: int = None
 
@@ -363,6 +364,11 @@ class MDBF(Quantizer):
             mdbf_B_amp=[p.B_amp for p in params_list],
             mdbf_Q_U_amp=[p.Q_U_amp for p in params_list],
             mdbf_Q_V_amp=[p.Q_V_amp for p in params_list],
+            # Keep the requested flag (as set on the quantizer) and record the
+            # actually-used flag returned by run_mdbf.
+            actual_activation_aware=weight_results.get(
+                "actual_activation_aware", self.activation_aware
+            ),
         )
 
         return mdbf_result

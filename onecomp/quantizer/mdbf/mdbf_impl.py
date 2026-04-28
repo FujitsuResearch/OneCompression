@@ -261,4 +261,6 @@ def run_mdbf(
         "actual_bpw": actual_bpw,
         "r": r,
         "is_mdbf_quantized": True,
+        # Return the actually-used activation_aware flag under a distinct key
+        "actual_activation_aware": activation_aware,
     }
