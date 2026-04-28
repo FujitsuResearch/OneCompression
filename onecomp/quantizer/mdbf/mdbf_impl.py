@@ -38,11 +38,11 @@ def _move_msvid_params_to_cpu(params_list: List[MSVIDParams]) -> List[MSVIDParam
     ]
 
 
-def run_msvid(
+def run_mdbf(
     hessian: Optional[torch.Tensor],
     module: nn.Module,
     input=None,
-    b_target: float = 1.0,
+    target_bits: float = 1.0,
     l: int = 1,
     P: int = 2,
     svd_mode: Literal["svd", "svd_llm"] = "svd",
@@ -55,9 +55,10 @@ def run_msvid(
     gradient_lr: float = 0.01,
     activation_aware: bool = False,
     act_init: Literal["none", "osvd", "svd_llm"] = "osvd",
+    nsamples: Optional[int] = None,
 ) -> dict:
     """
-    MSVID量子化を実行（OneComp 規約版）
+    MDBF量子化を実行（OneComp 規約版）
 
     Phase 1: 初期化 (SVD分解 + 二値化 + Multi-scale振幅分解)
     Phase 2: ADMM最適化 (オプション)
@@ -67,7 +68,7 @@ def run_msvid(
         hessian: 計算済みHessian行列（基底クラスから渡される）
         module: 量子化対象レイヤー
         input: キャリブレーション時の入力活性化（基底クラスから渡される）
-        b_target: 目標BPW
+        target_bits: 目標BPW
         l: Multi-scaleランク
         P: パス数
         svd_mode: SVDモード ("svd" or "svd_llm")
@@ -80,6 +81,7 @@ def run_msvid(
         gradient_lr: 勾配最適化学習率
         activation_aware: Activation-awareモード（P=1のみ）
         act_init: 初期化モード
+        nsamples: Hessian計算に使用したトークン数。Noneの場合は1をフォールバックとして使用。
 
     Returns:
         dict with keys:
@@ -111,7 +113,7 @@ def run_msvid(
 
     # Activation-aware設定
     use_hessian_mode = False
-    nsamples = 1
+    _nsamples = nsamples if nsamples is not None else 1
     H_act = None
 
     if activation_aware:
@@ -122,7 +124,7 @@ def run_msvid(
             H_act = hessian.clone().to(device) if hessian is not None else None
             if H_act is not None:
                 use_hessian_mode = True
-                logger.debug(f"[MDBF] Activation-aware mode (Hessian-based): nsamples={nsamples}")
+                logger.debug(f"[MDBF] Activation-aware mode (Hessian-based): nsamples={_nsamples}")
             else:
                 logger.warning("[MDBF] activation_aware=True but H not found; fallback to non-aware.")
                 activation_aware = False
@@ -136,10 +138,10 @@ def run_msvid(
         act_X = inp.reshape(-1, m).to(device=device, dtype=torch.float32)
 
     # ランク計算
-    r = rank_from_bpw(n, m, b_target, l, P)
+    r = rank_from_bpw(n, m, target_bits, l, P)
     actual_bpw = bpw_from_rank(n, m, r, l, P)
 
-    logger.debug(f"[MDBF] n={n}, m={m}, target_bpw={b_target:.2f}, actual_bpw={actual_bpw:.2f}")
+    logger.debug(f"[MDBF] n={n}, m={m}, target_bpw={target_bits:.2f}, actual_bpw={actual_bpw:.2f}")
     logger.debug(f"[MDBF] r={r}, l={l}, P={P}, mode={svd_mode}, use_admm={use_admm}")
 
     # Phase 1: 初期化
@@ -172,7 +174,7 @@ def run_msvid(
                 params_list=all_params,
                 l=l,
                 H=H_act,
-                nsamples=nsamples,
+                nsamples=_nsamples,
                 iters=admm_iters,
                 inner_iters=admm_inner_iters,
                 reg=admm_reg,
@@ -193,7 +195,7 @@ def run_msvid(
                 inner_iters=admm_inner_iters,
                 reg=admm_reg,
                 H=H_for_display,
-                nsamples=1,
+                nsamples=_nsamples,
             )
 
             if H_for_display is not None:
@@ -228,7 +230,7 @@ def run_msvid(
             iters=gradient_iters,
             activation_aware=grad_activation_aware,
             H=grad_H,
-            nsamples=1,
+            nsamples=_nsamples,
         )
 
         if grad_H is not None:

@@ -157,6 +157,7 @@ class Quantizer(metaclass=ABCMeta):
     flag_calibration: bool = False
     flag_hessian: bool = False
     flag_xtx: bool = False  # Whether X^T X is needed (e.g., JointQ)
+    flag_nsamples: bool = False  # Whether nsamples is needed (e.g., MDBF)
 
     def __post_init__(self):
         """__post_init__ method"""
@@ -187,11 +188,15 @@ class Quantizer(metaclass=ABCMeta):
 
         self.logger.info("Quantizing layer: %s", name)
         start_time = time.time()
+        nsamples = None
         if self.flag_hessian:
-            hessian = self.calculate_hessian(module, input)
+            hessian, nsamples = self.calculate_hessian(module, input)
         else:
             hessian = None
-        result = self.quantize_layer(module, input, hessian=hessian)
+        if self.flag_nsamples:
+            result = self.quantize_layer(module, input, hessian=hessian, nsamples=nsamples)
+        else:
+            result = self.quantize_layer(module, input, hessian=hessian)
         end_time = time.time()
         if hessian is not None:
             del hessian
@@ -217,6 +222,7 @@ class Quantizer(metaclass=ABCMeta):
         perccorr=0.5,
         hessian=None,
         delta_hatX=None,
+        nsamples=None,
     ):  # pylint: disable=too-many-arguments, too-many-positional-arguments
         """Quantize the layer with QEP
 
@@ -226,6 +232,7 @@ class Quantizer(metaclass=ABCMeta):
             original_input_activation (torch.Tensor): The input activations of the original layer
             hessian (torch.Tensor): The Hessian matrix
             delta_hatX (torch.Tensor): The cross-term matrix
+            nsamples (int, optional): Number of tokens used to compute the Hessian.
         """
 
         name = self.module_to_name[module]
@@ -234,7 +241,7 @@ class Quantizer(metaclass=ABCMeta):
 
         # Calculate the Hessian matrix
         if hessian is None and self.flag_hessian:
-            hessian = self.calculate_hessian(module, quant_input_activation)
+            hessian, nsamples = self.calculate_hessian(module, quant_input_activation)
 
         # Adjust the weights to be quantized
         if delta_hatX is not None or original_input_activation is not None:
@@ -251,7 +258,10 @@ class Quantizer(metaclass=ABCMeta):
             torch.cuda.empty_cache()
 
         self.logger.info("Quantizing layer: %s", name)
-        result = self.quantize_layer(module, quant_input_activation, hessian=hessian)
+        if self.flag_nsamples:
+            result = self.quantize_layer(module, quant_input_activation, hessian=hessian, nsamples=nsamples)
+        else:
+            result = self.quantize_layer(module, quant_input_activation, hessian=hessian)
         end_time = time.time()
         if hessian is not None:
             del hessian
@@ -322,7 +332,7 @@ class Quantizer(metaclass=ABCMeta):
 
         # Get the Hessian matrix
         if original_hessian is None:
-            hessian = self.calculate_hessian(module, quant_input_activation)
+            hessian, _ = self.calculate_hessian(module, quant_input_activation)
         else:
             hessian = original_hessian.clone()
 
@@ -672,7 +682,7 @@ class Quantizer(metaclass=ABCMeta):
             inp_scaled = math.sqrt(2 / nsamples) * inp.float()
             hessian += inp_scaled.matmul(inp_scaled.t())
 
-        return hessian
+        return hessian, nsamples
 
     def calculate_delta_hatX(
         self, module, quant_input_activation, original_input_activation

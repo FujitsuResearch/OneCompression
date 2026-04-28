@@ -229,9 +229,13 @@ def run_quantization_phase(
         # Hessian computation + quantization
         layer_start = time.time()
         hessian = None
+        nsamples = None
         if quantizer.flag_hessian:
-            hessian = quantizer.calculate_hessian(dummy_module, activation)
-        quant_result = quantizer.quantize_layer(dummy_module, activation, hessian=hessian)
+            hessian, nsamples = quantizer.calculate_hessian(dummy_module, activation)
+        if quantizer.flag_nsamples:
+            quant_result = quantizer.quantize_layer(dummy_module, activation, hessian=hessian, nsamples=nsamples)
+        else:
+            quant_result = quantizer.quantize_layer(dummy_module, activation, hessian=hessian)
         layer_elapsed = time.time() - layer_start
 
         # Backward compatibility: convert Tensor to QuantizationResult if needed

@@ -24,7 +24,7 @@ import torch
 from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
 from onecomp.utils.quant_config import get_quant_param
 
-from .mdbf_impl import run_msvid
+from .mdbf_impl import run_mdbf
 
 
 @dataclass
@@ -154,6 +154,7 @@ class MDBF(Quantizer):
 
     flag_calibration: bool = True
     flag_hessian: bool = True
+    flag_nsamples: bool = True
 
     # Parameters for the MDBF quantizer
     target_bits: float = 1.0
@@ -253,6 +254,12 @@ class MDBF(Quantizer):
                 f"Invalid MDBF parameter 'svd_mode': {self.svd_mode!r} "
                 f"(expected 'svd' or 'svd_llm')."
             )
+        
+        if self.act_init not in {"none", "osvd", "svd_llm"}:
+            bad.append(
+                f"Invalid MDBF parameter 'act_init': {self.act_init!r} "
+                f"(expected 'none', 'osvd', or 'svd_llm')."
+            )
 
         if self.mlp_target_bits is not None:
             if not (isinstance(self.mlp_target_bits, (int, float)) and self.mlp_target_bits > 0):
@@ -286,6 +293,7 @@ class MDBF(Quantizer):
         module: torch.nn.Module,
         input=None,
         hessian: torch.Tensor = None,
+        nsamples: Optional[int] = None,
     ) -> MDBFResult:
         """Quantize the layer using MDBF.
 
@@ -293,6 +301,7 @@ class MDBF(Quantizer):
             module (torch.nn.Module): The layer module.
             input (tuple or torch.Tensor): The input to the layer (activations).
             hessian (torch.Tensor, optional): The Hessian matrix.
+            nsamples (int, optional): Number of tokens used to compute the Hessian.
 
         Returns:
             MDBFResult: MDBF quantization result.
@@ -305,11 +314,11 @@ class MDBF(Quantizer):
             self.module_target_bits,
         )
 
-        weight_results = run_msvid(
+        weight_results = run_mdbf(
             hessian=hessian,
             module=module,
             input=input,
-            b_target=resolved_target_bits,
+            target_bits=resolved_target_bits,
             l=self.l,
             P=self.P,
             svd_mode=self.svd_mode,
@@ -322,15 +331,18 @@ class MDBF(Quantizer):
             gradient_lr=self.gradient_lr,
             activation_aware=self.activation_aware,
             act_init=self.act_init,
+            nsamples=nsamples,
         )
 
         params_list = weight_results["mdbf_params"]
+        # 実際に生成されたパス数を result.P に反映する（params_list の長さ）
+        actual_P = len(params_list)
 
         mdbf_result = MDBFResult(
             # Quantization configuration parameters
             target_bits=resolved_target_bits,
             l=self.l,
-            P=self.P,
+            P=actual_P,
             svd_mode=self.svd_mode,
             use_admm=self.use_admm,
             admm_iters=self.admm_iters,

@@ -160,7 +160,7 @@ def compute_hessian_and_crossterm(
     for handler in handlers:
         handler.remove()
 
-    return (H, C)
+    return (H, C, nsamples)
 
 
 @torch.no_grad()
@@ -273,7 +273,7 @@ def run_quantize_with_qep_arch(
             )
 
             # 3-1. compute hessian and cross-term matrix
-            H, delta_hatX = compute_hessian_and_crossterm(
+            H, delta_hatX, nsamples_arch = compute_hessian_and_crossterm(
                 block_q,
                 block_f,
                 group_q[0],
@@ -318,6 +318,7 @@ def run_quantize_with_qep_arch(
                     perccorr=qep_config.perccorr,
                     hessian=H.clone(),
                     delta_hatX=layer_delta,
+                    nsamples=nsamples_arch if quantizer.flag_nsamples else None,
                 )
 
                 # Update the weights of the target layer
