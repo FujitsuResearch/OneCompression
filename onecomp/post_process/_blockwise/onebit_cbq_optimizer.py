@@ -96,6 +96,8 @@ def optimize_onebit_cross_block(
     layer_i.float()
     layer_j.float()
 
+    from ...quantizer.onebit.onebit_layer import my_pack, my_unpack
+
     # --- Collect params ---
     scaling_params = []
     sign_params = []
@@ -106,8 +108,17 @@ def optimize_onebit_cross_block(
         mod.b.requires_grad_(True)
         scaling_params.append(mod.b)
 
-        if optimize_sign and mod.sign_matrix is not None:
-            sign_weight = mod.sign_matrix.float().detach().clone().to(dev)
+        if optimize_sign:
+            current_sign = (
+                mod.sign_matrix
+                if mod.sign_matrix is not None
+                else (
+                    my_unpack(mod.sign_packed)[: mod._sign_numel]
+                    .reshape(mod.out_features, mod.in_features)
+                    .to(torch.int8)
+                )
+            )
+            sign_weight = current_sign.float().detach().clone().to(dev)
             sign_weight.requires_grad_(True)
             sign_params.append((name, mod, sign_weight))
 
@@ -129,9 +140,15 @@ def optimize_onebit_cross_block(
     original_sign_mats = {}
     if optimize_sign:
         for name, mod, _sw in sign_params:
-            original_sign_mats[name] = mod.sign_matrix.clone()
-
-    from ...quantizer.onebit.onebit_layer import my_pack
+            original_sign_mats[name] = (
+                mod.sign_matrix.clone()
+                if mod.sign_matrix is not None
+                else (
+                    my_unpack(mod.sign_packed)[: mod._sign_numel]
+                    .reshape(mod.out_features, mod.in_features)
+                    .to(torch.int8)
+                )
+            )
 
     best_eval_mse = initial_error
     best_snap_i = {}
@@ -145,8 +162,8 @@ def optimize_onebit_cross_block(
                 for _name, mod, sign_weight in sign_params:
                     sq = sign_weight.data.sign()
                     sq[sq == 0] = 1
-                    mod.sign_matrix = sq.to(torch.int8)
                     mod.sign_packed = my_pack(sq)
+                    mod.sign_matrix = None
         return _eval_mse()
 
     # --- Training ---
@@ -217,8 +234,8 @@ def optimize_onebit_cross_block(
             for _name, mod, sign_weight in sign_params:
                 sq = sign_weight.data.sign()
                 sq[sq == 0] = 1
-                mod.sign_matrix = sq.to(torch.int8)
                 mod.sign_packed = my_pack(sq)
+                mod.sign_matrix = None
 
     # --- Disable gradients ---
     for _name, mod in all_onebit:

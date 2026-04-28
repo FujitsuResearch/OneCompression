@@ -63,6 +63,8 @@ class OneBitLinear(nn.Module):
     Memory efficiency:
     - Sign matrix is stored as a packed uint8 buffer at 8:1 ratio.
     - Inference unpacks from sign_packed on demand, mirroring DBF.
+    - sign_matrix is used only as a temporary non-persistent override for
+        optimisation flows such as blockwise / CBQ.
     """
 
     def __init__(
@@ -93,6 +95,7 @@ class OneBitLinear(nn.Module):
             sign_packed = my_pack(sign.detach().flatten())
             self.register_buffer("sign_packed", sign_packed)
 
+        # Temporary non-persistent override used only by optimisation flows.
         self.register_buffer("sign_matrix", None, persistent=False)
 
         # Bias (normalize to FP16, clone to avoid aliasing the source Linear)
