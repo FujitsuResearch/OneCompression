@@ -382,17 +382,7 @@ class MultipathMSVIDLinear(nn.Module):
         Returns:
             MultipathMSVIDLinear instance.
         """
-        params_list = [
-            MSVIDParams(
-                A_sign=result.mdbf_A_sign[p],
-                B_sign=result.mdbf_B_sign[p],
-                A_amp=result.mdbf_A_amp[p],
-                B_amp=result.mdbf_B_amp[p],
-                Q_U_amp=result.mdbf_Q_U_amp[p],
-                Q_V_amp=result.mdbf_Q_V_amp[p],
-            )
-            for p in range(result.P)
-        ]
+        params_list = result.get_msvid_params_list()
         return cls(params_list=params_list, bias=bias, device=device)
 
 

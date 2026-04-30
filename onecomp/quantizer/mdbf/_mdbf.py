@@ -18,12 +18,13 @@ Copyright 2025-2026 Fujitsu Ltd.
 
 from dataclasses import dataclass, field
 import re
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import torch
 from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
 from onecomp.utils.quant_config import get_quant_param
 
+from .initialize import MSVIDParams
 from .mdbf_impl import run_mdbf
 
 
@@ -87,6 +88,55 @@ class MDBFResult(QuantizationResult):
     mdbf_Q_U_amp: list = field(default_factory=list)  # [(r, l)] × P
     mdbf_Q_V_amp: list = field(default_factory=list)  # [(r, l)] × P
 
+    def _get_path_components(self) -> list[tuple[str, list]]:
+        """Return the six per-path MDBF component lists with their field names."""
+        return [
+            ("mdbf_A_sign", self.mdbf_A_sign),
+            ("mdbf_B_sign", self.mdbf_B_sign),
+            ("mdbf_A_amp", self.mdbf_A_amp),
+            ("mdbf_B_amp", self.mdbf_B_amp),
+            ("mdbf_Q_U_amp", self.mdbf_Q_U_amp),
+            ("mdbf_Q_V_amp", self.mdbf_Q_V_amp),
+        ]
+
+    def get_msvid_params_list(self) -> list[MSVIDParams]:
+        """Validate stored per-path tensors and convert them to MSVIDParams objects."""
+        components = self._get_path_components()
+        empty_fields = [name for name, values in components if len(values) == 0]
+        if empty_fields:
+            raise ValueError(
+                "MDBFResult is missing required per-path data: "
+                + ", ".join(empty_fields)
+            )
+
+        component_lengths = {name: len(values) for name, values in components}
+        unique_lengths = set(component_lengths.values())
+        if len(unique_lengths) != 1:
+            details = ", ".join(
+                f"{name}={length}" for name, length in component_lengths.items()
+            )
+            raise ValueError(
+                "MDBFResult has inconsistent per-path data lengths: " + details
+            )
+
+        num_paths = next(iter(unique_lengths))
+        if self.P != num_paths:
+            raise ValueError(
+                f"MDBFResult P ({self.P}) does not match per-path data length ({num_paths})"
+            )
+
+        return [
+            MSVIDParams(
+                A_sign=self.mdbf_A_sign[p],
+                B_sign=self.mdbf_B_sign[p],
+                A_amp=self.mdbf_A_amp[p],
+                B_amp=self.mdbf_B_amp[p],
+                Q_U_amp=self.mdbf_Q_U_amp[p],
+                Q_V_amp=self.mdbf_Q_V_amp[p],
+            )
+            for p in range(num_paths)
+        ]
+
     def compute_dequantized_weight(self, device=None) -> torch.Tensor:
         """Compute dequantized weight from quantized parameters.
 
@@ -98,26 +148,20 @@ class MDBFResult(QuantizationResult):
         Returns:
             Dequantized weight tensor (FP16, CPU).
         """
-        if not self.mdbf_A_sign:
-            raise ValueError("MDBFResult is missing required data for dequantization")
-
         from .utils import reconstruct_weight
 
         compute_device = torch.device(device) if device is not None else torch.device("cpu")
+        params_list = self.get_msvid_params_list()
 
         W = None
-        for A_sign, B_sign, A_amp, B_amp, Q_U_amp, Q_V_amp in zip(
-            self.mdbf_A_sign, self.mdbf_B_sign,
-            self.mdbf_A_amp,  self.mdbf_B_amp,
-            self.mdbf_Q_U_amp, self.mdbf_Q_V_amp,
-        ):
+        for params in params_list:
             W_p = reconstruct_weight(
-                A_sign.float().to(compute_device),
-                B_sign.float().to(compute_device),
-                A_amp.float().to(compute_device),
-                B_amp.float().to(compute_device),
-                Q_U_amp.float().to(compute_device),
-                Q_V_amp.float().to(compute_device),
+                params.A_sign.float().to(compute_device),
+                params.B_sign.float().to(compute_device),
+                params.A_amp.float().to(compute_device),
+                params.B_amp.float().to(compute_device),
+                params.Q_U_amp.float().to(compute_device),
+                params.Q_V_amp.float().to(compute_device),
             )
             W = W_p if W is None else W + W_p
 
