@@ -289,10 +289,12 @@ def quantize_group(quantizer, group, xtx_dict, nsamples):
             device = module.weight.device
             hessian = (2.0 / nsamples) * xtx_dict[name]
             hessian = hessian.to(dtype=quantizer.hessian_dtype, device=device)
+            extra_kwargs = {}
             if quantizer.flag_nsamples:
-                result = quantizer.quantize_layer(module, input=None, hessian=hessian, nsamples=nsamples)
-            else:
-                result = quantizer.quantize_layer(module, input=None, hessian=hessian)
+                extra_kwargs["nsamples"] = nsamples
+            result = quantizer.quantize_layer(
+                module, input=None, hessian=hessian, **extra_kwargs
+            )
             del hessian
         else:
             # Hessian/X^T X not required (RTN, etc.)

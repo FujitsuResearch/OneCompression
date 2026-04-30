@@ -382,6 +382,7 @@ class AutoBitQuantizer(Quantizer):
             self.flag_calibration = any(q.flag_calibration for q in self.quantizers)
             self.flag_hessian = any(q.flag_hessian for q in self.quantizers)
             self.flag_xtx = any(q.flag_xtx for q in self.quantizers)
+            self.flag_nsamples = any(q.flag_nsamples for q in self.quantizers)
 
     def _validate_manual_fused_consistency(self):
         """Check that manual keyword rules don't split fused groups."""
@@ -489,6 +490,7 @@ class AutoBitQuantizer(Quantizer):
         perccorr=0.5,
         hessian=None,
         delta_hatX=None,
+        nsamples=None,
     ):  # pylint: disable=too-many-arguments, too-many-positional-arguments
         child_q = self._module_to_quantizer[module]
         child_q.quantize_with_qep(
@@ -499,6 +501,7 @@ class AutoBitQuantizer(Quantizer):
             perccorr=perccorr,
             hessian=hessian,
             delta_hatX=delta_hatX,
+            nsamples=nsamples,
         )
         name = self.module_to_name[module]
         self.results[name] = child_q.results[name]
@@ -508,12 +511,15 @@ class AutoBitQuantizer(Quantizer):
         module,
         input=None,
         hessian=None,
+        nsamples=None,
     ) -> Union[torch.Tensor, QuantizationResult]:  # pylint: disable=redefined-builtin
         child_q = self._module_to_quantizer.get(module)
         if child_q is None:
             raise RuntimeError(
                 "Module is not assigned to any child quantizer. " "Ensure setup() has been called."
             )
+        if child_q.flag_nsamples:
+            return child_q.quantize_layer(module, input, hessian, nsamples=nsamples)
         return child_q.quantize_layer(module, input, hessian)
 
     def execute_post_processing(self):

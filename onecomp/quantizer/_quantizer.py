@@ -157,7 +157,7 @@ class Quantizer(metaclass=ABCMeta):
     flag_calibration: bool = False
     flag_hessian: bool = False
     flag_xtx: bool = False  # Whether X^T X is needed (e.g., JointQ)
-    flag_nsamples: bool = False  # Whether nsamples is needed (e.g., MDBF)
+    flag_nsamples: bool = False  # Whether nsamples (used in Hessian) is needed (e.g., MDBF)
 
     def __post_init__(self):
         """__post_init__ method"""
@@ -188,15 +188,14 @@ class Quantizer(metaclass=ABCMeta):
 
         self.logger.info("Quantizing layer: %s", name)
         start_time = time.time()
-        nsamples = None
         if self.flag_hessian:
             hessian, nsamples = self.calculate_hessian(module, input)
         else:
-            hessian = None
+            hessian, nsamples = None, None
+        extra_kwargs = {}
         if self.flag_nsamples:
-            result = self.quantize_layer(module, input, hessian=hessian, nsamples=nsamples)
-        else:
-            result = self.quantize_layer(module, input, hessian=hessian)
+            extra_kwargs["nsamples"] = nsamples
+        result = self.quantize_layer(module, input, hessian=hessian, **extra_kwargs)
         end_time = time.time()
         if hessian is not None:
             del hessian
@@ -230,9 +229,13 @@ class Quantizer(metaclass=ABCMeta):
             module (torch.nn.Module): The layer module
             quant_input_activation (torch.Tensor): The input activations of the quantized layer
             original_input_activation (torch.Tensor): The input activations of the original layer
-            hessian (torch.Tensor): The Hessian matrix
+            hessian (torch.Tensor): The Hessian matrix. When provided by the 
+                caller (e.g. QEP-arch), ``nsamples`` must also be supplied.
             delta_hatX (torch.Tensor): The cross-term matrix
-            nsamples (int, optional): Number of tokens used to compute the Hessian.
+            nsamples (int, optional): Number of samples used to compute
+                ``hessian``. Required when the caller passes a precomputed
+                ``hessian`` and the quantizer has ``flag_nsamples=True``.
+                Otherwise inferred from ``calculate_hessian()``.
         """
 
         name = self.module_to_name[module]
@@ -258,10 +261,12 @@ class Quantizer(metaclass=ABCMeta):
             torch.cuda.empty_cache()
 
         self.logger.info("Quantizing layer: %s", name)
+        extra_kwargs = {}
         if self.flag_nsamples:
-            result = self.quantize_layer(module, quant_input_activation, hessian=hessian, nsamples=nsamples)
-        else:
-            result = self.quantize_layer(module, quant_input_activation, hessian=hessian)
+            extra_kwargs["nsamples"] = nsamples
+        result = self.quantize_layer(
+            module, quant_input_activation, hessian=hessian, **extra_kwargs
+        )
         end_time = time.time()
         if hessian is not None:
             del hessian
@@ -331,6 +336,7 @@ class Quantizer(metaclass=ABCMeta):
         weight = weight.float()
 
         # Get the Hessian matrix
+        # adjust_weight does not need nsamples; discard it for ``flag_csamples``-aware quantizers.
         if original_hessian is None:
             hessian, _ = self.calculate_hessian(module, quant_input_activation)
         else:
@@ -634,6 +640,12 @@ class Quantizer(metaclass=ABCMeta):
         Args:
             module (torch.nn.Module): The layer module
             input (tuple): The input to the layer
+
+        Returns:
+            tuple[torch.Tensor, int]: ``(hessian, nsamples)``. ``nsamples`` is
+            the total number of (batch * seq_len) rows folded into the Hessian.
+            Quantizers with ``flag_csamples=True`` (e.g. MDBF) consume
+            this; others ignore it.
         """
 
         device = module.weight.device

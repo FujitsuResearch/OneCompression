@@ -92,7 +92,7 @@ def compute_hessian_and_crossterm(
     kwargs: dict[str, torch.Tensor],
     batch_size: int,
     device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, int]:
     """
 
     Args:
@@ -107,7 +107,8 @@ def compute_hessian_and_crossterm(
         device (torch.device): The device to use for computation.
 
     Returns:
-        tuple[torch.Tensor, torch.Tensor]: The Hessian matrix and the cross-term matrix.
+        tuple[torch.Tensor, torch.Tensor, int]: The Hessian matrix, the
+        cross-term matrix, and the total nsamples used to compute them.
     """
 
     # set input hook

@@ -201,8 +201,7 @@ class TestJointQ(BaseQuantizeSpec):
         inp = helper.make_input(batch=1, seq=1, hidden=128, device=device, dtype=torch.float32)
 
         q = self.make_quantizer(**params)
-        hessian = q.calculate_hessian(layer, inp)
-        result = q.quantize_layer(layer, inp, hessian=hessian)
+        result = self._quantize_with_calculated_hessian(q, layer, inp)
         self.check_quantize_layer(result, layer)
 
     def test_forward_error(self, helper):
