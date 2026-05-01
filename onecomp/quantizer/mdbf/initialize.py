@@ -1,17 +1,22 @@
 """
-Phase 1: MSVID 初期化
+Phase 1: MSVID Initialization
 
-SVD/SVD-LLM/OSVD による低ランク分解と Multi-scale振幅分解を行う.
+Perform low-rank decomposition and multi-scale amplitude decomposition using SVD/SVD-LLM/OSVD.
 
-重み表現:
+Weight representation:
     W ≈ Σ_{p=1}^{P} W^{(p)}
     W^{(p)} = F^{(p)} @ G^{(p)}
     where F = S_A * (A_amp @ Q_U_amp^T)
           G = S_B * (Q_V_amp @ B_amp^T)
 
-Activation-aware拡張:
-    act_init="osvd": Output-SVD (OSVD) を使用した初期化
-    - 目的関数: min ||Y - Y_hat||_F^2 where Y = X @ W^T
+Activation-aware extension:
+    act_init="osvd": Initialization using Output-SVD (OSVD)
+    - Objective function: min ||Y - Y_hat||_F^2 where Y = X @ W^T
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+
 """
 
 from dataclasses import dataclass
@@ -32,17 +37,17 @@ from .utils import (
 
 @dataclass
 class MSVIDParams:
-    """1パス分のMSVIDパラメータ"""
-    A_sign: torch.Tensor      # 符号行列 S_A (n, r) - {-1, +1}
-    B_sign: torch.Tensor      # 符号行列 S_B (r, m) - {-1, +1}
-    A_amp: torch.Tensor       # 行スケール (n, l)
-    B_amp: torch.Tensor       # 列スケール (m, l)
-    Q_U_amp: torch.Tensor     # 潜在スケール行側 (r, l)
-    Q_V_amp: torch.Tensor     # 潜在スケール列側 (r, l)
+    """MSVID parameters for a single path"""
+    A_sign: torch.Tensor      # Sign matrix S_A (n, r) - {-1, +1}
+    B_sign: torch.Tensor      # Sign matrix S_B (r, m) - {-1, +1}
+    A_amp: torch.Tensor       # Row scale (n, l)
+    B_amp: torch.Tensor       # Column scale (m, l)
+    Q_U_amp: torch.Tensor     # Latent scale row side (r, l)
+    Q_V_amp: torch.Tensor     # Latent scale column side (r, l)
 
 
 # =============================================================================
-# 低ランク分解
+# Low-rank decomposition
 # =============================================================================
 
 
@@ -53,14 +58,14 @@ def lowrank_svd(
     mode: Literal["svd", "svd_llm"] = "svd"
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    低ランク分解を実行（SVD or SVD-LLM）
+    Perform low-rank decomposition (SVD or SVD-LLM)
 
-    結果: W ≈ U' @ V'^T
+    Result: W ≈ U' @ V'^T
 
     Args:
-        W: 入力行列 (n, m)
-        r: ターゲットランク
-        H: Hessian行列 (m, m) - SVD-LLM用
+        W: Input matrix (n, m)
+        r: Target rank
+        H: Hessian matrix (m, m) - for SVD-LLM
         mode: "svd" or "svd_llm"
 
     Returns:
@@ -80,8 +85,8 @@ def _lowrank_svd_standard(
     r: int,
     orig_dtype: torch.dtype,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """標準SVD（乱数ノイズで数値安定化）"""
-    # 乱数ノイズで数値安定化（定数加算はrank-1バイアスになるため避ける）
+    """Standard SVD (stabilized with random noise)"""
+    # Stabilize with random noise (avoid constant addition as it introduces rank-1 bias)
     eps = 1e-6 * W_fp32.abs().max().clamp(min=1e-12)
     W_reg = W_fp32 + eps * torch.randn_like(W_fp32)
     U_r, S_r, Vh_r = torch.linalg.svd(W_reg, full_matrices=False)
@@ -108,21 +113,21 @@ def _lowrank_svd_llm(
     orig_dtype: torch.dtype,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    SVD-LLM: Hessian行列を使用した分解
-    min_{rank(W')=r} ||WX - W'X||_F^2 を最小化
+    SVD-LLM: Decomposition using Hessian matrix
+    Objective: min_{rank(W')=r} ||WX - W'X||_F^2
     """
     m = W_fp32.shape[1]
     H_fp32 = ensure_float32(H, W_fp32.device)
-    H_fp32 = (H_fp32 + H_fp32.T) / 2.0  # 対称化
+    H_fp32 = (H_fp32 + H_fp32.T) / 2.0  # Symmetrize
 
-    # 正則化を追加
+    # Add regularization
     eye = torch.eye(m, device=H_fp32.device, dtype=H_fp32.dtype)
     diag_mean = H_fp32.diag().mean().clamp(min=1e-8)
     eps = 1e-4 * diag_mean
     H_reg = H_fp32 + eps * eye
     del H_fp32
 
-    # Cholesky分解
+    # Cholesky decomposition
     try:
         S = torch.linalg.cholesky(H_reg)
         del H_reg
@@ -131,7 +136,7 @@ def _lowrank_svd_llm(
         del H_reg, eye
         return _lowrank_svd_standard(W_fp32, r, orig_dtype)
 
-    # W_tilde = W @ S（乱数ノイズで数値安定化、定数加算はrank-1バイアスになるため避ける）
+    # W_tilde = W @ S (stabilized with random noise, avoid constant addition as it introduces rank-1 bias)
     W_tilde = torch.mm(W_fp32, S)
     eps_tilde = 1e-6 * W_tilde.abs().max().clamp(min=1e-12)
     W_tilde_reg = W_tilde + eps_tilde * torch.randn_like(W_tilde)
@@ -147,11 +152,11 @@ def _lowrank_svd_llm(
     V_prime_T = Vh_r * sqrt_S[:, None]  # (r, m) = sqrt(Σ) @ V^T
     del U_r, S_r, Vh_r, sqrt_S
 
-    # V' = S^{-T} @ (V @ sqrt(Σ)) を計算
+    # Compute V' = S^{-T} @ (V @ sqrt(Σ))
     # W = W_tilde @ S^{-1} = U' @ V_prime_T @ S^{-1} = U' @ (S^{-T} @ V_prime_T^T)^T
-    # したがって V' = S^{-T} @ V_prime_T^T
+    # Therefore, V' = S^{-T} @ V_prime_T^T
     try:
-        # S^T @ X = V_prime_T^T を解く → X = S^{-T} @ V_prime_T^T
+        # Solve S^T @ X = V_prime_T^T → X = S^{-T} @ V_prime_T^T
         V_prime = torch.linalg.solve_triangular(S.T, V_prime_T.T, upper=True)
     except RuntimeError as e:
         logger.warning(f"[SVD-LLM] solve_triangular failed ({e}), using fallback")
@@ -178,17 +183,17 @@ def lowrank_osvd(
     ridge: float = 1e-4,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Output-SVD (OSVD) による低ランク分解（Hessian-based）
+    Output-SVD (OSVD) based low-rank decomposition (Hessian-based)
 
-    目的関数: min tr((W - VU^T) H (W - VU^T)^T)
+    Objective: min tr((W - VU^T) H (W - VU^T)^T)
     
-    Hessian H = X^T X / N を使用して出力誤差を最小化する低ランク近似を計算
+    Compute a low-rank approximation that minimizes the output error using the Hessian H = X^T X / N
 
     Args:
-        W: 入力行列 (n, m)
-        H: Hessian 行列 (m, m) = X^T X / N
-        r: ターゲットランク
-        ridge: リッジ正則化
+        W: Input matrix (n, m)
+        H: Hessian matrix (m, m) = X^T X / N
+        r: Target rank
+        ridge: Ridge regularization
 
     Returns:
         U': (n, r), V': (m, r)
@@ -199,7 +204,7 @@ def lowrank_osvd(
     W_fp32 = ensure_float32(W)
     H_fp32 = ensure_float32(H)
 
-    # Hessian の正則化と固有分解
+    # Regularize and eigen decomposition of Hessian
     diag_mean = H_fp32.diag().mean().clamp(min=1e-12)
     eps = ridge * diag_mean
     H_reg = H_fp32 + eps * torch.eye(m, device=H_fp32.device, dtype=H_fp32.dtype)
@@ -207,7 +212,7 @@ def lowrank_osvd(
     try:
         eig_vals, eig_vecs = torch.linalg.eigh(H_reg)
     except RuntimeError:
-        # 固有分解失敗時: standard SVD にフォールバック
+        # If eigen decomposition fails: fallback to standard SVD
         del H_reg, H_fp32
         return _lowrank_svd_standard(W, r, W.dtype)
     
@@ -218,7 +223,7 @@ def lowrank_osvd(
     W_tilde = W_fp32 @ eig_vecs @ torch.diag(sqrt_eig)
     del H_reg
     
-    # W_tilde の rank-r SVD
+    # Rank-r SVD of W_tilde
     eps_svd = 1e-6 * W_tilde.abs().max().clamp(min=1e-12)
     W_tilde_reg = W_tilde + eps_svd * torch.randn_like(W_tilde)
     U_w, S_w, Vh_w = torch.linalg.svd(W_tilde_reg, full_matrices=False)
@@ -247,7 +252,7 @@ def lowrank_osvd(
 
 
 # =============================================================================
-# 振幅分解
+# Amplitude decomposition
 # =============================================================================
 
 
@@ -256,11 +261,11 @@ def amplitude_rank_l_approx(
     l: int
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    振幅行列の rank-l 近似: |U'| ≈ A @ Q_U^T
+    Rank-l approximation of the amplitude matrix: |U'| ≈ A @ Q_U^T
 
     Args:
-        U_abs: |U'| (n, r) - 非負行列
-        l: Multi-scaleランク
+        U_abs: |U'| (n, r) - Non-negative matrix
+        l: Multi-scale rank
 
     Returns:
         A: (n, l), Q_U: (r, l)
@@ -269,7 +274,7 @@ def amplitude_rank_l_approx(
     l = min(l, min(n, r))
 
     U_abs_fp32 = U_abs.float().clamp(min=1e-8)
-    # 非負行列に対する正則化（定数加算、乱数は負の値を生むため避ける）
+    # Regularization for non-negative matrix (add constant, avoid random values that can be negative)
     eps = 1e-6 * U_abs_fp32.max().clamp(min=1e-12)
     U_abs_reg = U_abs_fp32 + eps
 
@@ -285,7 +290,7 @@ def amplitude_rank_l_approx(
     Q_U = Vh_svd.T * sqrt_S[None, :]
     del U_svd, S_svd, Vh_svd, sqrt_S
 
-    # 各列の符号を統一（積が非負になるよう調整）
+    # Align the sign of each column (adjust to make the product non-negative)
     col_sum = A.sum(dim=0)
     mask = col_sum < 0
     A[:, mask] = -A[:, mask]
@@ -295,7 +300,7 @@ def amplitude_rank_l_approx(
 
 
 # =============================================================================
-# パス初期化
+# Path initialization
 # =============================================================================
 
 
@@ -308,30 +313,30 @@ def init_single_path(
     act_init: Literal["none", "osvd", "svd_llm"] = "none",
 ) -> MSVIDParams:
     """
-    1パス分のMSVIDパラメータを初期化
+    Initialize MSVID parameters for a single path
 
     Args:
-        W: 入力行列 (n, m)
-        r: ランク
-        l: Multi-scaleランク
-        H: Hessian行列 (m, m) - SVD-LLM/OSVD用
-        mode: SVDモード ("svd" or "svd_llm")
-        act_init: 初期化モード ("none", "osvd", "svd_llm")
+        W: Input matrix (n, m)
+        r: Rank
+        l: Multi-scale rank
+        H: Hessian matrix (m, m) - for SVD-LLM/OSVD
+        mode: SVD mode ("svd" or "svd_llm")
+        act_init: Initialization mode ("none", "osvd", "svd_llm")
 
     Returns:
-        初期化されたMSVIDParams
+        Initialized MSVIDParams
     """
-    # 低ランク分解
+    # Low-rank decomposition
     if act_init == "osvd" and H is not None:
         U_prime, V_prime = lowrank_osvd(W, H, r)
     else:
         U_prime, V_prime = lowrank_svd(W, r, H, mode)
 
-    # 符号行列を二値化
+    # Binarize sign matrices
     A_sign = to_binary_sign(U_prime)
     B_sign = to_binary_sign(V_prime.T)
 
-    # 振幅の rank-l 近似
+    # Rank-l approximation of the amplitude
     A_amp, Q_U_amp = amplitude_rank_l_approx(U_prime.abs(), l)
     B_amp, Q_V_amp = amplitude_rank_l_approx(V_prime.abs(), l)
 
@@ -358,26 +363,26 @@ def initialize_msvid(
     act_init: Literal["none", "osvd", "svd_llm"] = "none",
 ) -> Tuple[List[MSVIDParams], torch.Tensor]:
     """
-    Phase 1: MSVID初期化（全パス）
+    Phase 1: MSVID initialization (all paths)
 
     Args:
-        W: 入力行列 (n, m)
-        r: ランク
-        l: Multi-scaleランク
-        P: パス数 (1=Primary, 2=Primary+Residual, ...)
-        H: Hessian行列 (m, m) - SVD-LLM/OSVD用
-        mode: SVDモード ("svd" or "svd_llm")
-        act_init: 初期化モード ("none", "osvd", "svd_llm")
+        W: Input matrix (n, m)
+        r: Rank
+        l: Multi-scale rank
+        P: Number of paths (1=Primary, 2=Primary+Residual, ...)
+        H: Hessian matrix (m, m) - for SVD-LLM/OSVD
+        mode: SVD mode ("svd" or "svd_llm")
+        act_init: Initialization mode ("none", "osvd", "svd_llm")
 
     Returns:
-        all_params: 各パスのMSVIDParams
-        W_recon: 再構成された重み行列
+        all_params: MSVIDParams for each path
+        W_recon: Reconstructed weight matrix
     """
     n, m = W.shape
     W_float = ensure_float32(W)
     orig_norm = torch.norm(W_float, p='fro').item()
 
-    # OSVD初期化の表示
+    # Display OSVD initialization
     if act_init == "osvd" and H is not None:
         logger.debug("[MDBF Init] Using OSVD initialization (Hessian-based)")
 

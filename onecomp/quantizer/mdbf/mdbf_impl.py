@@ -1,13 +1,19 @@
 """
-MSVID (Dual-(M)SVID) OneComp ラッパー
+MSVID (Dual-(M)SVID) OneComp wrapper
 
-QEP-DEV の run_msvid() を OneComp の呼び出し規約に合わせて変換。
+Convert QEP-DEV's run_msvid() to match OneComp's calling convention.
 
-変更点:
-- helper オブジェクトの代わりに hessian テンソルと input テンソルを直接受け取る
-- 重みの上書き（副作用）をなくし、結果を dict で返す
+Changes:
 
-アルゴリズム本体（initialize / admm / gradient_refine）は変更なし。
+- Instead of using a helper object, directly receive the Hessian tensor and input tensor
+- Remove weight overwriting (side effects) and return the result as a dict
+
+The core algorithm (initialize / admm / gradient_refine) remains unchanged.
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+
 """
 
 from logging import getLogger
@@ -24,7 +30,7 @@ from .utils import bpw_from_rank, cleanup_gpu_memory, rank_from_bpw
 
 
 def _move_msvid_params_to_cpu(params_list: List[MSVIDParams]) -> List[MSVIDParams]:
-    """MSVIDParamsをCPUに移動"""
+    """Move MSVIDParams to CPU"""
     return [
         MSVIDParams(
             A_sign=p.A_sign.cpu(),
@@ -58,38 +64,39 @@ def run_mdbf(
     nsamples: Optional[int] = None,
 ) -> dict:
     """
-    MDBF量子化を実行（OneComp 規約版）
+    Run MDBF quantization (OneComp convention)
 
-    Phase 1: 初期化 (SVD分解 + 二値化 + Multi-scale振幅分解)
-    Phase 2: ADMM最適化 (オプション)
-    Phase 3: 勾配ベース振幅最適化 (オプション)
+    Phase 1: Initialization (SVD decomposition + binarization + Multi-scale amplitude decomposition)
+    Phase 2: ADMM optimization (optional)
+    Phase 3: Gradient-based amplitude optimization (optional)
 
     Args:
-        hessian: 計算済みHessian行列（基底クラスから渡される）
-        module: 量子化対象レイヤー
-        input: キャリブレーション時の入力活性化（基底クラスから渡される）
-        target_bits: 目標BPW
-        l: Multi-scaleランク
-        P: パス数
-        svd_mode: SVDモード ("svd" or "svd_llm")
-        use_admm: ADMM最適化を使用
-        admm_iters: ADMM外側反復回数
-        admm_inner_iters: ADMM内側反復回数
-        admm_reg: 正則化パラメータ
-        use_gradient_refine: 勾配ベース振幅最適化を使用
-        gradient_iters: 勾配最適化反復回数
-        gradient_lr: 勾配最適化学習率
-        activation_aware: Activation-awareモード（P=1のみ）
-        act_init: 初期化モード
-        nsamples: Hessian計算に使用したトークン数。Noneの場合は1をフォールバックとして使用。
+        hessian: Precomputed Hessian matrix (passed from the base class)
+        module: Layer to be quantized
+        input: Input activations during calibration (passed from the base class)
+        target_bits: Target BPW
+        l: Multi-scale rank
+        P: Number of paths
+        svd_mode: SVD mode ("svd" or "svd_llm")
+        use_admm: Use ADMM optimization
+        admm_iters: Number of ADMM outer iterations
+        admm_inner_iters: Number of ADMM inner iterations
+        admm_reg: Regularization parameter
+        use_gradient_refine: Use gradient-based amplitude optimization
+        gradient_iters: Number of gradient optimization iterations
+        gradient_lr: Gradient optimization learning rate
+        activation_aware: Activation-aware mode (P=1 only)
+        act_init: Initialization mode
+        nsamples: Number of tokens used for Hessian calculation. If None, fallback to 1.
 
     Returns:
         dict with keys:
-            "mdbf_params": List[MSVIDParams]  — Pパス分の量子化パラメータ（CPU）
-            "W_recon": torch.Tensor           — 量子化後の重み（FP16, CPU）
-            "actual_bpw": float               — 実際に達成したBPW
-            "r": int                          — 使用したランク
+            "mdbf_params": List[MSVIDParams]  — Quantization parameters for P paths (CPU)
+            "W_recon": torch.Tensor           — Quantized weights (FP16, CPU)
+            "actual_bpw": float               — Actual achieved BPW
+            "r": int                          — Rank used
             "is_mdbf_quantized": bool
+            "actual_activation_aware": bool   — Whether activation-aware mode was actually used
     """
     is_conv1d = isinstance(module, transformers.Conv1D)
 
@@ -101,7 +108,7 @@ def run_mdbf(
     device = W.device
     dtype = W.dtype
 
-    # SVD-LLM用Hessian
+    # Hessian for SVD-LLM
     H_svd = None
     if svd_mode == "svd_llm":
         H_svd = hessian.clone().to(device) if hessian is not None else None
@@ -111,7 +118,7 @@ def run_mdbf(
             logger.debug("[MDBF] No Hessian, falling back to SVD")
             svd_mode = "svd"
 
-    # Activation-aware設定
+    # Activation-aware settings
     use_hessian_mode = False
     _nsamples = nsamples if nsamples is not None else 1
     H_act = None
@@ -129,22 +136,22 @@ def run_mdbf(
                 logger.warning("[MDBF] activation_aware=True but H not found; fallback to non-aware.")
                 activation_aware = False
 
-    # act_X の準備（Hessian-based mode では使用しない）
+    # Prepare act_X (not used in Hessian-based mode)
     act_X = None
     if activation_aware and use_hessian_mode:
-        act_X = None  # act_X は使わない
+        act_X = None  # act_X is not used
     elif input is not None:
         inp = input[0] if isinstance(input, (list, tuple)) else input
         act_X = inp.reshape(-1, m).to(device=device, dtype=torch.float32)
 
-    # ランク計算
+    # Rank calculation
     r = rank_from_bpw(n, m, target_bits, l, P)
     actual_bpw = bpw_from_rank(n, m, r, l, P)
 
     logger.debug(f"[MDBF] n={n}, m={m}, target_bpw={target_bits:.2f}, actual_bpw={actual_bpw:.2f}")
     logger.debug(f"[MDBF] r={r}, l={l}, P={P}, mode={svd_mode}, use_admm={use_admm}")
 
-    # Phase 1: 初期化
+    # Phase 1: Initialization
     init_act_init = act_init if (activation_aware and use_hessian_mode) else "none"
     if init_act_init == "osvd" and H_act is not None:
         init_H = H_act
@@ -161,7 +168,7 @@ def run_mdbf(
         del H_svd
     cleanup_gpu_memory()
 
-    # Phase 2: ADMM最適化
+    # Phase 2: ADMM optimization
     if use_admm and admm_iters > 0:
         if activation_aware and use_hessian_mode and H_act is not None:
             from .admm import optimize_msvid_admm_hessian
@@ -209,7 +216,7 @@ def run_mdbf(
 
         logger.debug(f"[MDBF] After ADMM: r={r}, P={P}, actual_bpw={actual_bpw:.3f}")
 
-    # Phase 3: 勾配ベース振幅最適化
+    # Phase 3: Gradient-based amplitude optimization
     if use_gradient_refine and gradient_iters > 0:
         from .gradient_refine import refine_amplitude_gradient
 
@@ -241,7 +248,7 @@ def run_mdbf(
     del W
     cleanup_gpu_memory()
 
-    # 結果をCPUに移動して返す
+    # Move results to CPU and return
     all_params_cpu = _move_msvid_params_to_cpu(all_params)
     del all_params
 

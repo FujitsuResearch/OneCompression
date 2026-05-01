@@ -1,13 +1,19 @@
 """
-Dual-(M)SVID ユーティリティ関数
+Dual-(M)SVID utility functions
 
-- BPW（Bits Per Weight）からランク r の計算
-- 重み再構成
+- Calculate rank r from BPW (Bits Per Weight)
+- Reconstruct weight matrix
 
-パラメータ数の内訳（1パスあたり）:
-- 符号行列: S_A (n×r), S_B (r×m) -> 二値 = r(n+m) bits
-- スケール: A_amp (n×l), B_amp (m×l), Q_U_amp (r×l), Q_V_amp (r×l)
+Parameter breakdown (per path):
+
+- Sign matrices: S_A (n×r), S_B (r×m) -> Binary = r(n+m) bits
+- Scales: A_amp (n×l), B_amp (m×l), Q_U_amp (r×l), Q_V_amp (r×l)
            -> FP16 = 16 * (ln + lm + 2lr) bits
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+
 """
 
 import gc
@@ -21,7 +27,7 @@ logger = getLogger(__name__)
 
 
 def cleanup_gpu_memory() -> None:
-    """GPUメモリを解放"""
+    """Release GPU memory"""
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     gc.collect()
@@ -33,15 +39,15 @@ def ensure_float32(
     clone: bool = False,
 ) -> torch.Tensor:
     """
-    テンソルをfloat32に変換
+    Convert a tensor to float32
 
     Args:
-        tensor: 入力テンソル
-        device: 転送先デバイス（Noneなら元のデバイスを維持）
-        clone: Trueなら常にクローンを返す
+        tensor: Input tensor
+        device: Target device (None to keep the original device)
+        clone: If True, always return a clone
 
     Returns:
-        float32テンソル（clone=Falseかつ変換不要なら同一オブジェクト）
+        float32 tensor (same object if clone=False and no conversion needed)
     """
     target_device = device if device is not None else tensor.device
     needs_dtype = tensor.dtype != torch.float32
@@ -49,20 +55,20 @@ def ensure_float32(
 
     if not needs_dtype and not needs_device:
         return tensor.clone() if clone else tensor
-    # .to() は新しいテンソルを返すのでclone不要
+    # .to() returns a new tensor, so no need to clone
     return tensor.to(device=target_device, dtype=torch.float32)
 
 
 def ensure_float32_clone(tensor: torch.Tensor, device: torch.device = None) -> torch.Tensor:
     """
-    テンソルをfloat32に変換してクローン（ensure_float32のラッパー）
+    Convert a tensor to float32 and clone it (wrapper for ensure_float32)
 
     Args:
-        tensor: 入力テンソル
-        device: 転送先デバイス（Noneなら元のデバイスを維持）
+        tensor: Input tensor
+        device: Target device (None to keep the original device)
 
     Returns:
-        float32テンソルのクローン
+        Clone of the float32 tensor
     """
     return ensure_float32(tensor, device, clone=True)
 
@@ -77,29 +83,29 @@ def rank_from_bpw(
     rounding: Literal["floor", "ceil", "round"] = "floor"
 ) -> int:
     """
-    目標BPWからランク r を計算
+    Calculate rank r from target BPW
 
-    b_eff = P * [r(n+m) + 16*l*(n+m+2r)] / (nm)
-    を r について解くと:
-    r = (b_target * nm / P - 16*l*(n+m)) / ((n+m) + 32*l)
+    # b_eff = P * [r(n+m) + 16*l*(n+m+2r)] / (nm)
+    # Solving for r:
+    # r = (b_target * nm / P - 16*l*(n+m)) / ((n+m) + 32*l)
 
     Args:
-        n: 行数（出力次元）
-        m: 列数（入力次元）
-        b_target: 目標BPW
-        l: Multi-scaleランク
-        P: パス数 (1, 2, ...)
-        min_rank: 最小ランク
-        rounding: 丸め方法
-            - "floor": 切り捨て（b_target を上限として守る）
-            - "ceil": 切り上げ（近似精度を優先）
-            - "round": 四捨五入（バランス）
+        n: Number of rows (output dimension)
+        m: Number of columns (input dimension)
+        b_target: Target BPW
+        l: Multi-scale rank
+        P: Number of paths (1, 2, ...)
+        min_rank: Minimum rank
+        rounding: Rounding method
+            - "floor": Round down (ensure b_target is not exceeded)
+            - "ceil": Round up (prioritize approximation accuracy)
+            - "round": Round to nearest (balance)
 
     Returns:
-        計算されたランク r
+        Calculated rank r
     """
-    # Note: scale_bits=0 は二値行列のみでBPWを計算するモード
-    # FP16スケールを含める場合は scale_bits=16 に変更
+    # Note: scale_bits=0 is the mode where BPW is calculated only for binary matrices
+    # To include FP16 scales, change scale_bits to 16
     scale_bits = 0
     numerator = (b_target * n * m / P) - scale_bits * l * (n + m)
     denominator = (n + m) + 2 * scale_bits * l
@@ -139,19 +145,19 @@ def bpw_from_rank(
     P: int = 2
 ) -> float:
     """
-    ランク r から実効BPWを計算
+    # Calculate effective BPW from rank r
 
     b_eff = P * [r(n+m) + 16*l*(n + m + 2*r)] / (nm)
 
     Args:
-        n: 行数（出力次元）
-        m: 列数（入力次元）
-        r: ランク
-        l: Multi-scaleランク
-        P: パス数
+        n: Number of rows (output dimension)
+        m: Number of columns (input dimension)
+        r: Rank
+        l: Multi-scale rank
+        P: Number of paths
 
     Returns:
-        実効BPW
+        Effective BPW
     """
     scale_bits = 16  # FP16
 
@@ -163,14 +169,14 @@ def bpw_from_rank(
 
 
 def to_binary_sign(x: torch.Tensor) -> torch.Tensor:
-    """符号行列を二値化 {-1, +1}"""
+    """Binarize a sign matrix {-1, +1}"""
     out = torch.sign(x)
     out[out == 0] = 1.0
     return out
 
 
 def symmetrize_matrix(H: torch.Tensor) -> torch.Tensor:
-    """行列を対称化: (H + H^T) / 2"""
+    """Symmetrize a matrix: (H + H^T) / 2"""
     return (H + H.T) * 0.5
 
 
@@ -180,12 +186,12 @@ def compute_hessian_error(
     nsamples: int
 ) -> float:
     """
-    Hessian重み付き誤差を計算: N * tr(E @ H @ E^T)
+    Calculate Hessian-weighted error: N * tr(E @ H @ E^T)
 
     Args:
-        E: 誤差行列 (n, m)
-        H: Hessian行列 (m, m)
-        nsamples: サンプル数 N
+        E: Error matrix (n, m)
+        H: Hessian matrix (m, m)
+        nsamples: Number of samples N
 
     Returns:
         N * tr(E @ H @ E^T) = N * sum((E @ H) * E)
@@ -203,24 +209,24 @@ def reconstruct_weight(
     Q_V_amp: torch.Tensor,
 ) -> torch.Tensor:
     """
-    パラメータから重み行列を再構成
+    Reconstruct weight matrix from parameters
 
     W = F @ G
     where F = S_A * (A_amp @ Q_U_amp^T)  : (n, r)
           G = S_B * (Q_V_amp @ B_amp^T)  : (r, m)
 
-    計算量: O(nlr + rlm + nrm)（l^2ループ版より高速）
+    Computational complexity: O(nlr + rlm + nrm) (faster than l^2 loop version)
 
     Args:
-        A_sign: 符号行列 S_A (n, r) - {-1, +1}
-        B_sign: 符号行列 S_B (r, m) - {-1, +1}
-        A_amp: 行スケール (n, l)
-        B_amp: 列スケール (m, l)
-        Q_U_amp: 潜在スケール行側 (r, l)
-        Q_V_amp: 潜在スケール列側 (r, l)
+        A_sign: Sign matrix S_A (n, r) - {-1, +1}
+        B_sign: Sign matrix S_B (r, m) - {-1, +1}
+        A_amp: Row scale (n, l)
+        B_amp: Column scale (m, l)
+        Q_U_amp: Latent row scale (r, l)
+        Q_V_amp: Latent column scale (r, l)
 
     Returns:
-        再構成された重み W (n, m)
+        Reconstructed weight matrix W (n, m)
     """
     # F = S_A * (A_amp @ Q_U_amp^T)
     amp_A = A_amp @ Q_U_amp.T

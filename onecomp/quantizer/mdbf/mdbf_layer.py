@@ -1,19 +1,24 @@
 """
-MDBF (Multi-scale Double Binary Factorization) Layer実装
+MDBF (Multi-scale Double Binary Factorization) Layer implementation
 
-MSVIDパラメータから効率的な推論用レイヤーを構築。
-DBF実装を参考に、ビットパッキングとメモリ効率を実現。
+Constructs an efficient inference layer from MSVID parameters.
+Based on the DBF implementation, achieves bit-packing and memory efficiency.
 
-構造:
-- MSVIDLinear: 1パス分のMSVID推論層
-- MultipathMSVIDLinear: Pパス対応のMSVID推論層
-- パッキング/アンパッキング: 符号行列を1-bitに圧縮
+Structure:
+- MSVIDLinear: MSVID inference layer for a single pass
+- MultipathMSVIDLinear: MSVID inference layer for P passes
+- Packing/Unpacking: Compresses sign matrices to 1-bit
 
-重み表現:
+Weight representation:
     W ≈ Σ_{p=1}^{P} W^{(p)}
     W^{(p)} = F^{(p)} @ G^{(p)}
     where F = S_A * (A_amp @ Q_U_amp^T)
           G = S_B * (Q_V_amp @ B_amp^T)
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+
 """
 
 import gc
@@ -34,19 +39,19 @@ logger = getLogger(__name__)
 
 
 # =============================================================================
-# ビットパッキング/アンパッキング
+# Bit-packing/Unpacking
 # =============================================================================
 
 
 def pack_binary(x: torch.Tensor) -> Tuple[torch.Tensor, Tuple[int, ...]]:
     """
-    ±1 を {0,1} に変換して uint8 に 8:1 パック。末尾は +1 でパディング。
+    Convert ±1 to {0,1} and pack into uint8 with 8:1 ratio. Pad the end with +1.
 
     Args:
-        x: ±1 のテンソル（任意の形状）
+        x: Tensor with ±1 values (any shape)
 
     Returns:
-        (packed, original_shape): パックされたuint8テンソルと元の形状
+        (packed, original_shape): Packed uint8 tensor and original shape
     """
     original_shape = x.shape
     flat = (x.flatten() >= 0).to(torch.uint8)
@@ -62,14 +67,14 @@ def pack_binary(x: torch.Tensor) -> Tuple[torch.Tensor, Tuple[int, ...]]:
 
 def unpack_binary(packed: torch.Tensor, original_shape: Tuple[int, ...]) -> torch.Tensor:
     """
-    uint8 を {−1,+1} の int8 に展開してreshape。
+    Expand uint8 to {−1,+1} int8 and reshape.
 
     Args:
-        packed: パックされたuint8テンソル
-        original_shape: 元の形状
+        packed: Packed uint8 tensor
+        original_shape: Original shape
 
     Returns:
-        ±1 の int8 テンソル
+        ±1 int8 tensor
     """
     numel = 1
     for dim in original_shape:
@@ -82,13 +87,13 @@ def unpack_binary(packed: torch.Tensor, original_shape: Tuple[int, ...]) -> torc
 
 
 # =============================================================================
-# パック済みMSVIDパラメータ
+# Packed MSVID Parameters
 # =============================================================================
 
 
 @dataclass
 class PackedMSVIDParams:
-    """パック済みMSVIDパラメータ（メモリ効率的な保存用）"""
+    """Packed MSVID parameters (for memory-efficient storage)"""
     A_sign_packed: torch.Tensor
     B_sign_packed: torch.Tensor
     A_sign_shape: Tuple[int, ...]
@@ -100,7 +105,7 @@ class PackedMSVIDParams:
 
 
 def pack_msvid_params(params: MSVIDParams) -> PackedMSVIDParams:
-    """MSVIDParamsをパック済み形式に変換"""
+    """Convert MSVIDParams to packed format"""
     A_sign_packed, A_sign_shape = pack_binary(params.A_sign)
     B_sign_packed, B_sign_shape = pack_binary(params.B_sign)
 
@@ -117,7 +122,7 @@ def pack_msvid_params(params: MSVIDParams) -> PackedMSVIDParams:
 
 
 def unpack_msvid_params(packed: PackedMSVIDParams) -> MSVIDParams:
-    """パック済み形式からMSVIDParamsを復元"""
+    """Restore MSVIDParams from packed format"""
     A_sign = unpack_binary(packed.A_sign_packed, packed.A_sign_shape)
     B_sign = unpack_binary(packed.B_sign_packed, packed.B_sign_shape)
 
@@ -132,12 +137,12 @@ def unpack_msvid_params(packed: PackedMSVIDParams) -> MSVIDParams:
 
 
 # =============================================================================
-# スケーリング層
+# Scaling Layer
 # =============================================================================
 
 
 class ScalingLayer(nn.Module):
-    """要素ごとのスケーリング層"""
+    """Element-wise scaling layer"""
 
     def __init__(self, w: torch.Tensor):
         super().__init__()
@@ -148,15 +153,15 @@ class ScalingLayer(nn.Module):
 
 
 # =============================================================================
-# パック済みバイナリ行列層
+# Packed Binary Matrix Layer
 # =============================================================================
 
 
 class PackedBinaryLinear(nn.Module):
     """
-    パック済みバイナリ行列 × 入力の線形層
+    Packed binary matrix × input linear layer
 
-    preunpack=True なら初期化時に展開して保持（高速＝大メモリ）。
+    If preunpack=True, unpack and store at initialization (fast = high memory).
     """
 
     def __init__(self, binary_matrix: torch.Tensor, preunpack: bool = True):
@@ -181,7 +186,7 @@ class PackedBinaryLinear(nn.Module):
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
                                missing_keys, unexpected_keys, error_msgs):
-        """ロード時にbit_matを再構築"""
+        """Reconstruct bit_mat during loading"""
         super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
                                        missing_keys, unexpected_keys, error_msgs)
 
@@ -208,19 +213,19 @@ class PackedBinaryLinear(nn.Module):
 
 
 # =============================================================================
-# MSVIDLinear層（1パス用）
+# MSVIDLinear Layer (1-pass)
 # =============================================================================
 
 
 class MSVIDLinear(nn.Module):
     """
-    1パス分のMSVID推論層
+    1-pass MSVID inference layer
 
     W^{(p)} = F @ G
     where F = S_A * (A_amp @ Q_U_amp^T)
           G = S_B * (Q_V_amp @ B_amp^T)
 
-    推論: y = x @ W^T = x @ G^T @ F^T
+    Inference: y = x @ W^T = x @ G^T @ F^T
     """
 
     def __init__(self, params: MSVIDParams, preunpack: bool = True):
@@ -236,7 +241,7 @@ class MSVIDLinear(nn.Module):
         self.l = params.A_amp.shape[1]
         self._preunpack = preunpack
 
-        # 符号行列（パック）
+        # Packed sign matrices
         A_sign_packed, _ = pack_binary(params.A_sign)
         B_sign_packed, _ = pack_binary(params.B_sign)
 
@@ -245,13 +250,13 @@ class MSVIDLinear(nn.Module):
         self.register_buffer("_A_sign_shape", torch.tensor([n, r], dtype=torch.int64))
         self.register_buffer("_B_sign_shape", torch.tensor([r, m], dtype=torch.int64))
 
-        # スケール（FP16）
+        # Scales (FP16)
         self.register_buffer("A_amp", params.A_amp.half())
         self.register_buffer("B_amp", params.B_amp.half())
         self.register_buffer("Q_U_amp", params.Q_U_amp.half())
         self.register_buffer("Q_V_amp", params.Q_V_amp.half())
 
-        # 展開済み符号行列
+        # Unpacked sign matrices
         if preunpack:
             self.register_buffer("A_sign", unpack_binary(A_sign_packed, (n, r)), persistent=False)
             self.register_buffer("B_sign", unpack_binary(B_sign_packed, (r, m)), persistent=False)
@@ -261,7 +266,7 @@ class MSVIDLinear(nn.Module):
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
                                missing_keys, unexpected_keys, error_msgs):
-        """ロード時に展開済み符号行列を再構築"""
+        """Reconstruct unpacked sign matrices during loading"""
         super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
                                        missing_keys, unexpected_keys, error_msgs)
 
@@ -280,7 +285,7 @@ class MSVIDLinear(nn.Module):
                     self.register_buffer("B_sign", unpack_binary(self.B_sign_packed, B_shape), persistent=False)
 
     def _get_factor_matrices(self, dtype: torch.dtype) -> Tuple[torch.Tensor, torch.Tensor]:
-        """因子行列 F, G を計算"""
+        """Compute factor matrices F, G"""
         if self.A_sign is None:
             A_sign = unpack_binary(self.A_sign_packed, (self.n, self.r)).to(dtype)
         else:
@@ -306,18 +311,18 @@ class MSVIDLinear(nn.Module):
         return y
 
     def get_weight(self, dtype: torch.dtype = torch.float32) -> torch.Tensor:
-        """重み行列を再構成"""
+        """Reconstruct weight matrix"""
         F, G = self._get_factor_matrices(dtype)
         return F @ G
 
 
 # =============================================================================
-# MultipathMSVIDLinear層（Pパス対応）
+# MultipathMSVIDLinear Layer (P-pass)
 # =============================================================================
 
 
 class MultipathMSVIDLinear(nn.Module):
-    """Pパス対応のMSVID推論層: W ≈ Σ_{p=1}^{P} W^{(p)}"""
+    """P-pass MSVID inference layer: W ≈ Σ_{p=1}^{P} W^{(p)}"""
 
     def __init__(
         self,
@@ -359,7 +364,7 @@ class MultipathMSVIDLinear(nn.Module):
         return y
 
     def get_weight(self, dtype: torch.dtype = torch.float32) -> torch.Tensor:
-        """重み行列を再構成"""
+        """Reconstruct weight matrix"""
         W = self.paths[0].get_weight(dtype)
         for i in range(1, self.P):
             W = W + self.paths[i].get_weight(dtype)
@@ -387,7 +392,7 @@ class MultipathMSVIDLinear(nn.Module):
 
 
 # =============================================================================
-# レイヤー置換関数（QEP-DEV 互換、OneComp フレームワークでは不使用）
+# Layer replacement functions (QEP-DEV compatible, not used in OneComp framework)
 # =============================================================================
 
 
@@ -395,7 +400,7 @@ def create_mdbf_layer_from_linear(
     module: nn.Module,
     preunpack: bool = True
 ) -> Optional[MultipathMSVIDLinear]:
-    """MSVID量子化済みLinear層からMultipathMSVIDLinearを作成"""
+    """Create a MultipathMSVIDLinear from a quantized MSVID Linear layer"""
     if not hasattr(module, 'msvid_params'):
         return None
     if not getattr(module, 'is_quantized', False):
@@ -420,7 +425,7 @@ def replace_linear_with_mdbf(
     parent_module: nn.Module,
     preunpack: bool = True
 ) -> bool:
-    """Linear層をMultipathMSVIDLinearに置換"""
+    """Replace a Linear layer with a MultipathMSVIDLinear layer"""
     mdbf_layer = create_mdbf_layer_from_linear(module, preunpack=preunpack)
 
     if mdbf_layer is None:
@@ -441,7 +446,7 @@ def replace_all_msvid_layers(
     model: nn.Module,
     preunpack: bool = True
 ) -> int:
-    """モデル内のすべてのMSVID量子化層をMultipathMSVIDLinearに置換"""
+    """Replace all MSVID quantized layers in the model with MultipathMSVIDLinear"""
     replaced_count = 0
 
     for parent_name, parent_module in model.named_modules():
@@ -460,7 +465,7 @@ def replace_all_msvid_layers(
 
 
 # =============================================================================
-# チェックポイント管理（QEP-DEV 互換、OneComp フレームワークでは不使用）
+# Checkpoint management (QEP-DEV compatible, not used in OneComp framework)
 # =============================================================================
 
 
@@ -469,7 +474,7 @@ def save_msvid_weights(
     save_path: Path,
     packed: bool = True
 ) -> Dict[str, int]:
-    """MSVID重みを保存"""
+    """Save MSVID weights"""
     save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
 
@@ -524,7 +529,7 @@ def save_msvid_weights(
 
 
 def load_msvid_weights(load_path: Path) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
-    """MSVID重みを読み込み"""
+    """Load MSVID weights"""
     load_path = Path(load_path)
     weights = torch.load(load_path / "msvid_weights.pt", map_location="cpu")
 
@@ -535,12 +540,12 @@ def load_msvid_weights(load_path: Path) -> Tuple[Dict[str, torch.Tensor], Dict[s
 
 
 # =============================================================================
-# 検証関数
+# Verification functions
 # =============================================================================
 
 
 def verify_binary_values(params: MSVIDParams) -> Tuple[bool, str]:
-    """S_A, S_Bが適切に±1の二値になっているか検証"""
+    """Verify that S_A and S_B are valid binary {-1, +1} matrices"""
     A_unique = torch.unique(params.A_sign)
     A_valid = len(A_unique) <= 2 and all(v in [-1.0, 1.0] for v in A_unique.tolist())
 
@@ -559,7 +564,7 @@ def verify_binary_values(params: MSVIDParams) -> Tuple[bool, str]:
 
 
 def verify_all_params(params_list: List[MSVIDParams]) -> Tuple[bool, List[str]]:
-    """全パスのパラメータを検証"""
+    """Verify all parameters in all paths"""
     all_valid = True
     messages = []
 

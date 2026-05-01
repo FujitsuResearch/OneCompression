@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-MSVID-ADMM: Multi-Scale SVID を用いた ADMM 最適化（Phase 2）
+MSVID-ADMM: ADMM optimization using Multi-Scale SVID (Phase 2)
 
-Phase 1 で初期化された MSVIDParams を初期値として,
-各パス p' に対して残差 W - Σ_{p≠p'} W^p を最小化する.
+Using the MSVIDParams initialized in Phase 1 as the initial values,
+minimize the residual W - Σ_{p≠p'} W^p for each path p'.
 
-Activation-aware拡張:
-- Hessian-based: H = X^T @ X / N を使用してメモリ効率良く出力誤差を最小化
-- 目的関数: min tr((W - W_hat) @ H @ (W - W_hat)^T)
+
+Activation-aware extension:
+- Hessian-based: Use H = X^T @ X / N to efficiently minimize output error
+- Objective function: min tr((W - W_hat) @ H @ (W - W_hat)^T)
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+
 """
 
 from logging import getLogger
@@ -30,7 +36,7 @@ from .utils import (
 
 
 # =============================================================================
-# ヘルパー関数
+# Helper functions
 # =============================================================================
 
 
@@ -42,14 +48,14 @@ def _tsvd_block_power(
     seed: int = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Block power iteration (subspace iteration) による上位k特異値分解の近似.
+    Approximate top-k singular value decomposition using block power iteration (subspace iteration).
 
     Args:
-        M: (n, m) float32推奨
-        k: 取りたいランク
-        n_iter: power/subspace iteration回数（1〜3が目安）
-        oversample: 過剰サンプリング（2〜8が目安）
-        seed: ランダムシード（Noneならグローバルシードを使用）
+        M: (n, m) float32 recommended
+        k: desired rank
+        n_iter: number of power/subspace iterations (1-3 recommended)
+        oversample: oversampling (2-8 recommended)
+        seed: random seed (if None, use global seed)
 
     Returns:
         U: (n, k)
@@ -63,7 +69,7 @@ def _tsvd_block_power(
         raise ValueError("k must be >= 1")
     k0 = min(k_eff + oversample, n, m)
 
-    # 右部分空間の初期化（ランダム）
+    # Initialize the right subspace (random)
     if seed is not None:
         gen = torch.Generator(device=M.device).manual_seed(seed)
         V = torch.randn(m, k0, device=M.device, dtype=M.dtype, generator=gen)
@@ -71,19 +77,19 @@ def _tsvd_block_power(
         V = torch.randn(m, k0, device=M.device, dtype=M.dtype)
     V, _ = torch.linalg.qr(V, mode="reduced")  # (m, k0)
 
-    # subspace iteration
+    # Subspace iteration
     for _ in range(max(0, n_iter)):
         U = M @ V                              # (n, k0)
         U, _ = torch.linalg.qr(U, mode="reduced")
         V = M.T @ U                            # (m, k0)
         V, _ = torch.linalg.qr(V, mode="reduced")
 
-    # 最後に M@V をQRして小行列 R を作る
+    # Finally, QR decomposition of M@V to form the small matrix R
     Y = M @ V                                  # (n, k0)
     U, R = torch.linalg.qr(Y, mode="reduced")  # U:(n,k0), R:(k0,k0)
     del Y
 
-    # 小行列だけSVD（デフォルトドライバ使用）
+    # SVD of the small matrix only (default driver)
     Ur, S, Vhr = torch.linalg.svd(R, full_matrices=False)
     del R
 
@@ -100,12 +106,12 @@ def _decompose_abs_matrix(
     for_transpose: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    振幅行列 |M| を rank-l で分解
+    Decompose the amplitude matrix |M| into rank-l components.
 
     Args:
-        M_abs: 振幅行列 (a, b)
-        l: ランク
-        for_transpose: True の場合, M^T を分解（G側用）
+        M_abs: Amplitude matrix (a, b)
+        l: Rank
+        for_transpose: If True, decompose M^T (for G side)
 
     Returns:
         (scale_left, scale_right): |M| ≈ scale_left @ scale_right^T
@@ -116,7 +122,7 @@ def _decompose_abs_matrix(
     a, b = M_abs.shape
     l_eff = min(l, min(a, b))
 
-    # 非負行列に対する正則化（定数加算、乱数は負の値を生むため避ける）
+    # Regularization for non-negative matrix (add constant, avoid negative values from random)
     eps = 1e-6 * M_abs.max().clamp(min=1e-12)
     M_abs_reg = M_abs + eps
 
@@ -136,29 +142,29 @@ def _solve_linear_system(
     L_cached: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
-    線形方程式 lhs @ X = rhs を解く（Cholesky分解をキャッシュ利用）
+    Solve the linear system lhs @ X = rhs (using cached Cholesky decomposition)
 
     Args:
-        lhs: 左辺行列 (k, k)
-        rhs: 右辺 (k, ...) or (k,)
-        L_cached: Cholesky分解済み行列（Noneなら直接解く）
+        lhs: Left-hand side matrix (k, k)
+        rhs: Right-hand side (k, ...) or (k,)
+        L_cached: Cholesky-decomposed matrix (if None, solve directly)
 
     Returns:
-        解 X
+        Solution X
 
     Note:
-        フォールバック順序: cholesky_solve → solve → lstsq
+        Fallback order: cholesky_solve → solve → lstsq
     """
     if L_cached is not None:
         if rhs.dim() == 1:
             return torch.cholesky_solve(rhs.unsqueeze(-1), L_cached).squeeze(-1)
         return torch.cholesky_solve(rhs, L_cached)
 
-    # Cholesky分解がキャッシュされていない場合は直接解く
+    # Cholesky decomposition is not cached, solve directly
     try:
         return torch.linalg.solve(lhs, rhs)
     except RuntimeError:
-        # 特異行列または数値的に不安定な場合は最小二乗法にフォールバック
+        # Fallback to least squares for singular or numerically unstable matrices
         if rhs.dim() == 1:
             return torch.linalg.lstsq(lhs, rhs.unsqueeze(-1)).solution.squeeze(-1)
         return torch.linalg.lstsq(lhs, rhs).solution
@@ -175,26 +181,26 @@ def svd_abs_rank_l(
     seed: int = None,
 ) -> torch.Tensor:
     """
-    MSVID (rank-l) への射影: Z = sign(W) * TSVD_l(|W|)
+    MSVID (rank-l) projection: Z = sign(W) * TSVD_l(|W|)
 
-    符号を sign(W) に固定し, 振幅に rank-l 制約を適用する.
+    Fix the sign to sign(W) and apply a rank-l constraint to the amplitude.
 
     Args:
-        W: 入力行列
-        l: Multi-scaleランク
-        seed: ランダムシード（Noneならグローバルシードを使用、整数なら決定的）
+        W: Input matrix
+        l: Multi-scale rank
+        seed: Random seed (if None, use global seed; if integer, deterministic)
     """
     S = torch.sign(W)
     S[S == 0] = 1.0
 
     if l == 1:
-        # パワーイテレーションでrank-1近似（randn初期化）
-        # 反復回数は l>=2 の block power iteration (n_iter=5) と統一
+        # Power iteration for rank-1 approximation (randn initialization)
+        # Number of iterations is unified with block power iteration for l>=2 (n_iter=5)
         W_abs = W.abs().float()
         n, m_dim = W_abs.shape
 
-        # ランダム初期化（縮退固有値がある場合に頑健）
-        # seed指定時は決定的な初期化（再現性のため）
+        # Random initialization (robust for degenerate eigenvalues)
+        # Deterministic initialization when seed is specified (for reproducibility)
         if seed is not None:
             gen = torch.Generator(device=W.device).manual_seed(seed)
             a = torch.randn(n, device=W.device, dtype=torch.float32, generator=gen)
@@ -219,7 +225,7 @@ def svd_abs_rank_l(
         amp = torch.outer(a, m_vec)
         del W_abs, a, m_vec
     else:
-        # Block power iteration で高速化
+        # Block power iteration for acceleration
         W_abs = W.abs().float()
         n_dim, m_dim = W_abs.shape
         kmax = min(n_dim, m_dim)
@@ -228,7 +234,7 @@ def svd_abs_rank_l(
             amp = W_abs
         else:
             l_eff = max(1, min(l, kmax - 1))
-            # block power iteration で高速化（QRとGEMM主体なので正則化不要）
+            # Block power iteration for acceleration (QR and GEMM based, so no regularization needed)
             U_l, S_l, V_l = _tsvd_block_power(W_abs, k=l_eff, seed=seed)
             amp = (U_l * S_l[None, :]) @ V_l.T
             del U_l, S_l, V_l
@@ -240,7 +246,7 @@ def svd_abs_rank_l(
 
 
 # =============================================================================
-# パラメータ変換
+# Parameter Conversion
 # =============================================================================
 
 
@@ -249,7 +255,7 @@ def _params_to_factor_matrices(
     device: torch.device,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    MSVIDParams から因子行列 (F, G) を構成
+    Construct factor matrices (F, G) from MSVIDParams
 
     F = S_A * (A_amp @ Q_U_amp^T)
     G = S_B * (Q_V_amp @ B_amp^T)
@@ -278,10 +284,10 @@ def _factor_matrices_to_params(
     dtype: torch.dtype,
 ) -> MSVIDParams:
     """
-    因子行列 (F, G) から MSVIDParams を抽出
+    Extract MSVIDParams from factor matrices (F, G)
 
     Note:
-        F, G は ADMM 射影後なので |F|, |G| は既に rank-l.
+        F, G are after ADMM projection, so |F|, |G| are already rank-l.
     """
     A_sign = to_binary_sign(F)
     B_sign = to_binary_sign(G)
@@ -293,7 +299,7 @@ def _factor_matrices_to_params(
     A_amp, Q_U_amp = _decompose_abs_matrix(F_abs, l)
     del F_abs
 
-    # |G| ≈ Q_V_amp @ B_amp^T (G^T を分解)
+    # |G| ≈ Q_V_amp @ B_amp^T (decompose G^T)
     B_amp, Q_V_amp = _decompose_abs_matrix(G_abs, l, for_transpose=True)
     del G_abs
 
@@ -308,7 +314,7 @@ def _factor_matrices_to_params(
 
 
 # =============================================================================
-# 片側固定ADMM
+# One-Side Fixed ADMM
 # =============================================================================
 
 
@@ -323,24 +329,24 @@ def _admm_optimize_one_side(
     rho_start: float = 0.03,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    片側固定のADMM最適化（DBF互換の固定rhoモード）
+    One-side fixed ADMM optimization (DBF-compatible fixed rho mode)
 
     min ||W_target - Fixed @ Z||_F^2 + λ*||Z||_F^2  s.t. Z in MSVID(l)
 
-    ここで λ = reg * mean(diag(Fixed^T @ Fixed))
-    （Fixed^T @ Fixed の対角成分平均に比例する正則化）
+    Here, λ = reg * mean(diag(Fixed^T @ Fixed))
+    (Regularization proportional to the mean of the diagonal elements of Fixed^T @ Fixed)
 
     Args:
-        Fixed: 固定側行列
-        W_target: ターゲット
-        Z_init, U_init: 初期値
-        l: Multi-scaleランク
-        inner_iters: 内側反復回数
-        reg: 正則化係数（Fixed^T @ Fixed の対角成分平均に乗じる）
-        rho_start: 初期rho
+        Fixed: Fixed-side matrix
+        W_target: Target matrix
+        Z_init, U_init: Initial values
+        l: Multi-scale rank
+        inner_iters: Number of inner iterations
+        reg: Regularization coefficient (multiplied by the mean of the diagonal elements of Fixed^T @ Fixed)
+        rho_start: Initial rho
 
     Returns:
-        (Z, U): 最適化後の変数
+        (Z, U): Optimized variables
     """
     device = Fixed.device
     Fixed = ensure_float32(Fixed)
@@ -372,7 +378,7 @@ def _admm_fixed_rho_loop(
     inner_iters: int,
     rho_start: float,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """固定rhoモードのADMM内側ループ"""
+    """ADMM inner loop in fixed rho mode"""
     rho = 1.0
     lhs_rho = XX + rho * I
     lhs_rho_start = XX + rho_start * I
@@ -387,18 +393,18 @@ def _admm_fixed_rho_loop(
     except RuntimeError:
         L_rho_start = None
 
-    # 最初のB更新 (rho_start)
+    # Initial B update (rho_start)
     rhs = XY + rho_start * (Z - U)
     B = _solve_linear_system(lhs_rho_start, rhs, L_rho_start)
 
-    # 残り反復 (rho=1.0)
+    # Remaining iterations (rho=1.0)
     for _ in range(inner_iters - 1):
         Z = svd_abs_rank_l(B + U, l)
         U = U + (B - Z)
         rhs = XY + rho * (Z - U)
         B = _solve_linear_system(lhs_rho, rhs, L_rho)
 
-    # 最後のZ, U更新
+    # Final Z, U update
     Z = svd_abs_rank_l(B + U, l)
     U = U + (B - Z)
 
@@ -412,7 +418,7 @@ def _admm_fixed_rho_loop(
 
 
 # =============================================================================
-# 単一パスADMM最適化
+# Single-Path ADMM Optimization
 # =============================================================================
 
 
@@ -429,7 +435,7 @@ def _admm_refine_single_path(
     nsamples: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    単一パスに対するADMM最適化（F<->G交互最適化、DBF互換の固定rhoモード）
+    ADMM optimization for a single path (alternating F<->G optimization, DBF-compatible fixed rho mode)
 
     min ||W_target - F @ G||_F^2  s.t. F,G in MSVID(l)
     """
@@ -437,7 +443,7 @@ def _admm_refine_single_path(
     n, r = F_init.shape
     _, m = G_init.shape
 
-    # F側は転置形式 (r, n) で保持
+    # F is stored in transposed form (r, n)
     Zf_T = ensure_float32_clone(F_init.T)
     Uf_T = torch.zeros(r, n, device=device, dtype=torch.float32)
     Zg = ensure_float32_clone(G_init)
@@ -447,7 +453,7 @@ def _admm_refine_single_path(
     orig_norm = torch.norm(W_float, p='fro').item() + 1e-12
     W_float_T = W_float.T
 
-    # 出力誤差表示用（Hは呼び出し元で既に対称化されている前提）
+    # For output error display (H is assumed to be symmetrized by the caller)
     H_float = None
     orig_output_err = None
     if H is not None:
@@ -455,22 +461,22 @@ def _admm_refine_single_path(
         WH = W_float @ H_float
         orig_output_err = (nsamples * torch.sum(WH * W_float)).item() + 1e-12
 
-    # ===== スケール正規化戦略 =====
-    # W ≈ F @ G の交互最適化において、F と G のスケールには自由度がある。
-    # (F * c) @ (G / c) = F @ G なので、スケールを一方に集約する必要がある。
+    # ===== Scale Normalization Strategy =====
+    # In alternating optimization of W ≈ F @ G, there is freedom in the scale of F and G.
+    # (F * c) @ (G / c) = F @ G, so the scale needs to be concentrated on one side.
     #
-    # 戦略:
-    # 1. F更新時: G を行ごとに正規化 → スケールは F に吸収される
-    # 2. G更新時: F を列ごとに正規化 → スケールは G に吸収される
-    # 3. 最終出力: F を列ごとに正規化して返す → スケールは G に集約される
+    # Strategy:
+    # 1. When updating F: Normalize each row of G → Scale is absorbed into F
+    # 2. When updating G: Normalize each column of F → Scale is absorbed into G
+    # 3. Final output: Normalize each column of F before returning → Scale is concentrated in G
     #
-    # これにより、最終的な F @ G は元の W を近似し、かつ F の列ノルムが1に揃う。
+    # This ensures that the final F @ G approximates the original W, with F's column norms equal to 1.
 
     for itt in range(iters):
         rho_start = 0.03 + (1.0 - 0.03) * min(1.0, itt / max(1, iters - 3)) ** 3
 
-        # F更新 (G固定): G の各行を正規化して使用
-        # 最適化問題: min ||W^T - G_normalized @ F^T||_F^2 s.t. F in MSVID(l)
+        # F update (G fixed): Normalize each row of G
+        # Optimization problem: min ||W^T - G_normalized @ F^T||_F^2 s.t. F in MSVID(l)
         mid_norm_g = torch.norm(Zg, dim=1) + 1e-12
         Zg_normalized = Zg / mid_norm_g[:, None]
 
@@ -485,8 +491,8 @@ def _admm_refine_single_path(
             rho_start=rho_start,
         )
 
-        # G更新 (F固定): F の各列を正規化して使用
-        # 最適化問題: min ||W - F_normalized @ G||_F^2 s.t. G in MSVID(l)
+        # G update (F fixed): Normalize each column of F
+        # Optimization problem: min ||W - F_normalized @ G||_F^2 s.t. G in MSVID(l)
         mid_norm_f = torch.norm(Zf_T, dim=1) + 1e-12
         Zf_normalized = Zf_T.T / mid_norm_f[None, :]
 
@@ -501,7 +507,7 @@ def _admm_refine_single_path(
             rho_start=rho_start,
         )
 
-        # ログ出力
+        # Log output
         if (itt % max(10, iters // 5) == 0 or itt == iters - 1):
             mid_norm_final = torch.norm(Zf_T, dim=1) + 1e-12
             W_recon = (Zf_T.T / mid_norm_final[None, :]) @ Zg
@@ -523,8 +529,8 @@ def _admm_refine_single_path(
     if H_float is not None:
         del H_float
 
-    # 最終スケール正規化: F の列ノルムを1にして、スケールを G に集約
-    # これにより W ≈ F_normalized @ G が成立し、F は正規化された因子行列となる
+    # Final scale normalization: Set the column norms of F to 1 and concentrate the scale in G
+    # This ensures that W ≈ F_normalized @ G holds, and F becomes a normalized factor matrix
     mid_norm_final = torch.norm(Zf_T, dim=1) + 1e-12
     Zf_normalized = Zf_T.T / mid_norm_final[None, :]
 
@@ -532,7 +538,7 @@ def _admm_refine_single_path(
 
 
 # =============================================================================
-# 標準ADMM最適化
+# Standard ADMM Optimization
 # =============================================================================
 
 
@@ -548,9 +554,9 @@ def optimize_msvid_admm(
     nsamples: int = 1,
 ) -> Tuple[List[MSVIDParams], torch.Tensor]:
     """
-    ADMM最適化によりMSVIDパラメータを精緻化 (Phase 2, DBF互換の固定rhoモード)
+    Refine MSVID parameters using ADMM optimization (Phase 2, DBF-compatible fixed rho mode)
 
-    各パス p' に対して残差 W - Σ_{p≠p'} W^p を最小化
+    Minimize the residual W - Σ_{p≠p'} W^p for each path p'
     """
     device = W_original.device
     dtype = W_original.dtype
@@ -563,7 +569,7 @@ def optimize_msvid_admm(
     W_float = ensure_float32(W_original)
     orig_norm = torch.norm(W_float, p='fro').item() + 1e-12
 
-    # Hessianの前処理
+    # Hessian preprocessing
     H_float = None
     orig_output_err = None
     if H is not None:
@@ -571,7 +577,7 @@ def optimize_msvid_admm(
         WH = W_float @ H_float
         orig_output_err = (nsamples * torch.sum(WH * W_float)).item() + 1e-12
 
-    # 初期誤差
+    # Initial error
     W_init_recon = torch.zeros(n, m, device=device, dtype=torch.float32)
     for p in params_list:
         W_p = reconstruct_weight(
@@ -593,15 +599,15 @@ def optimize_msvid_admm(
                      f"(rel: {init_error/orig_norm:.4f})")
     del W_init_recon, E_init
 
-    # 因子行列を初期化
+    # Initialize factor matrices
     factor_list = [_params_to_factor_matrices(p, device) for p in params_list]
 
-    # 各パスを最適化
+    # Optimize each path
     optimized_factors = []
     for p_idx in range(P):
         logger.debug(f"[MDBF-ADMM] Optimizing path {p_idx+1}/{P}...")
 
-        # 残差
+        # Residual
         W_target = W_float.clone()
         for other_idx in range(P):
             if other_idx != p_idx:
@@ -626,7 +632,7 @@ def optimize_msvid_admm(
         optimized_factors.append((F_opt, G_opt))
         del W_target, F_init, G_init
 
-    # 最終再構成
+    # Final reconstruction
     W_recon = torch.zeros(n, m, device=device, dtype=torch.float32)
     for F_opt, G_opt in optimized_factors:
         W_recon += F_opt @ G_opt
@@ -646,7 +652,7 @@ def optimize_msvid_admm(
         logger.debug(f"[MDBF-ADMM] Improvement: {improvement:+.2f}%")
     del E_final
 
-    # MSVIDParamsに変換
+    # Convert to MSVIDParams
     optimized_params = [
         _factor_matrices_to_params(F_opt, G_opt, l, dtype)
         for F_opt, G_opt in optimized_factors
@@ -702,15 +708,15 @@ def _admm_refine_single_path_hessian(
     path_idx: int = 0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Hessian-based Activation-aware版: 単一パスADMM最適化
+    Hessian-based Activation-aware version: Single-path ADMM optimization
 
-    目的関数: min tr((W - VU^T) @ H @ (W - VU^T)^T)  s.t. U,V in MSVID(l)
+    Objective function: min tr((W - VU^T) @ H @ (W - VU^T)^T)  s.t. U,V in MSVID(l)
 
-    安定化のための修正:
-    - H を一貫して正則化 (H_use = H + eps * I) - 零空間方向へのドリフトを抑制
-    - バランスゲージ (V, U のノルムを均等化) - スケールの極端化を防止
-    - 常に小さいridgeをU/V更新に追加 - 発散方向への逃げを抑制
-    - 定期的に誤差をチェックし最良結果を保存 - 非単調収束への対応
+    Stabilization modifications:
+    - Regularize H consistently (H_use = H + eps * I) - Prevent drift in the null space direction
+    - Balance gauge (equalize the norms of V and U) - Prevent extreme scaling
+    - Always add a small ridge to U/V updates - Suppress divergence
+    - Periodically check the error and save the best result - Handle non-monotonic convergence
     """
     device = H.device
     m = H.shape[0]
@@ -721,11 +727,11 @@ def _admm_refine_single_path_hessian(
     V = ensure_float32_clone(F_init)
     U = ensure_float32_clone(G_init.T)
 
-    # 最良結果の追跡（問題3 & 5）
+    # Track the best result (Problem 3 & 5)
     best_V = V.clone()
     best_U = U.clone()
     best_err = float('inf')
-    check_interval = max(10, iters // 10)  # 10回または全体の1/10ごとにチェック
+    check_interval = max(10, iters // 10)  # Check every 10 iterations or 1/10 of total
 
     LamU = torch.zeros_like(U)
     GamV = torch.zeros_like(V)
@@ -735,14 +741,14 @@ def _admm_refine_single_path_hessian(
     W_float = ensure_float32(W_target)
     H0 = symmetrize_matrix(ensure_float32(H))
 
-    # H を一貫して正則化して使う（eigh と更新式の両方で同じ H_use を使用）
-    # これにより H の零空間方向へのドリフトを抑制
+    # Regularize H consistently (use the same H_use for both eigh and update equations)
+    # This prevents drift in the null space direction of H
     H_diag_mean = H0.diag().mean().clamp(min=1e-12)
-    eps_H = 1e-3 * H_diag_mean  # 固定の正則化係数
+    eps_H = 1e-3 * H_diag_mean  # Fixed regularization coefficient
     H_use = H0 + eps_H * I_m
     del H0
 
-    # Hessianの固有分解を事前計算
+    # Precompute the eigen decomposition of the Hessian
     H_eig_vals, H_eig_vecs = torch.linalg.eigh(H_use)
     H_eig_vals = H_eig_vals.clamp(min=1e-12)
 
@@ -754,13 +760,13 @@ def _admm_refine_single_path_hessian(
         rho = rho_base * rho_scale
         rho_over_N = rho / N
 
-        # ===== V更新 (U固定) =====
-        # 正規方程式: V (U^T H_use U + (ρ/N + λ_v) I) = W H_use U + ρ/N (Z_V - Γ_V)
+        # ===== V update (U fixed) =====
+        # Normal equation: V (U^T H_use U + (ρ/N + λ_v) I) = W H_use U + ρ/N (Z_V - Γ_V)
         HU = H_use @ U
         UtHU = U.T @ HU
         WHU = W_float @ HU
 
-        # 常に小さいridgeを入れて発散を抑制
+        # Always add a small ridge to suppress divergence
         lambda_v = reg * UtHU.diag().mean().clamp(min=1e-12)
         lhs_v = UtHU + (rho_over_N + lambda_v) * I_r
 
@@ -783,12 +789,12 @@ def _admm_refine_single_path_hessian(
             V = svd_abs_rank_l(Vtilde + GamV, l)
             GamV = GamV + (Vtilde - V)
 
-        # 中間テンソルの解放（問題10）
+        # Release intermediate tensors (Problem 10)
         del lhs_v, HU, UtHU, WHU
         if L_v is not None:
             del L_v
 
-        # NaN/Inf 検査: 検出したら最良結果を使用してループを抜ける（問題3）
+        # NaN/Inf check: If detected, use the best result and exit the loop (Problem 3)
         if not torch.isfinite(V).all() or not torch.isfinite(U).all():
             bad_v = (~torch.isfinite(V)).sum().item()
             bad_u = (~torch.isfinite(U)).sum().item()
@@ -798,10 +804,10 @@ def _admm_refine_single_path_hessian(
             U = best_U
             break
 
-        # ===== U更新 (V固定) =====
-        # V^T V の固有分解が必要
+        # ===== U update (V fixed) =====
+        # Eigen decomposition of V^T V is required
         VtV = V.T @ V
-        VtV = (VtV + VtV.T) * 0.5  # 対称性を保証
+        VtV = (VtV + VtV.T) * 0.5  # Ensure symmetry
         r_dim = VtV.size(0)
         diag_mean_vtv = VtV.diag().mean().clamp(min=1e-12)
         eps_damp = 1e-4 * diag_mean_vtv
@@ -817,7 +823,7 @@ def _admm_refine_single_path_hessian(
             pass
 
         if not eig_success:
-            # より強いダンピングで再試行
+            # Retry with stronger damping
             eps_damp_strong = 1e-2 * diag_mean_vtv
             VtV_reg_strong = VtV_reg + (eps_damp_strong - eps_damp) * I_VtV
             try:
@@ -846,7 +852,7 @@ def _admm_refine_single_path_hessian(
                 del Q_k
                 eig_success = True
             except RuntimeError:
-                # 最終フォールバック: identity
+                # Final fallback: identity
                 sigma = torch.full((r_dim,), eps_damp, device=V.device, dtype=V.dtype)
                 Q = torch.eye(r_dim, device=V.device, dtype=V.dtype)
                 eig_success = True
@@ -858,7 +864,7 @@ def _admm_refine_single_path_hessian(
         HWtV = H_use @ WtV
         del WtV
 
-        # U側にも正則化を追加
+        # Add regularization to the U side as well
         Hscale = H_eig_vals.mean().clamp(min=1e-12)
         lambda_u = reg * Hscale
 
@@ -874,10 +880,10 @@ def _admm_refine_single_path_hessian(
             U = svd_abs_rank_l(Utilde + LamU, l)
             LamU = LamU + (Utilde - U)
 
-        # 中間テンソルの解放（問題10）
+        # Release intermediate tensors (Problem 10)
         del HWtV, Q, sigma
 
-        # U更新後のNaN/Inf検査
+        # NaN/Inf check: If detected, use the best result and exit the loop (Problem 3)
         if not torch.isfinite(U).all():
             bad_u = (~torch.isfinite(U)).sum().item()
             logger.warning(f"[MDBF-ADMM] WARNING: U diverged at step {itt} "
@@ -886,14 +892,14 @@ def _admm_refine_single_path_hessian(
             U = best_U
             break
 
-        # バランスゲージ固定 (外側反復1回につき1回)
-        # 単位ノルムではなく、V と U のノルムをバランスさせる
-        # d_j = sqrt(||V_j|| / ||U_j||) でスケールを均等配分
+        # Balance gauge fixing (once per outer iteration)
+        # Instead of unit norm, balance the norms of V and U
+        # d_j = sqrt(||V_j|| / ||U_j||) to evenly distribute the scale
         with torch.no_grad():
             v_norm = torch.linalg.norm(V, dim=0).clamp(min=1e-6)
             u_norm = torch.linalg.norm(U, dim=0).clamp(min=1e-6)
             d = torch.sqrt(v_norm / u_norm)
-            # 極端なスケール変換を禁止 (発散止めに効く)
+            # Prohibit extreme scale transformations (effective for preventing divergence)
             d = d.clamp(min=1e-2, max=1e2)
 
             V = V / d[None, :]
@@ -901,7 +907,7 @@ def _admm_refine_single_path_hessian(
             GamV = GamV / d[None, :]
             LamU = LamU * d[None, :]
 
-        # 定期的に誤差をチェックし最良結果を保存（問題5）
+        # Periodically check the error and save the best result (Problem 5)
         if itt % check_interval == 0 or itt == iters - 1:
             with torch.no_grad():
                 W_recon = V @ U.T
@@ -919,7 +925,7 @@ def _admm_refine_single_path_hessian(
                              f"(rel: {weight_err/W_norm:.4f}), rho_base={rho_base:.4f}"
                              f"{' *' if current_err <= best_err else ''}")
 
-    # 最終結果: 最良結果を使用
+    # Final result: use the best result
     F_opt = best_V
     G_opt = best_U.T
 
@@ -941,9 +947,9 @@ def optimize_msvid_admm_hessian(
     reg: float = 0.03,
 ) -> Tuple[List[MSVIDParams], torch.Tensor]:
     """
-    Hessian-based Activation-aware ADMM最適化 (Phase 2) - P=1専用
+    Hessian-based Activation-aware ADMM optimization (Phase 2) - P=1 only
 
-    目的関数: N * tr((W - W_hat) @ H @ (W - W_hat)^T)
+    Objective function: N * tr((W - W_hat) @ H @ (W - W_hat)^T)
     """
     device = W_original.device
     dtype = W_original.dtype
@@ -965,7 +971,7 @@ def optimize_msvid_admm_hessian(
     def compute_hess_err(W_hat):
         return compute_hessian_error(W_float - W_hat, H, nsamples)
 
-    # 初期再構成と誤差
+    # Initial reconstruction and error
     p = params_list[0]
     W_init = reconstruct_weight(
         p.A_sign.to(device), p.B_sign.to(device),
@@ -980,7 +986,7 @@ def optimize_msvid_admm_hessian(
                  f"weight_err={init_weight_err:.4e} (rel={init_weight_err/orig_norm:.4f})")
     del W_init
 
-    # ADMM最適化
+    # ADMM optimization
     F_init, G_init = _params_to_factor_matrices(p, device)
     F_opt, G_opt = _admm_refine_single_path_hessian(
         H=H,

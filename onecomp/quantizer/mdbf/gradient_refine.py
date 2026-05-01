@@ -1,12 +1,16 @@
-# -*- coding: utf-8 -*-
 """
-MSVID 振幅パラメータの勾配ベース最適化（Phase 3）
+MSVID Amplitude Parameter Gradient-Based Optimization (Phase 3)
 
-ADMM最適化後に, 符号を固定して振幅パラメータを直接勾配法で最適化する.
+After ADMM optimization, fix the signs and optimize the amplitude parameters using direct gradient-based methods.
 
-Activation-aware拡張:
-- activation_aware=True: Hessian重み付き誤差を最小化（出力誤差と等価）
-- P=1のみ対応
+Activation-aware extension:
+- activation_aware=True: Minimize Hessian-weighted error (equivalent to output error)
+- P=1 only supported
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+
 """
 
 from typing import List, Optional, Tuple
@@ -32,7 +36,7 @@ def _prepare_hessian(
     m: int,
     device: torch.device,
 ) -> Optional[torch.Tensor]:
-    """Hessianの前処理（対称化）"""
+    """Preprocess the Hessian (symmetrize)"""
     if H is None or H.shape != (m, m):
         return None
     H_float = ensure_float32(H, device)
@@ -50,36 +54,36 @@ def refine_amplitude_gradient(
     nsamples: int = 1,
 ) -> Tuple[List[MSVIDParams], torch.Tensor]:
     """
-    振幅パラメータを勾配法で最適化（Phase 3）
+    Optimize amplitude parameters using gradient-based methods (Phase 3)
 
-    符号行列 (A_sign, B_sign) を固定し,
-    振幅パラメータ (A_amp, B_amp, Q_U_amp, Q_V_amp) を勾配法で最適化する.
+    Fix the sign matrices (A_sign, B_sign) and optimize the amplitude
+    parameters (A_amp, B_amp, Q_U_amp, Q_V_amp) using gradient-based methods.
 
     Args:
-        W_original: 元の重み行列 (n, m)
-        params_list: MSVIDパラメータのリスト（Pパス分）
-        l: Multi-scaleランク
-        lr: 学習率
-        iters: 最適化反復回数
-        activation_aware: Hessian重み付き誤差を最小化
-        H: Hessian行列 (m, m) = X^T @ X / N
-        nsamples: サンプル数 N
+        W_original: Original weight matrix (n, m)
+        params_list: List of MSVID parameters (for P paths)
+        l: Multi-scale rank
+        lr: Learning rate
+        iters: Number of optimization iterations
+        activation_aware: Minimize Hessian-weighted error
+        H: Hessian matrix (m, m) = X^T @ X / N
+        nsamples: Number of samples N
 
     Returns:
-        optimized_params: 最適化されたMSVIDパラメータ
-        W_recon: 再構成された重み
+        optimized_params: Optimized MSVID parameters
+        W_recon: Reconstructed weight matrix
     """
     device = W_original.device
     dtype = W_original.dtype
     n, m = W_original.shape
     P = len(params_list)
 
-    # Activation-aware: P=1のみ対応
+    # Activation-aware: P=1 only supported
     if activation_aware and P != 1:
         logger.warning("[Gradient Refine] activation_aware=True but P!=1; fallback to non-aware.")
         activation_aware = False
 
-    # Hessianの準備
+    # Prepare Hessian
     H_float = None
     H_for_display = None
 
@@ -95,14 +99,14 @@ def refine_amplitude_gradient(
     W_float = ensure_float32(W_original)
     orig_norm = torch.norm(W_float, p='fro').item() + 1e-12
 
-    # 出力誤差の正規化定数
+    # Normalization constant for output error
     H_for_err = H_float if H_float is not None else H_for_display
     orig_output_err = None
     if H_for_err is not None:
         WH = W_float @ H_for_err
         orig_output_err = (nsamples * torch.sum(WH * W_float)).item() + 1e-12
 
-    # 初期誤差
+    # Initial error
     W_init_recon = torch.zeros(n, m, device=device, dtype=torch.float32)
     for p in params_list:
         W_p = reconstruct_weight(
@@ -136,7 +140,7 @@ def refine_amplitude_gradient(
 
     del W_init_recon, E_init
 
-    # パラメータ準備
+    # Prepare parameters
     amp_params = []
     sign_params = []
 
@@ -161,12 +165,12 @@ def refine_amplitude_gradient(
     best_error = init_error
     best_amp_params = None
 
-    # 勾配最適化ループ
+    # Gradient optimization loop
     with torch.enable_grad():
         for itt in range(iters):
             optimizer.zero_grad()
 
-            # 再構成
+            # Reconstruction
             W_parts = []
             for p_idx in range(P):
                 A_sign, B_sign = sign_params[p_idx]
@@ -181,7 +185,7 @@ def refine_amplitude_gradient(
             W_recon = sum(W_parts)
             E = W_float - W_recon
 
-            # 損失計算
+            # Compute loss
             if activation_aware:
                 EH = E @ H_float
                 loss = float(nsamples) * (EH * E).sum()
@@ -218,11 +222,11 @@ def refine_amplitude_gradient(
                     logger.debug(f"[Gradient Refine] Step {itt:3d}: weight_error = {current_error**.5:.4e} "
                                  f"(rel: {current_error**.5/orig_norm:.4f}), lr={current_lr:.2e}")
 
-    # ベストパラメータ復元
+    # Restore best parameters
     if best_amp_params is not None:
         amp_params = best_amp_params
 
-    # MSVIDParams構築
+    # Construct MSVIDParams
     optimized_params = []
     for p_idx in range(P):
         A_sign, B_sign = sign_params[p_idx]
@@ -238,7 +242,7 @@ def refine_amplitude_gradient(
         )
         optimized_params.append(params)
 
-    # 最終再構成
+    # Final reconstruction
     W_recon_final = torch.zeros(n, m, device=device, dtype=torch.float32)
     for p in optimized_params:
         W_p = reconstruct_weight(
@@ -276,7 +280,7 @@ def refine_amplitude_gradient(
                      f"(rel: {final_weight_error/orig_norm:.4f})")
         logger.debug(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
 
-    # クリーンアップ
+    # Cleanup
     del W_float, E_final
     if H_float is not None:
         del H_float
