@@ -34,7 +34,7 @@ class TestJointQ(BaseQuantizeSpec):
     quantizer_cls = JointQ if HAS_JOINTQ else None
     result_cls = QuantizationResult
     default_parameter_for_test = {
-        "bits": 1,
+        "bits": 2,
         "symmetric": False,
         "group_size": 1,
         "batch_size": 1,
@@ -205,6 +205,3 @@ class TestJointQ(BaseQuantizeSpec):
         result = q.quantize_layer(layer, inp, hessian=hessian)
         self.check_quantize_layer(result, layer)
 
-    def test_forward_error(self, helper):
-        """Skip forward error test (no inference layer support)."""
-        pytest.skip("JointQ does not support create_inference_layer")

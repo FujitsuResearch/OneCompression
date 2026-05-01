@@ -122,7 +122,7 @@ class TestRTN(BaseQuantizeSpec):
 
     def check_equal_results(self, r1, r2):
         """Validate equality of quantization result objects."""
-        assert torch.equal(r1.dequantized_weight, r2.dequantized_weight)
+        assert torch.equal(r1.compute_dequantized_weight(), r2.compute_dequantized_weight())
         assert torch.equal(r1.quantized_weight, r2.quantized_weight)
         assert torch.equal(r1.scale, r2.scale)
         assert torch.equal(r1.zero, r2.zero)
@@ -153,8 +153,5 @@ class TestRTN(BaseQuantizeSpec):
 
     def apply_quantized_weights(self, module, result, device):
         """Apply quantized weights to a module."""
-        module.weight.data = result.dequantized_weight.to(device)
-
-    def test_forward_error(self, helper):
-        """Skip forward error test (no inference layer support)."""
-        pytest.skip("RTN does not support create_inference_layer")
+        dtype = module.weight.data.dtype
+        module.weight.data = result.compute_dequantized_weight().to(device).to(dtype)
