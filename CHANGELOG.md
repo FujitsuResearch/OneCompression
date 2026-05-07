@@ -1,5 +1,7 @@
 # Change log
 
+## [v1.1.1] 2026-05-07
+
 ## [v1.1.0] 2026-04-16
 
 ### Gemma 3 / Gemma 4 & VLM Support
