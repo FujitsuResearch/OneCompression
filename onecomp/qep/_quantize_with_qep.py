@@ -61,6 +61,7 @@ def run_quantize_with_qep(
         tokenizer=tokenizer,
         device=input_device,
         calibration_config=calibration_config,
+        model=model,
         logger=logger,
     )
 

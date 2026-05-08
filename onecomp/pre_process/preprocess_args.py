@@ -18,6 +18,9 @@ class TrainingArguments(transformers.TrainingArguments):
 
     Extends ``transformers.TrainingArguments`` with ``SGDG``-specific learning
     rates and momentum values consumed by ``_PreprocessTrainer``.
+    Also overrides several inherited defaults (e.g. ``max_steps=800``,
+    ``gradient_checkpointing=True``, ``save_strategy="no"``); see the
+    class body for the full list of preprocess-specific defaults.
 
     Attributes:
         rotation_lr: Learning rate for 2-D rotation (Stiefel) parameters.
@@ -40,6 +43,7 @@ class TrainingArguments(transformers.TrainingArguments):
     seed: int = field(default=42)
     max_steps: int = field(default=800)
     per_device_train_batch_size: int = field(default=1)
+    gradient_accumulation_steps: int = field(default=1)
     gradient_checkpointing: bool = field(default=True)
     weight_decay: float = field(default=0.0)
     lr_scheduler_type: str = field(default="cosine")

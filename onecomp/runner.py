@@ -7,6 +7,7 @@ Author: Keiji Kimura
 """
 
 # pylint: disable=too-many-arguments, too-many-positional-arguments
+import copy
 import math
 import gc
 import json
@@ -22,6 +23,7 @@ from .__version__ import __version__
 from .calibration import CalibrationConfig, prepare_calibration_dataset
 from .model_config import ModelConfig
 from .qep import QEPConfig
+from .lpcd import LPCDConfig
 from .quantizer import GPTQ, Quantizer
 from .quantizer.autobit import AutoBitQuantizer
 from .utils import calculate_accuracy as calc_accuracy
@@ -79,6 +81,8 @@ class Runner:
         calibration_config=None,
         qep=False,
         qep_config=None,
+        lpcd=False,
+        lpcd_config=None,
         multi_gpu=False,
         gpu_ids=None,
         post_processes=None,
@@ -109,6 +113,11 @@ class Runner:
             qep_config (QEPConfig or None):
                 Configuration for QEP. If None and ``qep=True``,
                 a default ``QEPConfig()`` is used.
+            lpcd (bool):
+                Whether to use LPCD.
+            lpcd_config (LPCDConfig or None):
+                Configuration for LPCD. If None and ``lpcd=True``,
+                a default ``LPCDConfig()`` is used.
             multi_gpu (bool):
                 Whether to use multi-GPU for layer-wise parallel quantization.
                 Default is False.
@@ -200,8 +209,12 @@ class Runner:
         self.gpu_ids = gpu_ids
         self.post_processes = post_processes or []
         self.quantized_model = None
+        self.qep_config = None
         if qep:
             self.qep_config = qep_config if qep_config is not None else QEPConfig()
+        self.lpcd_config = None
+        if lpcd:
+            self.lpcd_config = lpcd_config if lpcd_config is not None else LPCDConfig()
 
     def check(self):
         """Check the settings
@@ -292,6 +305,44 @@ class Runner:
                     f"CalibrationConfig objects."
                 )
 
+    def _exclude_moe_router_if_needed(self):
+        """Exclude MoE router layers from quantization.
+
+        vLLM's GateLinear (used for MoE routing) hardcodes
+        quant_config=None, so router weights must stay unquantized.
+        """
+        config = self.model_config.load_config()
+        num_experts = (
+            getattr(config, "num_experts", 0)
+            or getattr(
+                getattr(config, "text_config", None), "num_experts", 0
+            ) or 
+            0
+        )
+        if num_experts == 0:
+            return
+
+        keyword = "router"
+        target_quantizers = (
+            self.quantizers
+            if self.quantizers is not None
+            else [self.quantizer]
+        )
+        for q in target_quantizers:
+            if q.exclude_layer_keywords is None:
+                q.exclude_layer_keywords = [keyword]
+            elif keyword not in q.exclude_layer_keywords:
+                q.exclude_layer_keywords = list(q.exclude_layer_keywords) + [
+                    keyword
+                ]
+
+        self.logger.info(
+            "MoE model (num_experts=%d): excluding '%s' layers from "
+            "quantization (vLLM GateLinear does not support quantization)",
+            num_experts,
+            keyword,
+        )
+
     def run(self):
         """Execute quantization (and related) processing"""
 
@@ -304,8 +355,12 @@ class Runner:
 
         logger.info("Checking the settings...")
         self.check()
+        self._exclude_moe_router_if_needed()
 
-        if self.qep:
+        if self.lpcd_config is not None:
+            logger.info("Start quantization with LPCD")
+            self.quantize_with_lpcd()
+        elif self.qep:
             logger.info("Start quantization with error propagation (QEP)")
             self.quantize_with_qep()
         else:
@@ -441,23 +496,47 @@ class Runner:
                 result.total_vram_gb,
             )
 
-        if save_dir == "auto":
-            model_name = model_id.rstrip("/").split("/")[-1]
-            save_dir = f"{model_name}-autobit-{wbits}bit"
-
-        from .quantizer.autobit import AutoBitQuantizer
-
+        _id_lower = model_id.lower()
+        is_gemma4 = any(key in _id_lower for key in ("gemma-4", "gemma4", "gemma_4"))
         model_config = ModelConfig(model_id=model_id, device=device)
-        candidate_quantizers = [
-            GPTQ(wbits=b, groupsize=groupsize, **kwargs) for b in candidate_bits
-        ]
-        quantizer = AutoBitQuantizer(
-            assignment_strategy="activation_aware",
-            quantizers=candidate_quantizers,
-            target_bit=wbits,
-            save_path=save_dir if save_dir is not None else None,
-            enable_fused_groups=True,
-        )
+
+        if is_gemma4:
+            valid_wbits = [b for b in candidate_bits if b <= wbits]
+            if not valid_wbits:
+                raise ValueError(
+                    f"target wbits={wbits:.2f} is below all candidate "
+                    f"bit-widths {candidate_bits}; cannot select a "
+                    f"uniform GPTQ configuration for Gemma 4"
+                )
+            uniform_bit = max(valid_wbits)
+            if save_dir == "auto":
+                model_name = model_id.rstrip("/").split("/")[-1]
+                save_dir = (
+                    f"{model_name}-gptq-{uniform_bit}bit"
+                )
+            logger.warning(
+                "Gemma 4 detected → falling back to uniform GPTQ %d-bit "
+                "(target wbits=%.2f)",
+                uniform_bit,
+                wbits,
+            )
+            quantizer = GPTQ(wbits=uniform_bit, groupsize=groupsize, **kwargs)
+        else:
+            if save_dir == "auto":
+                model_name = model_id.rstrip("/").split("/")[-1]
+                save_dir = f"{model_name}-autobit-{wbits}bit"
+
+            from .quantizer.autobit import AutoBitQuantizer
+            candidate_quantizers = [
+                GPTQ(wbits=b, groupsize=groupsize, **kwargs) for b in candidate_bits
+            ]
+            quantizer = AutoBitQuantizer(
+                assignment_strategy="activation_aware",
+                quantizers=candidate_quantizers,
+                target_bit=wbits,
+                save_path=save_dir if save_dir is not None else None,
+                enable_fused_groups=True,
+            )
         runner = cls(model_config=model_config, quantizer=quantizer, qep=qep)
         runner.run()
 
@@ -509,7 +588,7 @@ class Runner:
         model = self.model_config.load_model()
         logger = self.logger
         input_device = next(model.parameters()).device
-        inputs = self.prepare_calibration_dataset(input_device)
+        inputs = self.prepare_calibration_dataset(input_device, model=model)
 
         # Setup the quantizer
         self.quantizer.setup(model)
@@ -648,6 +727,20 @@ class Runner:
 
             run_quantize_with_qep_arch(**kwargs)
 
+    def quantize_with_lpcd(self):
+        """Quantize the model with LPCD"""
+        # Lazy import: load submodule only when needed
+        # pylint: disable-next=import-outside-toplevel
+        from .lpcd._lpcd_runner import run_quantize_with_lpcd
+
+        run_quantize_with_lpcd(
+            model_config=self.model_config,
+            quantizer=self.quantizer,
+            qep_config=self.qep_config,
+            lpcd_config=self.lpcd_config,
+            calibration_config=self.calibration_config,
+        )
+
     def quantize_with_jointq_error_propagation(
         self,
         max_layers=None,
@@ -704,7 +797,7 @@ class Runner:
         model = self.model_config.load_model()
         logger = self.logger
         input_device = next(model.parameters()).device
-        inputs = self.prepare_calibration_dataset(input_device)
+        inputs = self.prepare_calibration_dataset(input_device, model=model)
 
         run_jointq_error_propagation(
             model=model,
@@ -759,13 +852,15 @@ class Runner:
 
         self.quantized_model = quantized_model
 
-    def prepare_calibration_dataset(self, device):
+    def prepare_calibration_dataset(self, device, model=None):
         """Prepare calibration data for quantization methods such as GPTQ.
 
         See calibration.calibration_data_loader.prepare_calibration_dataset for details.
 
         Args:
             device (torch.device): Device to place tensors on (CPU or GPU)
+            model: Model instance (optional). Add model-specific fields 
+            (e.g. mm_token_type_ids for Gemma 4).
 
         Returns:
             dict: Input dictionary for the model
@@ -779,6 +874,7 @@ class Runner:
             device=device,
             calibration_config=self.calibration_config,
             logger=self.logger,
+            model=model,
         )
 
     def print_quantization_results(self, quantizer=None):
@@ -888,15 +984,7 @@ class Runner:
         logger.info("Saving the quantization statistics to %s", path)
 
         statistics = {
-            key: {
-                "quantization_time": result.quantization_time,
-                "output_squared_error": result.output_squared_error,
-                "mean_output_squared_error": result.mean_output_squared_error,
-                "weight_squared_error": result.weight_squared_error,
-                "mean_weight_squared_error": result.mean_weight_squared_error,
-                "relative_output_squared_error": result.relative_output_squared_error,
-                "relative_weight_squared_error": result.relative_weight_squared_error,
-            }
+            key: result.get_statistics()
             for key, result in quantizer.results.items()
         }
 
@@ -1521,6 +1609,12 @@ class Runner:
         model = self.model_config.load_model(device_map="cpu")
         tokenizer = self.model_config.load_tokenizer()
 
+        # Unfuse MoE experts so per-expert result keys can be resolved
+        from .utils.unfuse_moe import unfuse_moe_experts
+
+        if unfuse_moe_experts(model, self.logger):
+            self.logger.info("Unfused MoE expert tensors for quantized model save")
+
         # Replace Linear layers with quantized layers using quantizer.results
         self.logger.info("Replacing Linear layers with quantized inference layers...")
         quantizer.apply_results_to_model(model, pack_weights=pack_weights, use_gemlite=use_gemlite)
@@ -1564,10 +1658,105 @@ class Runner:
         quant_config["rotated"] = self.model_config.has_additional_data()
         quant_config["fp32_had"] = fp32_had
 
+        # MoE expert layers are not nn.Linear but fused3d tensors and are skipped by the
+        # quantizer.  vLLM's built-in "gptq" handler still assumes them
+        # GPTQ-quantized.  "mixed_gptq" returns None
+        # and passes the weights to UnquantizedFusedMoEMethod.
+        # cf) https://docs.vllm.ai/en/stable/features/quantization/#implementing-a-quantized-moe-method
+        num_experts = (
+            getattr(model.config, "num_experts", None)
+            or getattr(
+                getattr(model.config, "text_config", None), "num_experts", None
+            )
+            or 0
+        )
+        if (
+            quant_config.get("quant_method") == "gptq"
+            and num_experts > 0
+        ):
+            quant_config["quant_method"] = "mixed_gptq"
+            self.logger.info(
+                "MoE model detected (num_experts=%d): "
+                "switching quant_method to mixed_gptq for vLLM compatibility",
+                num_experts,
+            )
+
+        # Patch weights and quant config for architectures with shared
+        # K/V projections (e.g. Gemma4 attention_k_eq_v) so that vLLM's
+        # fused qkv_proj consistency check passes.
+        self._patch_k_eq_v_for_vllm(model, quant_config)
+
         # Add quantization config to model config
         model.config.quantization_config = quant_config
 
         return model, tokenizer
+
+    def _patch_k_eq_v_for_vllm(self, model, quant_config: dict) -> None:
+        """Add synthetic v_proj weights and config for attention_k_eq_v layers.
+
+        Gemma4 full-attention layers with attention_k_eq_v=True have no
+        v_proj weight — the model reuses key states as value states.
+        vLLM fuses q/k/v into a single qkv_proj and requires all shards
+        to share the same quantization status.  
+        """
+        text_cfg = getattr(model.config, "text_config", None)
+        if text_cfg is None or not getattr(text_cfg, "attention_k_eq_v", False):
+            return
+        layer_types = getattr(text_cfg, "layer_types", [])
+        k_eq_v_indices = {
+            i for i, lt in enumerate(layer_types) if lt == "full_attention"
+        }
+        if not k_eq_v_indices:
+            return
+
+        # (1) Model weights: duplicate k_proj → v_proj
+        layers = None
+        for name, mod in model.named_modules():
+            if name.endswith("language_model.layers"):
+                layers = mod
+                break
+
+        if layers is not None:
+            weight_count = 0
+            for idx in sorted(k_eq_v_indices):
+                if idx >= len(layers):
+                    continue
+                attn = getattr(layers[idx], "self_attn", None)
+                if attn is None:
+                    continue
+                k_proj = getattr(attn, "k_proj", None)
+                if k_proj is None or getattr(attn, "v_proj", None) is not None:
+                    continue
+                attn.v_proj = copy.deepcopy(k_proj)
+                weight_count += 1
+            if weight_count:
+                self.logger.info(
+                    "Added v_proj weights (copied from k_proj) to %d "
+                    "attention_k_eq_v layers for vLLM compatibility",
+                    weight_count,
+                )
+
+        # (2) Quant config: add v_proj entries cloned from k_proj
+        for idx, layer_cfg in enumerate(quant_config.get("quantization_bits", [])):
+            if (
+                idx in k_eq_v_indices
+                and "self_attn.k_proj" in layer_cfg
+                and "self_attn.v_proj" not in layer_cfg
+            ):
+                layer_cfg["self_attn.v_proj"] = copy.deepcopy(
+                    layer_cfg["self_attn.k_proj"]
+                )
+
+        for key in ("modules_in_block_to_quantize", "quantized_layer_names"):
+            names = quant_config.get(key, [])
+            added = [
+                f"model.language_model.layers.{idx}.self_attn.v_proj"
+                for idx in k_eq_v_indices
+                if f"model.language_model.layers.{idx}.self_attn.k_proj" in names
+                and f"model.language_model.layers.{idx}.self_attn.v_proj" not in names
+            ]
+            if added:
+                quant_config[key] = sorted(names + added)
 
     # ========================================
     # Unified Save/Load Methods (Using quantizer.results)
@@ -1738,6 +1927,33 @@ class Runner:
 
         model.save_pretrained(save_directory)
         tokenizer.save_pretrained(save_directory)
+
+        # Gemma 4 PT models require BOS token for coherent generation but the
+        # upstream tokenizer_config.json omits add_bos_token.  Ensure it is
+        # set so that vLLM (and other runtimes) prepend <bos> automatically.
+        # See: https://github.com/vllm-project/vllm/issues/39827
+        tc_path = Path(save_directory) / "tokenizer_config.json"
+        if tc_path.exists():
+            tc = json.loads(tc_path.read_text())
+            if "add_bos_token" not in tc and tc.get("bos_token"):
+                tc["add_bos_token"] = True
+                tc_path.write_text(json.dumps(tc, indent=2, ensure_ascii=False) + "\n")
+                logger.info("Set add_bos_token=true in tokenizer_config.json")
+
+        # Copy processor config from original model (for VLMs with image/audio support)
+        import shutil
+
+        src_dir = self.model_config.get_model_id_or_path()
+        if src_dir and not os.path.isdir(src_dir):
+            # when the model_id is specified, the path is modifed to the local directory
+            from huggingface_hub import snapshot_download
+            src_dir = snapshot_download(src_dir, local_files_only=True)
+        if src_dir and os.path.isdir(src_dir):
+            for fname in ("processor_config.json", "preprocessor_config.json"):
+                src = os.path.join(src_dir, fname)
+                if os.path.isfile(src):
+                    shutil.copy2(src, save_directory)
+                    logger.info("Copied %s to save directory", fname)
 
         # LoRA sidecar (only if self.quantized_model contains LoRAGPTQLinear).
         wrote_adapter = self._save_lora_adapter_sidecar(save_directory)
@@ -1910,7 +2126,7 @@ class Runner:
 
             model = self.model_config.load_model()
             input_device = next(model.parameters()).device
-            inputs = self.prepare_calibration_dataset(input_device)
+            inputs = self.prepare_calibration_dataset(input_device, model=model)
 
             combined_results = _analyze(model, inputs, quantizer.results, layer_keywords)
 
@@ -1934,7 +2150,7 @@ class Runner:
 
                 model = self.model_config.load_model()
                 input_device = next(model.parameters()).device
-                inputs = self.prepare_calibration_dataset(input_device)
+                inputs = self.prepare_calibration_dataset(input_device, model=model)
 
                 keyword_results = _analyze(model, inputs, quantizer.results, [keyword])
                 all_results[keyword] = {

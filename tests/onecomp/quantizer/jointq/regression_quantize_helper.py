@@ -48,7 +48,7 @@ DEFAULT_EXPECTED_PATH = DATA_DIR / "quantize_regression_expected.pth"
 # Update this value when the quantization algorithm is intentionally changed
 # or when the baseline data is regenerated.
 # Generated with: bits=4, symmetric=False, group_size=128, batch_size=2048
-EXPECTED_MSE = 9.347182519352819e-06
+EXPECTED_MSE = 9.127208860704012e-06
 
 
 def run_quantize(data_path, device_id=0):

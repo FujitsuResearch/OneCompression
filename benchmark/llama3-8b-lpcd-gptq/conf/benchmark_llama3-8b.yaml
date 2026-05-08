@@ -1,0 +1,56 @@
+model_path: null
+model_device: cuda:0
+
+# Task ID (selects bits × group_size combination; used with SLURM array jobs)
+task_id: 0
+
+# Output directory
+output_dir: llama3-8b
+
+# Calibration data parameters
+max_length: 2048
+num_calibration_samples: 1024
+calibration_strategy: drop_rand
+calibration_seed: 0
+
+# GPTQ parameters
+gptq:
+  num_layers: null
+  bits: [4, 3]
+  group_size: 128
+  symmetric: true
+  blocksize: 128
+  percdamp: 0.01
+  actorder: false
+  mse: false
+  q_grid: 600
+  q_norm: 2.4
+
+# QEP parameters
+qep:
+  percdamp: 0.01
+  perccorr: 0.5
+
+# LPCD parameters
+lpcd:
+  percdamp: 0.01
+  perccorr: 0.5
+  alt_steps: 1
+  use_closed_form: true
+  gd_steps: 20
+  gd_batch_size: 16
+  gd_base_lr: 1e-4
+
+
+# Evaluation
+calc_ppl: true
+calc_original_ppl: true
+calc_acc: true
+calc_original_acc: true
+
+# Hydra
+hydra:
+  run:
+    dir: ${output_dir}
+  job:
+    chdir: true

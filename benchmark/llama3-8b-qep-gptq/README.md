@@ -1,6 +1,6 @@
 # Llama-3-8B QEP+GPTQ Benchmark
 
-QEP (Quantization Error Propagation) + GPTQ benchmark for [Meta-Llama-3-8B](https://huggingface.co/meta-llama/Meta-Llama-3-8B) using OneComp v0.3.7.
+QEP (Quantization Error Propagation) + GPTQ benchmark for [Meta-Llama-3-8B](https://huggingface.co/meta-llama/Meta-Llama-3-8B) using OneComp v1.1.0.
 
 QEP only supports a single quantizer per run, so each `bits × group_size` combination is launched as a separate SLURM array task.
 
@@ -36,7 +36,7 @@ This produces **4 array tasks** (2 bits × 2 group sizes), each with QEP enabled
 - Perplexity (WikiText-2)
 - Accuracy (lm-eval-harness)
 
-Each task evaluates its own quantized model. Original model metrics are computed only in task 0.
+Each task evaluates its own dequantized model. Original model metrics are computed only in task 0.
 
 ## Usage
 
@@ -62,38 +62,17 @@ python quant_benchmark.py model_path=/path/to/model task_id=0 num_calibration_sa
 
 ## Results
 
-### Perplexity (WikiText-2, ↓ lower is better)
+PPL = perplexity on WikiText-2 (↓ lower is better). Accuracy = 0-shot `acc_norm` where available, `acc` otherwise (winogrande) (↑ higher is better).
 
-| Model | bits | group_size | PPL |
-|---|---|---|---|
-| Original | — | — | 6.14 |
-| QEP+GPTQ | 4 | 128 | 6.66 |
-| QEP+GPTQ | 4 | per-channel | 7.67 |
-| QEP+GPTQ | 3 | 128 | 8.95 |
-| QEP+GPTQ | 3 | per-channel | 17.93 |
+| bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|---|
+| — (Original) | — | 6.14 | 0.5410 | 0.7757 | 0.8058 | 0.7372 | — |
+| 4 | 128 | 6.64 | 0.5085 | 0.7904 | 0.7938 | 0.7238 | 248.3 |
+| 4 | per-channel | 7.70 | 0.5077 | 0.7694 | 0.7840 | 0.7269 | 264.1 |
+| 3 | 128 | 8.82 | 0.4275 | 0.6684 | 0.7644 | 0.7190 | 271.8 |
+| 3 | per-channel | 17.73 | 0.2841 | 0.4710 | 0.6844 | 0.6409 | 261.0 |
 
-### Accuracy (0-shot, ↑ higher is better)
-
-Values are `acc_norm` where available, `acc` otherwise (winogrande).
-
-| Model | bits | group_size | ARC-c | ARC-e | PIQA | WinoGrande |
-|---|---|---|---|---|---|---|
-| Original | — | — | 0.5401 | 0.7761 | 0.8063 | 0.7380 |
-| QEP+GPTQ | 4 | 128 | 0.5265 | 0.7942 | 0.7916 | 0.7293 |
-| QEP+GPTQ | 4 | per-channel | 0.4957 | 0.7542 | 0.7758 | 0.7269 |
-| QEP+GPTQ | 3 | 128 | 0.4352 | 0.6498 | 0.7546 | 0.6946 |
-| QEP+GPTQ | 3 | per-channel | 0.2688 | 0.4184 | 0.6806 | 0.6156 |
-
-### Quantization Time
-
-| Model | bits | group_size | Time (s) |
-|---|---|---|---|
-| QEP+GPTQ | 4 | 128 | 300.7 |
-| QEP+GPTQ | 4 | per-channel | 297.7 |
-| QEP+GPTQ | 3 | 128 | 272.7 |
-| QEP+GPTQ | 3 | per-channel | 292.7 |
-
-Each task's total elapsed time (including calibration data preparation and QEP error propagation) was approximately 2900–3300 s (~49–55 min).
+Each task's total elapsed time (including calibration data preparation and QEP error propagation) was approximately 2900–3020 s (~48–50 min).
 
 ## Environment
 

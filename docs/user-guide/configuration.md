@@ -43,6 +43,7 @@ runner = Runner(
     quantizer=quantizer,
     calibration_config=calib_config,
     qep=False,
+    lpcd=False,
 )
 ```
 
@@ -56,6 +57,8 @@ runner = Runner(
 | `calibration_config`        | `CalibrationConfig` | Calibration data configuration                   | `None` (auto)    |
 | `qep`                       | `bool`              | Enable QEP                                       | `False`          |
 | `qep_config`                | `QEPConfig`         | QEP configuration                                | `None`           |
+| `lpcd`                      | `bool`              | Enable LPCD                                      | `False`          |
+| `lpcd_config`               | `LPCDConfig`        | LPCD configuration                               | `None`           |
 
 ### Advanced Parameters
 
@@ -150,6 +153,47 @@ qep_config = QEPConfig(
 
 !!! tip
     The default `general=False` uses the architecture-aware implementation, which is faster because it exploits shared activations (e.g., QKV layers sharing the same input in Llama-like models).
+
+## LPCDConfig
+
+`LPCDConfig` controls Layer-Projected Coordinate Descent (LPCD) refinement.
+
+```python
+from onecomp import LPCDConfig
+
+lpcd_config = LPCDConfig(
+    enable_residual=True,
+    percdamp=0.01,
+    perccorr=0.5,
+    use_closed_form=True,
+    device="cuda:0",
+)
+```
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `enable_qk` | `bool` | Jointly refine `q_proj` / `k_proj` | `False` |
+| `enable_vo` | `bool` | Jointly refine `v_proj` / `o_proj` | `False` |
+| `enable_ud` | `bool` | Jointly refine `up_proj` / `down_proj` | `False` |
+| `enable_residual` | `bool` | Refine residual-path modules (`o_proj`, `down_proj`) | `True` |
+| `alt_steps` | `int` | Alternating coordinate-descent steps | `1` |
+| `percdamp` | `float` | Damping percentage for Hessian regularization | `0.01` |
+| `perccorr` | `float` | Correction percentage for relaxed weights | `0.5` |
+| `use_closed_form` | `bool` | Use closed-form solvers where available | `True` |
+| `gd_steps` | `int` | Gradient-descent steps per sub-problem | `20` |
+| `gd_batch_size` | `int` | Effective batch size for gradient accumulation | `16` |
+| `gd_base_lr` | `float` | Base learning rate for gradient solver | `1e-4` |
+| `device` | `str` | Device for LPCD computation | `"cuda:0"` |
+
+!!! tip
+    `LPCDConfig()` defaults to residual-only refinement, which is the fastest
+    way to get started. Enable `enable_qk`, `enable_vo`, and `enable_ud` for
+    broader submodule refinement.
+
+!!! note
+    When combining LPCD with QEP, use the architecture-aware QEP path
+    (`QEPConfig(general=False)`). The current LPCD implementation does not
+    support `QEPConfig(general=True)`.
 
 ## Quantizer Common Parameters
 

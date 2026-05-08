@@ -88,7 +88,7 @@ class PreprocessManager:
         config: ``model.config`` of the target model.
         rotation: Whether to generate rotation matrices.
         scaling: Whether to generate scaling vectors.
-        rotation_mode: ``"random"`` | ``"identity"``.
+        rotation_mode: ``"random_hadamard"`` | ``"hadamard"`` | ``"random"`` | ``"identity"``.
         scaling_mode: ``"identity"`` | ``"random_ones"`` | ``"random"``.
         seed: Random seed for tensor generation.
         dev: Device for intermediate computation.
@@ -100,7 +100,7 @@ class PreprocessManager:
         *,
         rotation=True,
         scaling=False,
-        rotation_mode="random",
+        rotation_mode="random_hadamard",
         scaling_mode="identity",
         seed=0,
         dev="cpu",
@@ -182,9 +182,16 @@ class PreprocessManager:
                 ``head_dim``).
 
         Returns:
-            torch.Tensor: ``(size, size)`` float64 orthogonal matrix. In
-            ``"random"`` mode, QR factorization of a Gaussian on ``self.dev``,
-            returned on CPU; in ``"identity"`` mode, the identity matrix.
+            torch.Tensor: ``(size, size)`` float64 orthogonal matrix on CPU.
+
+            - ``"random_hadamard"``: Randomised Hadamard matrix
+              ``diag(±1) @ H / sqrt(n)`` where ``H`` is the composite
+              Hadamard from ``get_hadK``.
+            - ``"hadamard"``: Deterministic normalised Hadamard matrix
+              ``H / sqrt(n)``.
+            - ``"random"``: QR factorisation of a random Gaussian matrix
+              on ``self.dev``.
+            - ``"identity"``: Identity matrix (no rotation).
         """
         mode = self.rotation_mode
         if mode == "random":
@@ -194,6 +201,20 @@ class PreprocessManager:
             return q.cpu()
         if mode == "identity":
             return torch.eye(size, dtype=torch.float64)
+        if mode == "hadamard":
+            from .hadamard_utils import get_hadK, matmul_hadU_cuda
+
+            hadK, K = get_hadK(size)
+            I = torch.eye(size, dtype=torch.float64, device=self.dev)
+            return matmul_hadU_cuda(I, hadK, K).cpu()
+        if mode == "random_hadamard":
+            from .hadamard_utils import get_hadK, matmul_hadU_cuda
+
+            hadK, K = get_hadK(size)
+            R = torch.randint(low=0, high=2, size=(size,), dtype=torch.float64, device=self.dev)
+            R = R * 2 - 1
+            R = torch.diag(R)
+            return matmul_hadU_cuda(R, hadK, K).cpu()
         raise ValueError(f"Unknown rotation_mode: {mode}")
 
     def _scale(self, size):
@@ -357,20 +378,39 @@ def _register_preprocess_modules(model, manager):
     cleanup_memory()
 
 
-def _insert_weight_quantizer(model, wbits=4, sym=False, groupsize=-1):
+def _insert_weight_quantizer(
+    model,
+    wbits=4,
+    sym=False,
+    groupsize=-1,
+    mse=False,
+    norm=2.4,
+    grid=100,
+):
     """Install RTN-style ``WeightQuantizer`` on every ``QuantLinear`` in decoder layers.
 
     Args:
         model: Quant causal LM whose layers contain ``QuantLinear`` submodules.
-        wbits: Bit width forwarded to ``WeightQuantizer.configure``.
+        wbits: Bit width forwarded to ``WeightQuantizer.configure`` (default: 4).
         sym: Whether to use symmetric quantization in the proxy.
-        groupsize: Weight group size for the proxy (-1 to disable grouping).
+        groupsize: Weight group size for the proxy (default: -1, no grouping).
+        mse: Enable MSE grid search for optimal clipping.
+        norm: Lp norm exponent for MSE search (default: 2.4).
+        grid: Number of candidate shrink levels for MSE search (default: 100).
     """
     for layer in model.model.layers:
         subset = find_linear_layers(layer, layers=[QuantLinear])
         for name, mod in subset.items():
             wq = WeightQuantizer()
-            wq.configure(wbits, perchannel=True, sym=sym, weight_groupsize=groupsize)
+            wq.configure(
+                wbits,
+                perchannel=True,
+                sym=sym,
+                weight_groupsize=groupsize,
+                mse=mse,
+                norm=norm,
+                grid=grid,
+            )
             mod.quantizer = wq
     cleanup_memory()
 
@@ -463,6 +503,9 @@ def apply_preprocess_train(
     wbits=4,
     sym=False,
     groupsize=-1,
+    mse=False,
+    norm=2.4,
+    grid=100,
     use_sdpa=False,
     fp32_had=False,
     training_args_override=None,
@@ -476,10 +519,14 @@ def apply_preprocess_train(
         model_path: Model id or path (for ``from_pretrained``).
         tokenizer: Tokenizer (from ``ModelConfig.load_tokenizer()``).
         calibration_inputs: Output of ``prepare_calibration_dataset``
-            (dict with ``"input_ids"`` tensor of shape ``(N, seqlen)``).
-        wbits: RTN proxy bit-width.
+            (dict with ``"input_ids"`` and ``"attention_mask"`` tensors
+            of shape ``(N, seqlen)``).
+        wbits: RTN proxy bit-width (default: 4).
         sym: Symmetric quantisation for RTN proxy.
-        groupsize: Group size for RTN proxy.
+        groupsize: Group size for RTN proxy (default: -1).
+        mse: Enable MSE grid search for optimal clipping in the proxy.
+        norm: Lp norm exponent for MSE search (default: 2.4).
+        grid: Number of candidate shrink levels for MSE search (default: 100).
         use_sdpa: Use SDPA attention during training.
         fp32_had: FP32 online Hadamard.
         training_args_override: Override ``TrainingArguments`` fields.
@@ -503,7 +550,15 @@ def apply_preprocess_train(
         cleanup_memory()
 
         logger.info("Step 5/6: Inserting weight quantizers ...")
-        _insert_weight_quantizer(quant_model, wbits=wbits, sym=sym, groupsize=groupsize)
+        _insert_weight_quantizer(
+            quant_model,
+            wbits=wbits,
+            sym=sym,
+            groupsize=groupsize,
+            mse=mse,
+            norm=norm,
+            grid=grid,
+        )
 
         logger.info("Step 6/6: Preparing trainer ...")
         for p in quant_model.parameters():
@@ -542,12 +597,15 @@ def apply_preprocess_train(
 
 
 def apply_preprocess_eval(model, manager: PreprocessManager, *, fp32_had=False, dev="cpu"):
-    """Apply trained rotation/scaling to model weights in-place and register hooks.
+    """Apply rotation/scaling to model weights in-place and register hooks.
+
+    Untie embeddings, fuse layer norms, rotate/scale weights via
+    ``rotate_model``, then register online Hadamard hooks on ``down_proj``.
 
     Args:
         model: HuggingFace causal LM whose weights ``rotate_model`` will update.
         manager: ``PreprocessManager`` providing ``get_R1`` / ``get_R2_per_layer``
-            / ``get_S_per_layer`` tensors after training.
+            / ``get_S_per_layer`` tensors (trained or randomly initialised).
         fp32_had: If True, online Hadamard transforms on ``down_proj`` use FP32.
         dev: Device for tensor ops inside ``rotate_model`` (e.g. ``"cpu"``).
     """

@@ -29,6 +29,8 @@ def quantize(
 ) -> torch.Tensor:
     """Quantize floating-point values to integers.
 
+    Computes ``clamp(round(x / scale) + zero_point, q_min, q_max)``.
+
     Args:
         x: Input tensor (floating-point).
         scale: Scale coefficient.
@@ -39,8 +41,7 @@ def quantize(
     Returns:
         Quantized integer tensor (clamped to the range [q_min, q_max]).
     """
-    w_int = torch.round(x / scale + zero_point)
-    w_int = w_int.clamp(q_min, q_max).int()
+    w_int = torch.clamp(torch.round(x / scale) + zero_point, q_min, q_max).int()
     return w_int
 
 
@@ -68,6 +69,11 @@ def pseudo_quantize_tensor(
     q_group_size: int = -1,
     zero_point: bool = True,
     inplace: bool = False,
+    perchannel: bool = True,
+    mse: bool = False,
+    norm: float = 2.4,
+    grid: int = 100,
+    maxshrink: float = 0.8,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Pseudo-quantize a tensor using the Round-To-Nearest method.
 
@@ -75,8 +81,17 @@ def pseudo_quantize_tensor(
         w: Weight tensor to quantize.
         n_bit: Number of quantization bits.
         q_group_size: Group size (-1 means the entire row).
-        zero_point: Whether to use a zero point (asymmetric quantization).
+        zero_point: If True, asymmetric quantisation. If False,
+            symmetric quantisation (min/max symmetrised around zero).
         inplace: Whether to perform in-place operations.
+        perchannel: If True, compute one scale/zero per output channel
+            (row). If False, use a single scale/zero for the entire
+            tensor (per-tensor). Ignored when ``q_group_size > 0``.
+        mse: If True, search over shrunk min/max ranges to minimise
+            the quantisation error measured by ``norm``.
+        norm: Exponent of the Lp norm used in the MSE grid search.
+        grid: Number of candidate shrink levels evaluated.
+        maxshrink: Maximum fraction by which the range is shrunk.
 
     Returns:
         w_quant: Dequantized weights (floating-point).
@@ -98,34 +113,60 @@ def pseudo_quantize_tensor(
                 f"Tensor shape {w.shape[-1]} must be divisible by group size {q_group_size}"
             )
         w = w.reshape(-1, w.shape[-1] // q_group_size, q_group_size)
-    else:
+    elif perchannel:
         # Treat the entire row as a single group
         w = w.reshape(-1, 1, w.shape[-1])
-
-    # Quantization levels
-    if zero_point:
-        # Asymmetric quantization: [0, 2^n_bit - 1]
-        q_max = 2**n_bit - 1
-        q_min = 0
     else:
-        # Symmetric quantization: [-2^(n_bit-1), 2^(n_bit-1) - 1]
-        q_max = 2 ** (n_bit - 1) - 1
-        q_min = -(2 ** (n_bit - 1))
+        # Per-tensor: single scale/zero for the entire weight
+        w = w.flatten().reshape(1, 1, -1)
 
-    # Compute min and max values per group
-    w_max = w.amax(dim=-1, keepdim=True)
-    w_min = w.amin(dim=-1, keepdim=True)
+    # Quantization levels: always unsigned [0, 2^n_bit - 1]
+    sym = not zero_point
+    q_max = 2**n_bit - 1
+    q_min = 0
+
+    # Compute min and max values per group (with zero included in the range)
+    tmp = torch.zeros(1, device=w.device)
+    w_max = torch.maximum(w.amax(dim=-1, keepdim=True), tmp)
+    w_min = torch.minimum(w.amin(dim=-1, keepdim=True), tmp)
+
+    # Symmetric: symmetrise range around zero
+    if sym:
+        w_max = torch.maximum(torch.abs(w_min), w_max)
+        w_min = -w_max
+
+    # Handle all-zero groups
+    dead = (w_min == 0) & (w_max == 0)
+    w_min[dead] = -1
+    w_max[dead] = +1
 
     # Compute scale and zero point
-    scale = (w_max - w_min) / (q_max - q_min)
-    # Prevent division by zero
-    scale = scale.clamp(min=1e-5)
+    scale = ((w_max - w_min) / q_max).clamp(min=1e-5)
 
-    if zero_point:
-        zero_point_val = torch.round(q_min - w_min / scale)
-        zero_point_val = zero_point_val.clamp(q_min, q_max)
+    if sym:
+        zero_point_val = torch.full_like(scale, (q_max + 1) / 2)
     else:
-        zero_point_val = torch.zeros_like(scale)
+        zero_point_val = torch.round(-w_min / scale)
+
+    # MSE grid search: try progressively shrunk ranges and keep the best
+    if mse:
+        best = torch.full(w.shape[:-1], float("inf"), device=w.device)
+        for i in range(int(maxshrink * grid)):
+            p = 1 - i / grid
+            wmin1 = p * w_min
+            wmax1 = p * w_max
+            scale1 = ((wmax1 - wmin1) / q_max).clamp(min=1e-5)
+            if sym:
+                zp1 = zero_point_val
+            else:
+                zp1 = torch.round(-wmin1 / scale1)
+            q = torch.clamp(torch.round(w / scale1) + zp1, q_min, q_max)
+            dq = (q - zp1) * scale1
+            err = (dq - w).abs_().pow_(norm).sum(dim=-1)
+            improved = (err < best).unsqueeze(-1)
+            best = torch.where(improved.squeeze(-1), err, best)
+            scale = torch.where(improved, scale1, scale)
+            zero_point_val = torch.where(improved, zp1, zero_point_val)
 
     # Quantize and dequantize
     w_int = quantize(w, scale, zero_point_val, q_min, q_max)

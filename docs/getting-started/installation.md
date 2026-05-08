@@ -49,6 +49,12 @@ Install the appropriate version of PyTorch for your system.
     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
     ```
 
+=== "CUDA 13.0"
+
+    ```bash
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
+    ```
+
 Check your CUDA version:
 
 ```bash
@@ -92,16 +98,19 @@ uv sync --extra cu128 --extra dev --extra visualize
 ```
 
 The `uv sync` command creates a virtual environment and installs all dependencies (including `torchvision` from the same CUDA index as PyTorch).
-Replace `cu128` with the appropriate CUDA variant for your system: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, or `cu128`.
+Replace `cu128` with the appropriate CUDA variant for your system: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
 
 Adding `--extra dev` installs development tools (black, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
 
-To use vLLM for serving quantized models, add `--extra vllm`:
+To use vLLM for serving quantized models, add `--extra vllm` together with `--extra cu130`:
 
 ```bash
-uv sync --extra cu128 --extra dev --extra visualize --extra vllm
+uv sync --extra cu130 --extra dev --extra visualize --extra vllm
 ```
+
+!!! note "vLLM requires the `cu130` extra"
+    Recent vLLM releases depend on `torch>=2.10`, whose wheels are only published for the `cu130` index. The `--extra vllm` declaration in `pyproject.toml` therefore conflicts with `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, and `cu128`; combining any of these with `--extra vllm` is rejected by `uv` at lock time.
 
 !!! warning
     Do **not** install vLLM with `uv pip install vllm` after `uv sync`. Packages installed via `uv pip` are not tracked by the lockfile and will be removed or overwritten by subsequent `uv sync` or `uv run` commands. Always use `--extra vllm` instead.
