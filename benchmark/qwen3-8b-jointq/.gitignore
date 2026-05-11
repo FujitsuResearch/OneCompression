@@ -1,9 +1,6 @@
-run_qwen3-8b.sh
-run_qwen3-8b_actorder.sh
-run_qwen3-8b_noreg.sh
-run_qwen3-8b_noreg_actorder.sh
-qwen3-8b
-qwen3-8b-actorder
-qwen3-8b-noreg
-qwen3-8b-noreg-actorder
+run_*.sh
 logs/
+qwen3-8b-incremental/
+qwen3-8b-incremental-actorder-mse/
+qwen3-8b-fixed-lam*/
+qwen3-8b-diagonal-lam*/

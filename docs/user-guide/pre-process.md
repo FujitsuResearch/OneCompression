@@ -39,6 +39,28 @@ runner = Runner(model_config=rotated_config, quantizer=gptq)
 runner.run()
 ```
 
+### Custom calibration data
+
+Pass a `CalibrationConfig` to control the calibration dataset, sequence length,
+or sample count used during rotation training. See
+[Configuration › CalibrationConfig](configuration.md#calibrationconfig) for the
+full parameter list.
+
+```python
+from onecomp import CalibrationConfig, prepare_rotated_model
+
+rotated_config = prepare_rotated_model(
+    model_config=model_config,
+    save_directory="./rotated_model",
+    wbits=4,
+    groupsize=128,
+    calibration_config=CalibrationConfig(
+        max_length=2048,
+        num_calibration_samples=256,
+    ),
+)
+```
+
 ## Supported Architectures
 
 | Architecture | Status |
@@ -62,14 +84,13 @@ runner.run()
 | `norm` | Lp norm exponent for MSE search | `2.4` |
 | `grid` | Number of candidate shrink levels for MSE search | `100` |
 | `fp32_had` | Use FP32 for online Hadamard transform | `False` |
-| `num_calibration_samples` | Number of calibration samples | `512` |
-| `calibration_strategy` | Calibration strategy: `"concat_chunk"`, `"concat_chunk_align"`, `"drop_head"`, `"drop_rand"` | `"drop_rand"` |
-| `seed` | Seed for rotation init and calibration data | `0` |
+| `calibration_config` | Calibration data configuration. See [`CalibrationConfig`](configuration.md#calibrationconfig). When `None`, a default `CalibrationConfig()` is used. | `None` |
+| `seed` | Seed for rotation matrix initialisation. The calibration-data seed is controlled by `calibration_config.seed`. | `0` |
 
 !!! note "Input validation"
     `prepare_rotated_model` validates all parameters on entry. Invalid values for
-    `rotation_mode`, `scaling_mode`, `calibration_strategy`, or out-of-range numeric
-    parameters (e.g. `wbits < 1`, `grid < 1`) raise `ValueError`.
+    `rotation_mode`, `scaling_mode`, `calibration_config.strategy`, or out-of-range
+    numeric parameters (e.g. `wbits < 1`, `grid < 1`) raise `ValueError`.
 
 !!! warning "Parameter matching"
     The `wbits`, `groupsize`, and `sym` parameters **must match** the quantizer

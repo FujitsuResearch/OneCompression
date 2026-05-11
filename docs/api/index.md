@@ -11,6 +11,7 @@ The following are available directly from `import onecomp`:
 | `Runner`               | Class    | Main entry point for quantization        |
 | `ModelConfig`          | Class    | Model and tokenizer configuration        |
 | `QEPConfig`            | Class    | QEP configuration                        |
+| `LPCDConfig`           | Class    | LPCD configuration                       |
 | `AutoBitQuantizer`     | Class    | AutoBit mixed-precision quantizer (ILP)  |
 | `GPTQ`                 | Class    | GPTQ quantizer                           |
 | `RTN`                  | Class    | RTN quantizer                            |
@@ -41,6 +42,8 @@ onecomp/
         prepare_rotated_model.py  # prepare_rotated_model()
     qep/                   # QEP module
         _qep_config.py     # QEPConfig dataclass
+    lpcd/                  # LPCD module
+        _lpcd_config.py    # LPCDConfig dataclass
     quantizer/             # Quantizer implementations
         _quantizer.py      # Quantizer base class, QuantizationResult
         autobit/           # AutoBit (ILP mixed-precision)

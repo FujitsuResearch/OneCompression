@@ -86,6 +86,40 @@ _, _, quantized_ppl = runner.calculate_perplexity()
 print(f"Quantized model perplexity: {quantized_ppl}")
 ```
 
+## GPTQ + QEP + LPCD
+
+Apply LPCD on top of GPTQ + QEP to refine residual-path submodules:
+
+```python
+from onecomp import CalibrationConfig, GPTQ, LPCDConfig, ModelConfig, Runner, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=3, groupsize=128)
+
+lpcd_config = LPCDConfig(
+    enable_residual=True,
+    perccorr=0.5,
+    percdamp=0.01,
+    use_closed_form=True,
+    device="cuda:0",
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
+    qep=True,
+    lpcd=True,
+    lpcd_config=lpcd_config,
+)
+runner.run()
+```
+
 ## GPTQ without QEP
 
 Standard GPTQ quantization without error propagation:

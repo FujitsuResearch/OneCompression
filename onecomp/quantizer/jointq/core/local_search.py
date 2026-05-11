@@ -326,5 +326,7 @@ class LocalSearchSolver:
         V = Z @ self.matrix_R  # shape: (p, d)
         o = (V * Z).sum(dim=1)  # shape: (p,)
         q = (self.matrix_H * Z).sum(dim=1)  # shape: (p,)
-        alpha = q / o
+        # Guard against division by zero / near-zero o (degenerate rows)
+        safe = o.abs() > 1e-12
+        alpha = torch.where(safe, q / o, torch.zeros_like(q))
         return self.current_Z, alpha

@@ -286,6 +286,7 @@ def prepare_rotated_model(
             tokenizer=tokenizer,
             device="cpu",
             calibration_config=calibration_config,
+            model=model,
         )
         logger.info("Calibration data preparation done (%.2f s)", time.time() - t0)
 

@@ -179,10 +179,11 @@ class MixedGPTQConfig(QuantizationConfig):
             },
         )
 
-    def maybe_update_config(self, model_name, revision=None):
+    def maybe_update_config(self, model_name, hf_config=None, revision=None):
         # Override to prevent base class from scanning safetensors metadata.
         # MixedGPTQConfig uses quantization_bits for per-layer dispatch,
         # so modules_in_block_to_quantize is not needed.
+        # Signature updated for vLLM>=0.20 (added hf_config kwarg).
         pass
 
     def get_quant_method(self, layer: torch.nn.Module, prefix: str) -> QuantizeMethodBase | None:

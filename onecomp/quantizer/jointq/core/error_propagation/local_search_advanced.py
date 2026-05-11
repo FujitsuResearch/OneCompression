@@ -131,5 +131,7 @@ class LocalSearchSolverAdvanced(LocalSearchSolver):
         V = Z @ self.matrix_R
         o = (V * Z).sum(dim=1) + self.vector_lambda * (Z**2).sum(dim=1)
 
-        alpha = q / o
+        # Guard against division by zero / near-zero o (degenerate rows)
+        safe = o.abs() > 1e-12
+        alpha = torch.where(safe, q / o, torch.zeros_like(q))
         return self.current_Z, alpha

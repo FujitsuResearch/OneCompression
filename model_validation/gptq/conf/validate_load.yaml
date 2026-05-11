@@ -1,0 +1,25 @@
+# Path to a saved quantized model directory (produced by validate_gptq.py)
+quantized_path: null
+
+# Override the dtype passed to load_quantized_model. Accepted values:
+# null (use load_quantized_model's default of float16) / float16 /
+# bfloat16 / float32. Set to bfloat16 for models such as Gemma 3/4 that
+# were saved as bfloat16, otherwise inference fails at lm_head with a
+# Half / BFloat16 dtype mismatch.
+torch_dtype: null
+
+# Generation settings used to verify the loaded model produces output
+prompt: "Fujitsu is"
+max_new_tokens: 32
+
+# Output directory (Hydra chdir's into this for each run). Distinct from
+# validate_gptq.py's outputs/<name> so the load run does not clobber the
+# saved quantized/ directory it depends on.
+output_dir: outputs/${oc.env:SLURM_JOB_NAME,run}_load_${oc.env:SLURM_ARRAY_TASK_ID,0}
+
+# Hydra
+hydra:
+  run:
+    dir: ${output_dir}
+  job:
+    chdir: true

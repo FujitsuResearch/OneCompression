@@ -49,9 +49,32 @@ runner = Runner(
 )
 ```
 
+## Layer-Projected Coordinate Descent (LPCD)
+
+[**LPCD**](lpcd.md) is a **submodule-level refinement framework** built on top of
+layer-wise PTQ. Instead of treating each linear layer independently, LPCD jointly
+optimizes related module groups such as Q/K, V/O, MLP up/down, or residual paths,
+then projects the refined solution back through the underlying quantizer.
+
+LPCD can be used with or without QEP:
+
+```python
+from onecomp import GPTQ, LPCDConfig, Runner
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=GPTQ(wbits=3, groupsize=128),
+    qep=True,
+    lpcd=True,
+    lpcd_config=LPCDConfig(),
+)
+runner.run()
+```
+
 ## Choosing an Algorithm
 
 - **GPTQ** is the recommended default for most use cases (4-bit or 3-bit quantization)
 - **GPTQ + QEP** provides the best quality at low bit-widths (3-bit or lower)
+- **GPTQ + QEP + LPCD** is useful when you want additional submodule refinement beyond layer-wise PTQ
 - **RTN** is useful as a fast baseline or when calibration data is not available
 - **DBF** targets extreme compression (~1.5-bit) with binary factorization

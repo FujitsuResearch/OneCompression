@@ -84,10 +84,68 @@ class Catcher(nn.Module):
         except AttributeError:
             return getattr(self.module, name)
 
-    def forward(self, inp: torch.Tensor, **kwargs: dict):
+    # *args should be gotten from the model such as per_layer_input for gemma4,
+    # but it is calculated and added in _compute_per_layer_inputs() and prepare_block_kwargs(), respectively.
+    def forward(self, inp: torch.Tensor, *args, **kwargs: dict):
         self.inp = inp.clone()
         self.kwargs.update(kwargs)
         raise StopForward()
+
+
+_PER_LAYER_INPUTS_KEY = "_per_layer_inputs"
+_POS_EMB_MAP_KEY = "_position_embeddings_map"
+_ATTN_MASK_MAP_KEY = "_attention_mask_map"
+
+
+def _find_blocks_parent(model, blocks):
+    """Return the parent module that directly owns blocks.
+
+    For Gemma4 this is the Gemma4TextModel that owns .layers,
+    .rotary_emb, and the config with layer_types.
+    """
+    for name, module in model.named_modules():
+        if module is blocks:
+            parent_name = name.rpartition(".")[0]
+            return model.get_submodule(parent_name) if parent_name else model
+    return None
+
+
+@torch.no_grad()
+def _compute_per_layer_inputs(model, blocks, input_ids, batch_size):
+    """Compute per-layer input embeddings for all calibration samples.
+
+    Gemma4 supply a per-layer embedding (per_layer_input) as 
+    an extra positional argument to each decoder layer.
+    This function detects such models, computes the tensor
+    [N, seq, num_layers, hidden_per_layer] from input_ids in
+    batch_size chunks (to limit GPU memory).
+    For models that do not use this mechanism, returns None.
+    """
+    if not getattr(blocks[0], "hidden_size_per_layer_input", 0):
+        return None
+
+    for _name, module in model.named_modules():
+        if not (
+            hasattr(module, "get_per_layer_inputs")
+            and hasattr(module, "project_per_layer_inputs")
+        ):
+            continue
+        for child in module.modules():
+            if child is blocks:
+                chunks = []
+                for ids_batch in input_ids.split(batch_size):
+                    embeds = module.embed_tokens(ids_batch)
+                    pli = module.get_per_layer_inputs(ids_batch, embeds)
+                    chunks.append(
+                        module.project_per_layer_inputs(embeds, pli).cpu()
+                    )
+                return torch.cat(chunks)
+
+    logger.warning(
+        "Blocks expect per_layer_input but no provider module was found. "
+        "Block outputs may be incorrect."
+    )
+    return None
 
 
 @torch.no_grad()
@@ -104,6 +162,12 @@ def get_blocks_and_inputs(
     ``make_grouped_module`` (batch=1), ``compute_hessian_and_crossterm``
     and ``forward_input``.
 
+    For models that pass per-layer embeddings as a positional argument
+    (e.g. Gemma4's ``per_layer_input``), the full per-sample tensor is
+    pre-computed and stored under ``kwargs["_per_layer_inputs"]``.
+    ``forward_input`` / ``backward_input`` will pick the correct
+    per-block, per-batch slice automatically.
+
     Args:
         model (nn.Module): The model to analyze.
         model_inputs (dict[str, torch.Tensor]): The input tensors for the model.
@@ -115,6 +179,24 @@ def get_blocks_and_inputs(
     """
 
     blocks = _get_blocks(model)
+
+    # Detect models with heterogeneous layer types (e.g. Gemma4 with
+    # full_attention / sliding_attention)
+    blocks_parent = _find_blocks_parent(model, blocks)
+    layer_types = getattr(getattr(blocks_parent, "config", None), "layer_types", None)
+    unique_layer_types = set(layer_types) if layer_types else set()
+    has_mixed_types = len(unique_layer_types) > 1
+
+    rotary_hook_handle = None
+    pos_emb_map: dict[str, tuple[torch.Tensor, ...]] = {}
+    if has_mixed_types:
+        rotary_emb = getattr(blocks_parent, "rotary_emb", None)
+        if rotary_emb is not None:
+            def _capture_rotary(_mod, args, output):
+                lt = args[2] if len(args) > 2 else None
+                if lt is not None:
+                    pos_emb_map[lt] = tuple(t.clone() for t in output)
+            rotary_hook_handle = rotary_emb.register_forward_hook(_capture_rotary)
 
     # replace the first transformer block with a input catcher.
     blocks[0] = Catcher(blocks[0])
@@ -134,6 +216,10 @@ def get_blocks_and_inputs(
         _ = model(inp_ids[:1], **single_kwargs)
     except StopForward:
         pass
+
+    if rotary_hook_handle is not None:
+        rotary_hook_handle.remove()
+
     kwargs = dict(blocks[0].kwargs)  # shallow-copy before next loop overwrites
     blocks[0].inp = None  # release single-sample activation (no longer needed)
 
@@ -150,7 +236,67 @@ def get_blocks_and_inputs(
     # restore the original transformer block
     blocks[0] = blocks[0].module
 
+    # Pre-compute per-layer inputs for some models (e.g. Gemma4).
+    pli = _compute_per_layer_inputs(model, blocks, inp_ids, batch_size)
+    if pli is not None:
+        kwargs[_PER_LAYER_INPUTS_KEY] = pli
+
+    # Store per-type position embeddings and attention masks when the model
+    # uses heterogeneous layer types (full_attention and sliding_attention).
+    if len(pos_emb_map) > 1:
+        kwargs[_POS_EMB_MAP_KEY] = pos_emb_map
+
+    # Store per-type attention masks when the model uses heterogeneous layer types.
+    if has_mixed_types and blocks_parent is not None:
+        attn_mask_map = _compute_per_type_attention_masks(
+            blocks_parent, kwargs, unique_layer_types,
+        )
+        if attn_mask_map is not None:
+            kwargs[_ATTN_MASK_MAP_KEY] = attn_mask_map
+
     return (blocks, inps, kwargs)
+
+
+def _compute_per_type_attention_masks(blocks_parent, kwargs, unique_layer_types):
+    """Compute attention masks for each layer type.
+
+    Uses create_causal_mask / create_sliding_window_causal_mask
+    from transformers to produce the correct mask per layer type.
+    """
+    from transformers.masking_utils import (
+        create_causal_mask,
+        create_sliding_window_causal_mask,
+    )
+
+    position_ids = kwargs.get("position_ids")
+    if position_ids is None:
+        return None
+
+    config = blocks_parent.config
+    seq_len = position_ids.shape[-1]
+    device = position_ids.device
+    dtype = next(blocks_parent.parameters()).dtype
+    dummy_embeds = torch.zeros(1, seq_len, config.hidden_size, device=device, dtype=dtype)
+    attn_mask_1d = torch.ones(1, seq_len, device=device, dtype=torch.long)
+
+    # tmp: Gemma4 only has full_attention and sliding_attention layer types.
+    _mask_creators = {
+        "full_attention": create_causal_mask,
+        "sliding_attention": create_sliding_window_causal_mask,
+    }
+
+    mask_map = {}
+    for lt in unique_layer_types:
+        creator = _mask_creators.get(lt)
+        if creator is not None:
+            mask_map[lt] = creator(
+                config, dummy_embeds, attn_mask_1d,
+                past_key_values=None, position_ids=position_ids,
+            )
+        else:
+            logger.warning("No mask creator found for layer type: %s", lt)
+
+    return mask_map if len(mask_map) > 1 else None
 
 
 def move_kwargs_to_device(x, device):
@@ -185,7 +331,8 @@ def expand_kwargs_batch(kwargs, batch_size):
         dict: kwargs with expanded tensors.
     """
     if batch_size <= 1:
-        return kwargs
+        # shallow copy for enabling prepare_block_kwargs to use pop() in safely
+        return dict(kwargs)
 
     def _expand(v):
         if isinstance(v, torch.Tensor) and v.dim() >= 1 and v.shape[0] == 1:
@@ -199,6 +346,45 @@ def expand_kwargs_batch(kwargs, batch_size):
         return v
 
     return {k: _expand(v) for k, v in kwargs.items()}
+
+
+def prepare_block_kwargs(batch_kwargs, block, pli, offset, batch_size, device):
+    """Adjust batch_kwargs so that they are correct for block.
+
+    Three following concerns are handled for Gemma4:
+    1. per_layer_input: token-dependent, per-layer embedding sliced 
+    from the full _per_layer_inputs tensor.
+    2. position_embeddings: differ between full_attention and sliding_attention layer types.
+    3. attention_mask: causal vs sliding-window mask.
+    """
+    # 1) per_layer_input
+    batch_kwargs.pop(_PER_LAYER_INPUTS_KEY, None)
+    if pli is not None:
+        layer_idx = getattr(block, "layer_idx", None)
+        if layer_idx is not None:
+            batch_kwargs["per_layer_input"] = (
+                pli[offset : offset + batch_size, :, layer_idx, :].to(device)
+            )
+
+    # 2) Per-type position embeddings
+    pos_map = batch_kwargs.pop(_POS_EMB_MAP_KEY, None)
+    if pos_map is not None:
+        layer_type = getattr(block, "layer_type", None) or getattr(
+            getattr(block, "self_attn", None), "layer_type", None
+        )
+        if layer_type and layer_type in pos_map:
+            batch_kwargs["position_embeddings"] = pos_map[layer_type]
+
+    # 3) Per-type attention mask
+    mask_map = batch_kwargs.pop(_ATTN_MASK_MAP_KEY, None)
+    if mask_map is not None:
+        layer_type = getattr(block, "layer_type", None) or getattr(
+            getattr(block, "self_attn", None), "layer_type", None
+        )
+        if layer_type and layer_type in mask_map:
+            batch_kwargs["attention_mask"] = mask_map[layer_type]
+
+    return batch_kwargs
 
 
 @torch.no_grad()
@@ -221,12 +407,17 @@ def forward_input(
     Returns:
         torch.Tensor: The output of the block
     """
+    pli = kwargs.get(_PER_LAYER_INPUTS_KEY)
     next_inps = []
+    offset = 0
     for inp in inps.split(batch_size):
-        batch_kwargs = expand_kwargs_batch(kwargs, inp.shape[0])
+        bs = inp.shape[0]
+        batch_kwargs = expand_kwargs_batch(kwargs, bs)
+        batch_kwargs = prepare_block_kwargs(batch_kwargs, block, pli, offset, bs, device)
         out = block(inp.to(device), **batch_kwargs)
         out = out[0] if isinstance(out, tuple) else out
         next_inps.append(out.cpu())
+        offset += bs
     return torch.cat(next_inps)
 
 
@@ -254,13 +445,16 @@ def backward_input(
     Returns:
         Gradient of the loss w.r.t. inps (on CPU).
     """
+    pli = kwargs.get(_PER_LAYER_INPUTS_KEY)
     all_inp_grads = []
 
     for j in range(0, inps.shape[0], batch_size):
         inp_batch = inps[j : j + batch_size].to(device)
         inp_batch = inp_batch.detach().requires_grad_(True)
         grad_batch = grad[j : j + batch_size].to(device)
-        batch_kwargs = expand_kwargs_batch(kwargs, inp_batch.shape[0])
+        bs = inp_batch.shape[0]
+        batch_kwargs = expand_kwargs_batch(kwargs, bs)
+        batch_kwargs = prepare_block_kwargs(batch_kwargs, block, pli, j, bs, device)
 
         with torch.enable_grad():
             out = block(inp_batch, **batch_kwargs)
