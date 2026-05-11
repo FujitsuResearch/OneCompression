@@ -1,7 +1,7 @@
 """
-MSVID (Dual-(M)SVID) OneComp wrapper
+MDBF (Dual-(M)SVID) OneComp wrapper
 
-Convert QEP-DEV's run_msvid() to match OneComp's calling convention.
+Convert QEP-DEV's run_MDBF() to match OneComp's calling convention.
 
 Changes:
 
@@ -25,14 +25,14 @@ import transformers
 
 logger = getLogger(__name__)
 
-from .initialize import MSVIDParams, initialize_msvid
+from .initialize import MDBFParams, initialize_MDBF
 from .utils import bpw_from_rank, cleanup_gpu_memory, rank_from_bpw
 
 
-def _move_msvid_params_to_cpu(params_list: List[MSVIDParams]) -> List[MSVIDParams]:
-    """Move MSVIDParams to CPU"""
+def _move_MDBF_params_to_cpu(params_list: List[MDBFParams]) -> List[MDBFParams]:
+    """Move MDBFParams to CPU"""
     return [
-        MSVIDParams(
+        MDBFParams(
             A_sign=p.A_sign.cpu(),
             B_sign=p.B_sign.cpu(),
             A_amp=p.A_amp.cpu(),
@@ -91,7 +91,7 @@ def run_mdbf(
 
     Returns:
         dict with keys:
-            "mdbf_params": List[MSVIDParams]  — Quantization parameters for P paths (CPU)
+            "mdbf_params": List[MDBFParams]  — Quantization parameters for P paths (CPU)
             "W_recon": torch.Tensor           — Quantized weights (FP16, CPU)
             "actual_bpw": float               — Actual achieved BPW
             "r": int                          — Rank used
@@ -160,7 +160,7 @@ def run_mdbf(
     else:
         init_H = None
 
-    all_params, W_recon = initialize_msvid(
+    all_params, W_recon = initialize_MDBF(
         W, r, l, P, init_H, svd_mode, act_init=init_act_init
     )
 
@@ -171,12 +171,12 @@ def run_mdbf(
     # Phase 2: ADMM optimization
     if use_admm and admm_iters > 0:
         if activation_aware and use_hessian_mode and H_act is not None:
-            from .admm import optimize_msvid_admm_hessian
+            from .admm import optimize_MDBF_admm_hessian
 
             logger.debug(f"[MDBF] ADMM (Activation-Aware, Hessian-based): "
                          f"outer={admm_iters}, inner={admm_inner_iters}, reg={admm_reg}")
 
-            all_params, W_recon = optimize_msvid_admm_hessian(
+            all_params, W_recon = optimize_MDBF_admm_hessian(
                 W_original=W,
                 params_list=all_params,
                 l=l,
@@ -187,14 +187,14 @@ def run_mdbf(
                 reg=admm_reg,
             )
         else:
-            from .admm import optimize_msvid_admm
+            from .admm import optimize_MDBF_admm
 
             H_for_display = hessian.clone().to(device) if hessian is not None else None
 
             logger.debug(f"[MDBF] ADMM: outer={admm_iters}, inner={admm_inner_iters}, "
                          f"reg={admm_reg}")
 
-            all_params, W_recon = optimize_msvid_admm(
+            all_params, W_recon = optimize_MDBF_admm(
                 W_original=W,
                 params_list=all_params,
                 l=l,
@@ -249,7 +249,7 @@ def run_mdbf(
     cleanup_gpu_memory()
 
     # Move results to CPU and return
-    all_params_cpu = _move_msvid_params_to_cpu(all_params)
+    all_params_cpu = _move_MDBF_params_to_cpu(all_params)
     del all_params
 
     W_recon_cpu = W_recon.to(torch.float16).cpu()

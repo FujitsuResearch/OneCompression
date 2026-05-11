@@ -1,5 +1,5 @@
 """
-Phase 1: MSVID Initialization
+Phase 1: MDBF Initialization
 
 Perform low-rank decomposition and multi-scale amplitude decomposition using SVD/SVD-LLM/OSVD.
 
@@ -36,8 +36,8 @@ from .utils import (
 
 
 @dataclass
-class MSVIDParams:
-    """MSVID parameters for a single path"""
+class MDBFParams:
+    """MDBF parameters for a single path"""
     A_sign: torch.Tensor      # Sign matrix S_A (n, r) - {-1, +1}
     B_sign: torch.Tensor      # Sign matrix S_B (r, m) - {-1, +1}
     A_amp: torch.Tensor       # Row scale (n, l)
@@ -311,9 +311,9 @@ def init_single_path(
     H: Optional[torch.Tensor] = None,
     mode: Literal["svd", "svd_llm"] = "svd",
     act_init: Literal["none", "osvd", "svd_llm"] = "none",
-) -> MSVIDParams:
+) -> MDBFParams:
     """
-    Initialize MSVID parameters for a single path
+    Initialize MDBF parameters for a single path
 
     Args:
         W: Input matrix (n, m)
@@ -324,7 +324,7 @@ def init_single_path(
         act_init: Initialization mode ("none", "osvd", "svd_llm")
 
     Returns:
-        Initialized MSVIDParams
+        Initialized MDBFParams
     """
     # Low-rank decomposition
     if act_init == "osvd" and H is not None:
@@ -343,7 +343,7 @@ def init_single_path(
     del U_prime, V_prime
     cleanup_gpu_memory()
 
-    return MSVIDParams(
+    return MDBFParams(
         A_sign=A_sign,
         B_sign=B_sign,
         A_amp=A_amp,
@@ -353,7 +353,7 @@ def init_single_path(
     )
 
 
-def initialize_msvid(
+def initialize_MDBF(
     W: torch.Tensor,
     r: int,
     l: int = 1,
@@ -361,9 +361,9 @@ def initialize_msvid(
     H: Optional[torch.Tensor] = None,
     mode: Literal["svd", "svd_llm"] = "svd",
     act_init: Literal["none", "osvd", "svd_llm"] = "none",
-) -> Tuple[List[MSVIDParams], torch.Tensor]:
+) -> Tuple[List[MDBFParams], torch.Tensor]:
     """
-    Phase 1: MSVID initialization (all paths)
+    Phase 1: MDBF initialization (all paths)
 
     Args:
         W: Input matrix (n, m)
@@ -375,7 +375,7 @@ def initialize_msvid(
         act_init: Initialization mode ("none", "osvd", "svd_llm")
 
     Returns:
-        all_params: MSVIDParams for each path
+        all_params: MDBFParams for each path
         W_recon: Reconstructed weight matrix
     """
     n, m = W.shape
@@ -388,7 +388,7 @@ def initialize_msvid(
 
     W_residual = W_float.clone()
     W_recon = torch.zeros_like(W_float)
-    all_params: List[MSVIDParams] = []
+    all_params: List[MDBFParams] = []
 
     for p in range(P):
         if act_init == "osvd" and H is not None:

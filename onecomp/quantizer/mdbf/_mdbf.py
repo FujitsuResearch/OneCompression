@@ -26,7 +26,7 @@ import torch
 from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
 from onecomp.utils.quant_config import get_quant_param
 
-from .initialize import MSVIDParams
+from .initialize import MDBFParams
 from .mdbf_impl import run_mdbf
 
 
@@ -101,8 +101,8 @@ class MDBFResult(QuantizationResult):
             ("mdbf_Q_V_amp", self.mdbf_Q_V_amp),
         ]
 
-    def get_msvid_params_list(self) -> list[MSVIDParams]:
-        """Validate stored per-path tensors and convert them to MSVIDParams objects."""
+    def get_MDBF_params_list(self) -> list[MDBFParams]:
+        """Validate stored per-path tensors and convert them to MDBFParams objects."""
         components = self._get_path_components()
         empty_fields = [name for name, values in components if len(values) == 0]
         if empty_fields:
@@ -128,7 +128,7 @@ class MDBFResult(QuantizationResult):
             )
 
         return [
-            MSVIDParams(
+            MDBFParams(
                 A_sign=self.mdbf_A_sign[p],
                 B_sign=self.mdbf_B_sign[p],
                 A_amp=self.mdbf_A_amp[p],
@@ -153,7 +153,7 @@ class MDBFResult(QuantizationResult):
         from .utils import reconstruct_weight
 
         compute_device = torch.device(device) if device is not None else torch.device("cpu")
-        params_list = self.get_msvid_params_list()
+        params_list = self.get_MDBF_params_list()
 
         W = None
         for params in params_list:
@@ -509,15 +509,15 @@ class MDBF(Quantizer):
         return quant_config
 
     def create_inference_layer(self, result, linear_module, **kwargs):
-        """Build MultipathMSVIDLinear from MDBFResult."""
-        from onecomp.quantizer.mdbf.mdbf_layer import MultipathMSVIDLinear
+        """Build MultipathMDBFLinear from MDBFResult."""
+        from onecomp.quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
 
         bias = (
             linear_module.bias
             if hasattr(linear_module, "bias") and linear_module.bias is not None
             else None
         )
-        return MultipathMSVIDLinear.from_quantization_result(
+        return MultipathMDBFLinear.from_quantization_result(
             result=result,
             bias=bias,
             device=linear_module.weight.device,

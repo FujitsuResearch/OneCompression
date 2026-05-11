@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-MSVID-ADMM: ADMM optimization using Multi-Scale SVID (Phase 2)
+MDBF-ADMM: ADMM optimization using Multi-Scale SVID (Phase 2)
 
-Using the MSVIDParams initialized in Phase 1 as the initial values,
+Using the MDBFParams initialized in Phase 1 as the initial values,
 minimize the residual W - Σ_{p≠p'} W^p for each path p'.
 
 
@@ -23,7 +23,7 @@ import torch
 
 logger = getLogger(__name__)
 
-from .initialize import MSVIDParams
+from .initialize import MDBFParams
 from .utils import (
     cleanup_gpu_memory,
     compute_hessian_error,
@@ -171,7 +171,7 @@ def _solve_linear_system(
 
 
 # =============================================================================
-# MSVID射影
+# MDBF projection
 # =============================================================================
 
 
@@ -181,7 +181,7 @@ def svd_abs_rank_l(
     seed: int = None,
 ) -> torch.Tensor:
     """
-    MSVID (rank-l) projection: Z = sign(W) * TSVD_l(|W|)
+    MDBF (rank-l) projection: Z = sign(W) * TSVD_l(|W|)
 
     Fix the sign to sign(W) and apply a rank-l constraint to the amplitude.
 
@@ -251,11 +251,11 @@ def svd_abs_rank_l(
 
 
 def _params_to_factor_matrices(
-    params: MSVIDParams,
+    params: MDBFParams,
     device: torch.device,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Construct factor matrices (F, G) from MSVIDParams
+    Construct factor matrices (F, G) from MDBFParams
 
     F = S_A * (A_amp @ Q_U_amp^T)
     G = S_B * (Q_V_amp @ B_amp^T)
@@ -282,9 +282,9 @@ def _factor_matrices_to_params(
     G: torch.Tensor,
     l: int,
     dtype: torch.dtype,
-) -> MSVIDParams:
+) -> MDBFParams:
     """
-    Extract MSVIDParams from factor matrices (F, G)
+    Extract MDBFParams from factor matrices (F, G)
 
     Note:
         F, G are after ADMM projection, so |F|, |G| are already rank-l.
@@ -303,7 +303,7 @@ def _factor_matrices_to_params(
     B_amp, Q_V_amp = _decompose_abs_matrix(G_abs, l, for_transpose=True)
     del G_abs
 
-    return MSVIDParams(
+    return MDBFParams(
         A_sign=A_sign.to(dtype),
         B_sign=B_sign.to(dtype),
         A_amp=A_amp.to(dtype),
@@ -331,7 +331,7 @@ def _admm_optimize_one_side(
     """
     One-side fixed ADMM optimization (DBF-compatible fixed rho mode)
 
-    min ||W_target - Fixed @ Z||_F^2 + λ*||Z||_F^2  s.t. Z in MSVID(l)
+    min ||W_target - Fixed @ Z||_F^2 + λ*||Z||_F^2  s.t. Z in MDBF(l)
 
     Here, λ = reg * mean(diag(Fixed^T @ Fixed))
     (Regularization proportional to the mean of the diagonal elements of Fixed^T @ Fixed)
@@ -437,7 +437,7 @@ def _admm_refine_single_path(
     """
     ADMM optimization for a single path (alternating F<->G optimization, DBF-compatible fixed rho mode)
 
-    min ||W_target - F @ G||_F^2  s.t. F,G in MSVID(l)
+    min ||W_target - F @ G||_F^2  s.t. F,G in MDBF(l)
     """
     device = W_target.device
     n, r = F_init.shape
@@ -476,7 +476,7 @@ def _admm_refine_single_path(
         rho_start = 0.03 + (1.0 - 0.03) * min(1.0, itt / max(1, iters - 3)) ** 3
 
         # F update (G fixed): Normalize each row of G
-        # Optimization problem: min ||W^T - G_normalized @ F^T||_F^2 s.t. F in MSVID(l)
+        # Optimization problem: min ||W^T - G_normalized @ F^T||_F^2 s.t. F in MDBF(l)
         mid_norm_g = torch.norm(Zg, dim=1) + 1e-12
         Zg_normalized = Zg / mid_norm_g[:, None]
 
@@ -492,7 +492,7 @@ def _admm_refine_single_path(
         )
 
         # G update (F fixed): Normalize each column of F
-        # Optimization problem: min ||W - F_normalized @ G||_F^2 s.t. G in MSVID(l)
+        # Optimization problem: min ||W - F_normalized @ G||_F^2 s.t. G in MDBF(l)
         mid_norm_f = torch.norm(Zf_T, dim=1) + 1e-12
         Zf_normalized = Zf_T.T / mid_norm_f[None, :]
 
@@ -542,9 +542,9 @@ def _admm_refine_single_path(
 # =============================================================================
 
 
-def optimize_msvid_admm(
+def optimize_MDBF_admm(
     W_original: torch.Tensor,
-    params_list: List[MSVIDParams],
+    params_list: List[MDBFParams],
     l: int,
     iters: int = 260,
     inner_iters: int = 3,
@@ -552,9 +552,9 @@ def optimize_msvid_admm(
     verbose: bool = True,
     H: Optional[torch.Tensor] = None,
     nsamples: int = 1,
-) -> Tuple[List[MSVIDParams], torch.Tensor]:
+) -> Tuple[List[MDBFParams], torch.Tensor]:
     """
-    Refine MSVID parameters using ADMM optimization (Phase 2, DBF-compatible fixed rho mode)
+    Refine MDBF parameters using ADMM optimization (Phase 2, DBF-compatible fixed rho mode)
 
     Minimize the residual W - Σ_{p≠p'} W^p for each path p'
     """
@@ -652,7 +652,7 @@ def optimize_msvid_admm(
         logger.debug(f"[MDBF-ADMM] Improvement: {improvement:+.2f}%")
     del E_final
 
-    # Convert to MSVIDParams
+    # Convert to MDBFParams
     optimized_params = [
         _factor_matrices_to_params(F_opt, G_opt, l, dtype)
         for F_opt, G_opt in optimized_factors
@@ -710,7 +710,7 @@ def _admm_refine_single_path_hessian(
     """
     Hessian-based Activation-aware version: Single-path ADMM optimization
 
-    Objective function: min tr((W - VU^T) @ H @ (W - VU^T)^T)  s.t. U,V in MSVID(l)
+    Objective function: min tr((W - VU^T) @ H @ (W - VU^T)^T)  s.t. U,V in MDBF(l)
 
     Stabilization modifications:
     - Regularize H consistently (H_use = H + eps * I) - Prevent drift in the null space direction
@@ -936,16 +936,16 @@ def _admm_refine_single_path_hessian(
     return F_opt, G_opt
 
 
-def optimize_msvid_admm_hessian(
+def optimize_MDBF_admm_hessian(
     W_original: torch.Tensor,
-    params_list: List[MSVIDParams],
+    params_list: List[MDBFParams],
     l: int,
     H: torch.Tensor,
     nsamples: int,
     iters: int = 260,
     inner_iters: int = 3,
     reg: float = 0.03,
-) -> Tuple[List[MSVIDParams], torch.Tensor]:
+) -> Tuple[List[MDBFParams], torch.Tensor]:
     """
     Hessian-based Activation-aware ADMM optimization (Phase 2) - P=1 only
 
@@ -956,7 +956,7 @@ def optimize_msvid_admm_hessian(
     n, m = W_original.shape
 
     if len(params_list) != 1:
-        raise ValueError(f"optimize_msvid_admm_hessian only supports P=1, got P={len(params_list)}")
+        raise ValueError(f"optimize_MDBF_admm_hessian only supports P=1, got P={len(params_list)}")
 
     if H.shape != (m, m):
         raise ValueError(f"H shape must be ({m}, {m}), got {H.shape}")

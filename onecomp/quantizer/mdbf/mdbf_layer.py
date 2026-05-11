@@ -1,12 +1,12 @@
 """
 MDBF (Multi-scale Double Binary Factorization) Layer implementation
 
-Constructs an efficient inference layer from MSVID parameters.
+Constructs an efficient inference layer from MDBF parameters.
 Based on the DBF implementation, achieves bit-packing and memory efficiency.
 
 Structure:
-- MSVIDLinear: MSVID inference layer for a single pass
-- MultipathMSVIDLinear: MSVID inference layer for P passes
+- MDBFLinear: MDBF inference layer for a single pass
+- MultipathMDBFLinear: MDBF inference layer for P passes
 - Packing/Unpacking: Compresses sign matrices to 1-bit
 
 Weight representation:
@@ -33,7 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import transformers
 
-from .initialize import MSVIDParams
+from .initialize import MDBFParams
 
 logger = getLogger(__name__)
 
@@ -87,13 +87,13 @@ def unpack_binary(packed: torch.Tensor, original_shape: Tuple[int, ...]) -> torc
 
 
 # =============================================================================
-# Packed MSVID Parameters
+# Packed MDBF Parameters
 # =============================================================================
 
 
 @dataclass
-class PackedMSVIDParams:
-    """Packed MSVID parameters (for memory-efficient storage)"""
+class PackedMDBFParams:
+    """Packed MDBF parameters (for memory-efficient storage)"""
     A_sign_packed: torch.Tensor
     B_sign_packed: torch.Tensor
     A_sign_shape: Tuple[int, ...]
@@ -104,12 +104,12 @@ class PackedMSVIDParams:
     Q_V_amp: torch.Tensor
 
 
-def pack_msvid_params(params: MSVIDParams) -> PackedMSVIDParams:
-    """Convert MSVIDParams to packed format"""
+def pack_MDBF_params(params: MDBFParams) -> PackedMDBFParams:
+    """Convert MDBFParams to packed format"""
     A_sign_packed, A_sign_shape = pack_binary(params.A_sign)
     B_sign_packed, B_sign_shape = pack_binary(params.B_sign)
 
-    return PackedMSVIDParams(
+    return PackedMDBFParams(
         A_sign_packed=A_sign_packed,
         B_sign_packed=B_sign_packed,
         A_sign_shape=A_sign_shape,
@@ -121,12 +121,12 @@ def pack_msvid_params(params: MSVIDParams) -> PackedMSVIDParams:
     )
 
 
-def unpack_msvid_params(packed: PackedMSVIDParams) -> MSVIDParams:
-    """Restore MSVIDParams from packed format"""
+def unpack_MDBF_params(packed: PackedMDBFParams) -> MDBFParams:
+    """Restore MDBFParams from packed format"""
     A_sign = unpack_binary(packed.A_sign_packed, packed.A_sign_shape)
     B_sign = unpack_binary(packed.B_sign_packed, packed.B_sign_shape)
 
-    return MSVIDParams(
+    return MDBFParams(
         A_sign=A_sign.float(),
         B_sign=B_sign.float(),
         A_amp=packed.A_amp,
@@ -213,13 +213,13 @@ class PackedBinaryLinear(nn.Module):
 
 
 # =============================================================================
-# MSVIDLinear Layer (1-pass)
+# MDBFLinear Layer (1-pass)
 # =============================================================================
 
 
-class MSVIDLinear(nn.Module):
+class MDBFLinear(nn.Module):
     """
-    1-pass MSVID inference layer
+    1-pass MDBF inference layer
 
     W^{(p)} = F @ G
     where F = S_A * (A_amp @ Q_U_amp^T)
@@ -228,7 +228,7 @@ class MSVIDLinear(nn.Module):
     Inference: y = x @ W^T = x @ G^T @ F^T
     """
 
-    def __init__(self, params: MSVIDParams, preunpack: bool = True):
+    def __init__(self, params: MDBFParams, preunpack: bool = True):
         super().__init__()
 
         n, r = params.A_sign.shape
@@ -317,16 +317,16 @@ class MSVIDLinear(nn.Module):
 
 
 # =============================================================================
-# MultipathMSVIDLinear Layer (P-pass)
+# MultipathMDBFLinear Layer (P-pass)
 # =============================================================================
 
 
-class MultipathMSVIDLinear(nn.Module):
-    """P-pass MSVID inference layer: W ≈ Σ_{p=1}^{P} W^{(p)}"""
+class MultipathMDBFLinear(nn.Module):
+    """P-pass MDBF inference layer: W ≈ Σ_{p=1}^{P} W^{(p)}"""
 
     def __init__(
         self,
-        params_list: List[MSVIDParams],
+        params_list: List[MDBFParams],
         preunpack: bool = True,
         bias: Optional[torch.Tensor] = None,
         device=None,
@@ -341,7 +341,7 @@ class MultipathMSVIDLinear(nn.Module):
         self.m = params_list[0].B_sign.shape[1]
 
         self.paths = nn.ModuleList([
-            MSVIDLinear(params, preunpack=preunpack)
+            MDBFLinear(params, preunpack=preunpack)
             for params in params_list
         ])
 
@@ -376,8 +376,8 @@ class MultipathMSVIDLinear(nn.Module):
         result,
         bias=None,
         device=None,
-    ) -> "MultipathMSVIDLinear":
-        """Build MultipathMSVIDLinear from MDBFResult.
+    ) -> "MultipathMDBFLinear":
+        """Build MultipathMDBFLinear from MDBFResult.
 
         Args:
             result: MDBFResult from quantizer.
@@ -385,9 +385,9 @@ class MultipathMSVIDLinear(nn.Module):
             device: Device to place the layer on.
 
         Returns:
-            MultipathMSVIDLinear instance.
+            MultipathMDBFLinear instance.
         """
-        params_list = result.get_msvid_params_list()
+        params_list = result.get_MDBF_params_list()
         return cls(params_list=params_list, bias=bias, device=device)
 
 
@@ -399,20 +399,20 @@ class MultipathMSVIDLinear(nn.Module):
 def create_mdbf_layer_from_linear(
     module: nn.Module,
     preunpack: bool = True
-) -> Optional[MultipathMSVIDLinear]:
-    """Create a MultipathMSVIDLinear from a quantized MSVID Linear layer"""
-    if not hasattr(module, 'msvid_params'):
+) -> Optional[MultipathMDBFLinear]:
+    """Create a MultipathMDBFLinear from a quantized MDBF Linear layer"""
+    if not hasattr(module, 'MDBF_params'):
         return None
     if not getattr(module, 'is_quantized', False):
         return None
 
-    params_list = module.msvid_params
+    params_list = module.MDBF_params
     if not isinstance(params_list, list) or len(params_list) == 0:
         return None
 
     bias = module.bias.clone() if hasattr(module, 'bias') and module.bias is not None else None
 
-    return MultipathMSVIDLinear(
+    return MultipathMDBFLinear(
         params_list=params_list,
         preunpack=preunpack,
         bias=bias,
@@ -425,7 +425,7 @@ def replace_linear_with_mdbf(
     parent_module: nn.Module,
     preunpack: bool = True
 ) -> bool:
-    """Replace a Linear layer with a MultipathMSVIDLinear layer"""
+    """Replace a Linear layer with a MultipathMDBFLinear layer"""
     mdbf_layer = create_mdbf_layer_from_linear(module, preunpack=preunpack)
 
     if mdbf_layer is None:
@@ -436,17 +436,17 @@ def replace_linear_with_mdbf(
     setattr(parent_module, name, mdbf_layer)
 
     del module.weight
-    if hasattr(module, 'msvid_params'):
-        del module.msvid_params
+    if hasattr(module, 'MDBF_params'):
+        del module.MDBF_params
 
     return True
 
 
-def replace_all_msvid_layers(
+def replace_all_MDBF_layers(
     model: nn.Module,
     preunpack: bool = True
 ) -> int:
-    """Replace all MSVID quantized layers in the model with MultipathMSVIDLinear"""
+    """Replace all MDBF quantized layers in the model with MultipathMDBFLinear"""
     replaced_count = 0
 
     for parent_name, parent_module in model.named_modules():
@@ -454,7 +454,7 @@ def replace_all_msvid_layers(
             if isinstance(module, (nn.Linear, transformers.Conv1D)):
                 if replace_linear_with_mdbf(module, name, parent_module, preunpack):
                     replaced_count += 1
-                    logger.debug(f"[MDBF] Replaced {parent_name}.{name} with MultipathMSVIDLinear")
+                    logger.debug(f"[MDBF] Replaced {parent_name}.{name} with MultipathMDBFLinear")
 
     gc.collect()
     if torch.cuda.is_available():
@@ -469,12 +469,12 @@ def replace_all_msvid_layers(
 # =============================================================================
 
 
-def save_msvid_weights(
+def save_MDBF_weights(
     model: nn.Module,
     save_path: Path,
     packed: bool = True
 ) -> Dict[str, int]:
-    """Save MSVID weights"""
+    """Save MDBF weights"""
     save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
 
@@ -482,10 +482,10 @@ def save_msvid_weights(
     stats = {"layers": 0, "params": 0}
 
     for name, module in model.named_modules():
-        if not (hasattr(module, 'msvid_params') and getattr(module, 'is_quantized', False)):
+        if not (hasattr(module, 'MDBF_params') and getattr(module, 'is_quantized', False)):
             continue
 
-        params_list = module.msvid_params
+        params_list = module.MDBF_params
 
         for p_idx, params in enumerate(params_list):
             prefix = f"{name}.path{p_idx}"
@@ -514,26 +514,26 @@ def save_msvid_weights(
 
         stats["layers"] += 1
 
-    torch.save(weights, save_path / "msvid_weights.pt")
+    torch.save(weights, save_path / "MDBF_weights.pt")
 
     metadata = {
         "packed": packed,
         "layers": stats["layers"],
         "params": stats["params"],
     }
-    with open(save_path / "msvid_metadata.json", "w") as f:
+    with open(save_path / "MDBF_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
 
     logger.info(f"[MDBF] Saved {stats['layers']} layers to {save_path}")
     return stats
 
 
-def load_msvid_weights(load_path: Path) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
-    """Load MSVID weights"""
+def load_MDBF_weights(load_path: Path) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any]]:
+    """Load MDBF weights"""
     load_path = Path(load_path)
-    weights = torch.load(load_path / "msvid_weights.pt", map_location="cpu")
+    weights = torch.load(load_path / "MDBF_weights.pt", map_location="cpu")
 
-    with open(load_path / "msvid_metadata.json", "r") as f:
+    with open(load_path / "MDBF_metadata.json", "r") as f:
         metadata = json.load(f)
 
     return weights, metadata
@@ -544,7 +544,7 @@ def load_msvid_weights(load_path: Path) -> Tuple[Dict[str, torch.Tensor], Dict[s
 # =============================================================================
 
 
-def verify_binary_values(params: MSVIDParams) -> Tuple[bool, str]:
+def verify_binary_values(params: MDBFParams) -> Tuple[bool, str]:
     """Verify that S_A and S_B are valid binary {-1, +1} matrices"""
     A_unique = torch.unique(params.A_sign)
     A_valid = len(A_unique) <= 2 and all(v in [-1.0, 1.0] for v in A_unique.tolist())
@@ -563,7 +563,7 @@ def verify_binary_values(params: MSVIDParams) -> Tuple[bool, str]:
     return False, "; ".join(msg_parts)
 
 
-def verify_all_params(params_list: List[MSVIDParams]) -> Tuple[bool, List[str]]:
+def verify_all_params(params_list: List[MDBFParams]) -> Tuple[bool, List[str]]:
     """Verify all parameters in all paths"""
     all_valid = True
     messages = []

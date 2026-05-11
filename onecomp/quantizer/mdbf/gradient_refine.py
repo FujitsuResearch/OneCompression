@@ -1,5 +1,5 @@
 """
-MSVID Amplitude Parameter Gradient-Based Optimization (Phase 3)
+MDBF Amplitude Parameter Gradient-Based Optimization (Phase 3)
 
 After ADMM optimization, fix the signs and optimize the amplitude parameters using direct gradient-based methods.
 
@@ -21,7 +21,7 @@ from logging import getLogger
 
 logger = getLogger(__name__)
 
-from .initialize import MSVIDParams
+from .initialize import MDBFParams
 from .utils import (
     cleanup_gpu_memory,
     compute_hessian_error,
@@ -45,14 +45,14 @@ def _prepare_hessian(
 
 def refine_amplitude_gradient(
     W_original: torch.Tensor,
-    params_list: List[MSVIDParams],
+    params_list: List[MDBFParams],
     l: int,
     lr: float = 0.01,
     iters: int = 1000,
     activation_aware: bool = False,
     H: Optional[torch.Tensor] = None,
     nsamples: int = 1,
-) -> Tuple[List[MSVIDParams], torch.Tensor]:
+) -> Tuple[List[MDBFParams], torch.Tensor]:
     """
     Optimize amplitude parameters using gradient-based methods (Phase 3)
 
@@ -61,7 +61,7 @@ def refine_amplitude_gradient(
 
     Args:
         W_original: Original weight matrix (n, m)
-        params_list: List of MSVID parameters (for P paths)
+        params_list: List of MDBF parameters (for P paths)
         l: Multi-scale rank
         lr: Learning rate
         iters: Number of optimization iterations
@@ -70,7 +70,7 @@ def refine_amplitude_gradient(
         nsamples: Number of samples N
 
     Returns:
-        optimized_params: Optimized MSVID parameters
+        optimized_params: Optimized MDBF parameters
         W_recon: Reconstructed weight matrix
     """
     device = W_original.device
@@ -226,13 +226,13 @@ def refine_amplitude_gradient(
     if best_amp_params is not None:
         amp_params = best_amp_params
 
-    # Construct MSVIDParams
+    # Construct MDBFParams
     optimized_params = []
     for p_idx in range(P):
         A_sign, B_sign = sign_params[p_idx]
         A_amp, B_amp, Q_U_amp, Q_V_amp = amp_params[p_idx]
 
-        params = MSVIDParams(
+        params = MDBFParams(
             A_sign=A_sign.to(dtype),
             B_sign=B_sign.to(dtype),
             A_amp=A_amp.to(dtype),
@@ -273,7 +273,7 @@ def refine_amplitude_gradient(
                      f"(rel: {final_output_error/orig_output_err:.4f})")
         logger.debug(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
     else:
-        # init_error は weight_error^2 なので、final_weight_error^2 と比較
+        # init_error is weight_error^2, so compare against final_weight_error^2
         final_error_sq = final_weight_error ** 2
         improvement = (init_error - final_error_sq) / (init_error + 1e-12) * 100
         logger.debug(f"[Gradient Refine] Final weight_error: {final_weight_error:.4e} "

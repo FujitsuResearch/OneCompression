@@ -14,7 +14,7 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from onecomp.quantizer.mdbf._mdbf import MDBF, MDBFResult
-from onecomp.quantizer.mdbf.initialize import MSVIDParams
+from onecomp.quantizer.mdbf.initialize import MDBFParams
 from onecomp.quantizer.mdbf.utils import reconstruct_weight
 
 from test_module import BaseQuantizeSpec
@@ -161,9 +161,9 @@ class TestMDBF(BaseQuantizeSpec):
         dtype = module.weight.data.dtype
         module.weight.data = result.compute_dequantized_weight().to(device).to(dtype)
 
-        # attach msvid_params so layer-replacement utilities can use them
+        # attach MDBF_params so layer-replacement utilities can use them
         params_list = [
-            MSVIDParams(
+            MDBFParams(
                 A_sign=result.mdbf_A_sign[p],
                 B_sign=result.mdbf_B_sign[p],
                 A_amp=result.mdbf_A_amp[p],
@@ -173,7 +173,7 @@ class TestMDBF(BaseQuantizeSpec):
             )
             for p in range(result.P)
         ]
-        module.msvid_params = params_list
+        module.MDBF_params = params_list
         module.is_quantized = True
 
     def test_forward_error(self, helper):
