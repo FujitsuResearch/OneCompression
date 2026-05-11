@@ -17,6 +17,7 @@ from onecomp.calibration.calibration_data_loader import (
     prepare_calibration_dataset,
     _KNOWN_DATASET_NAMES,
 )
+from onecomp.utils import add_model_specific_inputs
 from onecomp.calibration.chunking import _VALID_CALIBRATION_STRATEGIES
 
 
@@ -36,6 +37,7 @@ class TestRouting:
             tokenizer=tokenizer,
             device=torch.device("cpu"),
             calibration_config=CalibrationConfig(),
+            model=MagicMock(),
         )
         mock_c4.assert_called_once()
         assert result is fake_result
@@ -52,6 +54,7 @@ class TestRouting:
             tokenizer=tokenizer,
             device=torch.device("cpu"),
             calibration_config=CalibrationConfig(calibration_dataset="c4"),
+            model=MagicMock(),
         )
         mock_c4.assert_called_once()
 
@@ -67,6 +70,7 @@ class TestRouting:
             tokenizer=tokenizer,
             device=torch.device("cpu"),
             calibration_config=CalibrationConfig(calibration_dataset="C4"),
+            model=MagicMock(),
         )
         mock_c4.assert_called_once()
 
@@ -82,6 +86,7 @@ class TestRouting:
             tokenizer=tokenizer,
             device=torch.device("cpu"),
             calibration_config=CalibrationConfig(calibration_dataset="wikitext2"),
+            model=MagicMock(),
         )
         mock_wt.assert_called_once()
 
@@ -100,6 +105,7 @@ class TestRouting:
             calibration_config=CalibrationConfig(
                 calibration_dataset="/data/my_corpus.txt",
             ),
+            model=MagicMock(),
         )
         mock_custom.assert_called_once()
 
@@ -118,6 +124,7 @@ class TestRouting:
             calibration_config=CalibrationConfig(
                 calibration_dataset="username/my-dataset",
             ),
+            model=MagicMock(),
         )
         mock_hub.assert_called_once()
 
@@ -134,7 +141,58 @@ class TestInvalidStrategy:
                 calibration_config=CalibrationConfig(
                     strategy="nonexistent_strategy",
                 ),
+                model=MagicMock(),
             )
+
+
+class TestFinalizeCalibrationInputs:
+    """Verify that add_model_specific_inputs adds model-specific fields."""
+
+    def _make_inputs(self):
+        return {
+            "input_ids": torch.zeros(4, 32, dtype=torch.long),
+            "attention_mask": torch.ones(4, 32, dtype=torch.long),
+        }
+
+    def _make_model(self, model_type):
+        model = MagicMock()
+        model.config.model_type = model_type
+        return model
+
+    def test_gemma4_adds_mm_token_type_ids(self):
+        inputs = self._make_inputs()
+        model = self._make_model("gemma4")
+
+        result = add_model_specific_inputs(inputs, model)
+
+        assert "mm_token_type_ids" in result
+        assert result["mm_token_type_ids"].shape == result["input_ids"].shape
+        assert result["mm_token_type_ids"].dtype == torch.long
+        assert (result["mm_token_type_ids"] == 0).all()
+
+    def test_non_gemma4_does_not_add_mm_token_type_ids(self):
+        inputs = self._make_inputs()
+        model = self._make_model("llama")
+
+        result = add_model_specific_inputs(inputs, model)
+
+        assert "mm_token_type_ids" not in result
+
+    @patch("onecomp.calibration.calibration_data_loader.c4.prepare_calibration_data")
+    def test_gemma4_end_to_end(self, mock_c4):
+        """mm_token_type_ids is present after full prepare_calibration_dataset."""
+        mock_c4.return_value = self._make_inputs()
+        model = self._make_model("gemma4")
+
+        result = prepare_calibration_dataset(
+            tokenizer=MagicMock(),
+            device=torch.device("cpu"),
+            calibration_config=CalibrationConfig(),
+            model=model,
+        )
+
+        assert "mm_token_type_ids" in result
+        assert result["mm_token_type_ids"].shape == result["input_ids"].shape
 
 
 class TestKnownConstants:

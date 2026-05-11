@@ -89,7 +89,7 @@ def _get_float_zeros(mod: nn.Module) -> torch.Tensor:
     else:
         zeros = mod.qzeros
     if _v1:
-        zeros = zeros + 1
+        zeros = (zeros + 1) & ((1 << mod.wbits) - 1)
     return zeros.float()
 
 

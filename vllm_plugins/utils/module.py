@@ -4,6 +4,9 @@ import re
 
 _LAYER_RE = re.compile(r"\.layers\.(\d+)\.")
 
+# Prefixes belonging to vision/audio encoders -- never quantized.
+_NON_TEXT_PREFIXES = ("vision_tower", "vision_model", "multi_modal_projector", "audio")
+
 # Map from vLLM's fused module name to the constituent config keys.
 # When vLLM fuses q/k/v into qkv_proj, the prefix becomes "...qkv_proj".
 # We look up the first constituent's config as representative.
@@ -14,6 +17,8 @@ _FUSED_TO_CONSTITUENTS = {
 
 
 def _parse_layer_and_module(prefix: str) -> tuple[int | None, str | None]:
+    if any(p in prefix for p in _NON_TEXT_PREFIXES):
+        return None, None
     m = _LAYER_RE.search(prefix)
     if m is None:
         return None, None

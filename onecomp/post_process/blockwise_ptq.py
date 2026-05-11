@@ -146,6 +146,7 @@ class BlockWisePTQ(PostQuantizationProcess):
             tokenizer=tokenizer,
             device="cpu",
             calibration_config=self.calibration_config,
+            model=quantized_model,
             logger=logger,
         )
 

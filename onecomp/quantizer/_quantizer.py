@@ -74,6 +74,21 @@ class QuantizationResult:
         # If not overridden, it returns the weight of the dequantized_weight field.
         return self.dequantized_weight.to(torch.float16).cpu()
 
+    def get_statistics(self) -> dict:
+        """Return quantization statistics as a dict for JSON serialization.
+
+        Subclasses can override this to include method-specific statistics.
+        """
+        return {
+            "quantization_time": self.quantization_time,
+            "output_squared_error": self.output_squared_error,
+            "mean_output_squared_error": self.mean_output_squared_error,
+            "weight_squared_error": self.weight_squared_error,
+            "mean_weight_squared_error": self.mean_weight_squared_error,
+            "relative_output_squared_error": self.relative_output_squared_error,
+            "relative_weight_squared_error": self.relative_weight_squared_error,
+        }
+
 
 @dataclass
 class Quantizer(metaclass=ABCMeta):
@@ -143,7 +158,9 @@ class Quantizer(metaclass=ABCMeta):
     include_layer_names: list[str] = None  # Layers to explicitly quantize (exact match)
     exclude_layer_names: list[str] = field(default_factory=lambda: ["lm_head"])
     include_layer_keywords: list[str] = None  # Quantize layers containing these keywords
-    exclude_layer_keywords: list[str] = None  # Exclude layers containing these keywords
+    exclude_layer_keywords: list[str] = field(
+        default_factory=lambda: ["per_layer_model_projection"]
+    )
     target_layer_types: tuple = field(default_factory=lambda: (Linear,))  # Target layer types
 
     # Hessian / statistics precision
@@ -176,7 +193,7 @@ class Quantizer(metaclass=ABCMeta):
         pass
 
     def quantize(
-        self, module, input, output
+        self, module, input, output, hessian=None
     ):  # pylint: disable=redefined-builtin, unused-argument
         """Quantize the layer
 
@@ -432,8 +449,30 @@ class Quantizer(metaclass=ABCMeta):
 
         return True
 
+    _VLM_TEXT_SUFFIXES = ("language_model", "text_model")
+
+    def _get_text_search_root(self, model):
+        """Return (search_root, prefix) restricting to the text submodel.
+
+        For VLMs this finds the
+        language_model or text_model submodule and returns it
+        For plain CausalLMs the whole model is returned
+        """
+        for name, mod in model.named_modules():
+            if any(name.endswith(s) for s in self._VLM_TEXT_SUFFIXES):
+                return mod, name + "."
+        return model, ""
+
     def setup(self, model):
         """Setup the quantizer with the model
+
+        For VLMs (e.g. Gemma3, Qwen3-VL), only language-model submodule
+        layers are considered for quantization.  Vision / audio encoder
+        layers are automatically excluded.
+
+        For MoE models with fused 3D expert parameters (e.g. Gemma4,), 
+        expert tensors are automatically unfused into
+        per-expert nn.Linear layers before the module scan.
 
         Args:
             model: The model to be quantized
@@ -442,15 +481,22 @@ class Quantizer(metaclass=ABCMeta):
 
         self.validate_params()
 
+        from onecomp.utils.unfuse_moe import unfuse_moe_experts
+
+        if unfuse_moe_experts(model, self.logger):
+            self.logger.info("Unfused MoE expert tensors into per-expert nn.Linear")
+
         assert len(self.module_to_name) == 0
 
-        for name, module in model.named_modules():
-            # Check if the layer should be quantized
-            if self._should_quantize_layer(name, module):
-                self.module_to_name[module] = name
+        search_root, prefix = self._get_text_search_root(model)
+        if prefix:
+            self.logger.info("Quantizer restricting to text submodel: %s", prefix.rstrip("."))
 
-            # If the number of layers is specified,
-            # stop the loop when the number of layers is reached
+        for name, module in search_root.named_modules():
+            full_name = prefix + name if prefix else name
+            if self._should_quantize_layer(full_name, module):
+                self.module_to_name[module] = full_name
+
             if self.num_layers is not None and len(self.module_to_name) >= self.num_layers:
                 break
 

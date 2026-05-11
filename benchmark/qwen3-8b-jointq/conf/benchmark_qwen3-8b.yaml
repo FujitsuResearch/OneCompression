@@ -17,15 +17,19 @@ jointq:
   bits: [4, 3]
   group_size: [128, null]
   symmetric: true
-  batch_size: null
   log_level: 0
   device: null
+
+  # Lambda regularization (explicit — do not rely on JointQ defaults)
+  lambda_mode: "fixed_lambda"
   regularization_lambda: 0.2
+  regularization_mode: "identity"
+  regularization_gamma: 0.5
+  lambda_list: [0.001, 0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5]
+
+  # Activation ordering / GPTQ MSE
   actorder: false
-  ils_enabled: false
-  ils_num_iterations: 10
-  ils_num_clones: 8
-  ils_num_channels: null
+  gptq_mse: false
 
 # Evaluation
 calc_ppl: true

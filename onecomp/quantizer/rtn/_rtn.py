@@ -76,6 +76,9 @@ class RTN(Quantizer):
             -1 means no grouping (single scale and zero point for entire row). Default is -1.
         sym (bool): Whether to use symmetric quantization. If True, zero point is placed at center.
             Default is False.
+        mse (bool): Enable MSE grid search for optimal clipping. Default is False.
+        norm (float): Lp norm exponent for MSE search. Default is 2.4.
+        grid (int): Number of candidate shrink levels for MSE search. Default is 100.
 
     Methods:
         quantize_layer(module, input, hessian): Quantize a layer using RTN.
@@ -84,10 +87,12 @@ class RTN(Quantizer):
     flag_calibration: bool = False
     flag_hessian: bool = False
 
-    # Parameters for the RTN quantizer
     wbits: int = 4
     groupsize: int = -1
     sym: bool = False
+    mse: bool = False
+    norm: float = 2.4
+    grid: int = 100
 
     def validate_params(self):
         """Validate RTN parameters once in setup().
@@ -96,6 +101,8 @@ class RTN(Quantizer):
             wbits: int, 1 <= wbits <= 64
             groupsize: int, -1 or >= 1
             sym: bool (no constraint)
+            grid: int >= 1 (when mse=True)
+            norm: float > 0 (when mse=True)
         """
         bad = []
 
@@ -107,6 +114,19 @@ class RTN(Quantizer):
                 f"Invalid RTN parameter 'groupsize': {self.groupsize!r} "
                 f"(expected int: -1 for no grouping, or 1<= groupsize)."
             )
+
+        if self.mse:
+            if not (isinstance(self.grid, int) and self.grid >= 1):
+                bad.append(
+                    f"Invalid RTN parameter 'grid': {self.grid!r} "
+                    f"(expected int >= 1 when mse=True)."
+                )
+
+            if not (isinstance(self.norm, (int, float)) and self.norm > 0):
+                bad.append(
+                    f"Invalid RTN parameter 'norm': {self.norm!r} "
+                    f"(expected numeric > 0 when mse=True)."
+                )
 
         if bad:
             raise ValueError("; ".join(bad))
@@ -139,6 +159,9 @@ class RTN(Quantizer):
             wbits=self.wbits,
             groupsize=self.groupsize,
             sym=self.sym,
+            mse=self.mse,
+            norm=self.norm,
+            grid=self.grid,
         )
 
         return RTNResult(

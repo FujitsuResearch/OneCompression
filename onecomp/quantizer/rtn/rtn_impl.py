@@ -3,7 +3,7 @@
 This module provides the run_rtn function for RTN quantization.
 
 Functions:
-    run_rtn(layer, wbits, groupsize, sym): Execute RTN quantization on a layer.
+    run_rtn(layer, wbits, groupsize, sym, mse, norm, grid): Execute RTN quantization on a layer.
 
 Copyright 2025-2026 Fujitsu Ltd.
 
@@ -23,6 +23,9 @@ def run_rtn(
     wbits=16,
     groupsize=-1,
     sym=False,
+    mse=False,
+    norm=2.4,
+    grid=100,
 ):
     """Execute quantization using RTN.
 
@@ -45,6 +48,10 @@ def run_rtn(
         sym (bool, optional): Whether to use symmetric quantization. If True,
             zero point is placed at center.
             Default is False.
+        mse (bool, optional): Enable MSE grid search for optimal clipping.
+            Default is False.
+        norm (float, optional): Lp norm exponent for MSE search. Default is 2.4.
+        grid (int, optional): Number of candidate shrink levels. Default is 100.
 
     Returns:
         dict[str, torch.Tensor]: Dictionary containing quantization results with the following keys:
@@ -66,6 +73,10 @@ def run_rtn(
         q_group_size=groupsize,
         zero_point=not sym,
         inplace=False,
+        perchannel=True,
+        mse=mse,
+        norm=norm,
+        grid=grid,
     )
 
     if isinstance(layer, transformers.Conv1D):

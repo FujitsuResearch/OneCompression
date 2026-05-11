@@ -6,6 +6,7 @@ Author: Keiji Kimura
 
 """
 
+from .quantization_error import plot_quantization_errors
 from .weight_outlier import (
     LayerOutlierStats,
     WeightOutlierAnalysis,
@@ -19,5 +20,6 @@ __all__ = [
     "WeightOutlierAnalysis",
     "WeightOutlierAnalyzer",
     "analyze_weight_outliers",
+    "plot_quantization_errors",
     "save_weight_distribution_plots",
 ]

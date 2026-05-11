@@ -95,6 +95,7 @@ def run_capture_phase(
         tokenizer=tokenizer,
         device=input_device,
         calibration_config=calibration_config,
+        model=model,
         logger=logger,
     )
 
