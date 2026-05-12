@@ -138,11 +138,17 @@ def assign_by_ilp(quantizer, model, *, use_activation=False):
 
 
 def _find_candidates(quantizer, model):
-    """Collect quantisable layers in model order."""
+    """Collect quantisable layers in model order.
+
+    Bit allocation is performed on the text submodel for multi-modal models.
+    """
+    search_root, prefix = quantizer._get_text_search_root(model)
+
     candidates = []
-    for name, module in model.named_modules():
-        if quantizer._should_quantize_layer(name, module):
-            candidates.append((name, module))
+    for name, module in search_root.named_modules():
+        full_name = prefix + name if prefix else name
+        if quantizer._should_quantize_layer(full_name, module):
+            candidates.append((full_name, module))
         if quantizer.num_layers is not None and len(candidates) >= quantizer.num_layers:
             break
 

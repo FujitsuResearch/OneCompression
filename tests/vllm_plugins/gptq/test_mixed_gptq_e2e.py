@@ -133,11 +133,24 @@ class TestMixedGroupSizeVllmInference:
     """Load the quantized model with vLLM and verify generation works."""
 
     def test_generate_produces_non_empty_output(self, quantized_model_dir):
+        # gpu_memory_utilization is lowered from the vLLM default (0.92) to
+        # accommodate DGX Spark's 128 GB Unified Memory and the test job's
+        # SLURM cgroup limit (--mem=115G in run_test_vllm.sh):
+        #   - 0.92 (~112 GiB) trips vLLM's own startup OOM check (only ~106
+        #     GiB of UMA is free after AutoBit quantization runs in the same
+        #     process).
+        #   - 0.85 (~103 GiB) clears vLLM's check but the resulting Python
+        #     residual (~16 GiB for vllm/transformers/torch imports + pytest
+        #     state) plus 103 GiB allocation overflows the 115 GiB cgroup
+        #     and the kernel OOM-kills the process.
+        #   - 0.78 (~95 GiB) leaves ~4 GiB cgroup headroom and is the
+        #     largest value we can use without cgroup OOM.
         llm = LLM(
             model=quantized_model_dir,
             max_model_len=512,
             dtype="float16",
             enforce_eager=True,
+            gpu_memory_utilization=0.78,
         )
 
         outputs = llm.generate(

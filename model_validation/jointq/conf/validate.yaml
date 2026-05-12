@@ -1,0 +1,13 @@
+# Model selection (specify exactly one of model_id or model_path)
+model_id: null              # Hugging Face Hub ID (e.g. TinyLlama/TinyLlama-1.1B-...)
+model_path: null            # Local path to a model directory
+
+# Output directory (Hydra chdir's into this for each run)
+output_dir: outputs/${oc.env:SLURM_JOB_NAME,run}_${oc.env:SLURM_ARRAY_TASK_ID,0}
+
+# Hydra
+hydra:
+  run:
+    dir: ${output_dir}
+  job:
+    chdir: true

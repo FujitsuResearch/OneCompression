@@ -9,6 +9,9 @@ Author: Yuma Ichikawa, Akihiro Yoshida
 import os
 from logging import getLogger
 
+import torch
+
+from ..utils import add_model_specific_inputs
 from .calibration_config import CalibrationConfig
 from .chunking import _VALID_CALIBRATION_STRATEGIES, prepare_from_texts
 from ._cache import load_or_prepare
@@ -28,6 +31,7 @@ def prepare_calibration_dataset(
     tokenizer,
     device,
     calibration_config: CalibrationConfig,
+    model,
     logger=None,
 ):
     """Prepare calibration data for quantization methods such as GPTQ.
@@ -62,6 +66,7 @@ def prepare_calibration_dataset(
         tokenizer: Tokenizer.
         device (torch.device): Device to place tensors on (CPU or GPU).
         calibration_config (CalibrationConfig): Calibration parameters.
+        model (torch.nn.Module): Model instance. It is used to add model-specific token-type fields to calibration inputs.
         logger: Logger (optional).
 
     Returns:
@@ -94,7 +99,7 @@ def prepare_calibration_dataset(
     if calibration_dataset is None or name_lower == "c4":
         if calibration_dataset is None:
             logger.info("Calibration dataset is not specified, using default C4 dataset")
-        return c4.prepare_calibration_data(
+        result = c4.prepare_calibration_data(
             tokenizer,
             device,
             max_length,
@@ -104,9 +109,8 @@ def prepare_calibration_dataset(
             use_quality_filter=use_quality_filter,
             logger=logger,
         )
-
-    if name_lower == "wikitext2":
-        return wikitext.prepare_calibration_data(
+    elif name_lower == "wikitext2":
+        result = wikitext.prepare_calibration_data(
             tokenizer,
             device,
             max_length,
@@ -115,9 +119,8 @@ def prepare_calibration_dataset(
             seed,
             logger=logger,
         )
-
-    if os.path.exists(calibration_dataset):
-        return custom.prepare_calibration_data(
+    elif os.path.exists(calibration_dataset):
+        result = custom.prepare_calibration_data(
             calibration_dataset,
             tokenizer,
             device,
@@ -129,15 +132,17 @@ def prepare_calibration_dataset(
             max_documents=max_documents,
             logger=logger,
         )
+    else:
+        # --- try as HuggingFace Hub dataset ID ---
+        result = _load_from_hub(
+            calibration_dataset,
+            tokenizer,
+            device,
+            calibration_config,
+            logger=logger,
+        )
 
-    # --- try as HuggingFace Hub dataset ID ---
-    return _load_from_hub(
-        calibration_dataset,
-        tokenizer,
-        device,
-        calibration_config,
-        logger=logger,
-    )
+    return add_model_specific_inputs(result, model)
 
 
 _TEXT_COLUMN_CANDIDATES = ("text", "content", "sentence", "document", "body", "input")

@@ -103,6 +103,17 @@ class AutoBitQuantizer(Quantizer):
                 ],
             )
 
+        Mixed bit-width and group size::
+
+            autobit = AutoBitQuantizer(
+                target_bit=3.0,
+                quantizers=[
+                    GPTQ(wbits=2, groupsize=32),
+                    GPTQ(wbits=4, groupsize=128),
+                    GPTQ(wbits=4, groupsize=32),
+                ],
+            )
+
         Ultra-low-bit with DBF fallback (target_bit <= dbf_threshold)::
 
             autobit = AutoBitQuantizer(

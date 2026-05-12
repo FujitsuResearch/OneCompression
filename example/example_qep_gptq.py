@@ -28,6 +28,10 @@ runner = Runner(
     qep=True,
     calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
 )
+# NOTE: The calibration settings above are kept compact so the demo runs
+# fast and may be insufficient for real quantisation.  For higher quality,
+# prefer the CalibrationConfig() defaults
+# (max_length=2048, num_calibration_samples=512).
 
 # Run quantization
 runner.run()
