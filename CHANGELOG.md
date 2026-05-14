@@ -1,5 +1,23 @@
 # Change log
 
+## [v1.1.0+feature/lora-save-load-vllm-infer_jointq] 2026-05-14
+
+### LoRA Adapter Sidecar Save/Load
+
+- Updated `Runner.save_quantized_model()` to save LoRA adapters as a PEFT sidecar in `lora_adapter/` (`adapter_model.safetensors`, `adapter_config.json`) when `LoRAGPTQLinear` modules are present, keeping the base quantized model and adapters separated (`onecomp/runner.py`)
+- Updated `QuantizedModelLoader.load_quantized_model()` to auto-detect LoRA sidecars and re-wrap matching layers with `LoRAGPTQLinear` during load for save/load round-trips (`onecomp/quantized_model_loader.py`)
+
+### Examples
+
+- Added `example/post_process/example_lora_sft_save_load_hf_format.py`: end-to-end GPTQ + LoRA SFT workflow covering save/load in HF format and before/after generation comparison
+- Added `example/post_process/example_lora_sft_knowledge_save_load_hf_format.py`: knowledge-injection LoRA SFT example using `onecomp_knowledge.jsonl`, including save/load round-trip and output comparison
+- Added `example/post_process/example_lora_sft_knowledge_save_load_hf_format_jointq.py`: JointQ counterpart of the knowledge-injection LoRA SFT workflow
+- Added `example/post_process/example_lora_gptq_vllm_inference.py`: end-to-end GPTQ + LoRA SFT workflow validating vLLM inference with saved LoRA adapters, including GPTQ-only vs GPTQ+LoRA output comparison
+
+### Tests
+
+- Added a JointQ + `PostProcessLoraSFT` smoke test (conditional on JointQ/CUDA availability) in `tests/onecomp/post_process/test_post_process_lora_sft.py`
+
 ## [v1.1.0] 2026-04-16
 
 ### Gemma 3 / Gemma 4 & VLM Support
