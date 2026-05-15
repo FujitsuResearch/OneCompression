@@ -1,5 +1,67 @@
 # Change log
 
+## [v1.1.0+feature/dev_save_load] 2026/05/15
+
+### Save/Load Support for JointQ, RTN, and OneBit Quantizers
+
+- **JointQ**: Added `get_quant_config()`, `finalize_quant_config_for_save()`, and `create_inference_layer()` to `JointQ` class (`onecomp/quantizer/jointq/_jointq.py`)
+  - Emits `quant_method="gptq"` to reuse `GPTQLinear` and vLLM GPTQ plugin (JointQ uses the same scale/zero/assignment structure as GPTQ)
+  - `create_inference_layer()` converts JointQ's 3D assignment `(out_features, num_groups, group_size)` to 2D qweight `(out_features, in_features)` matching GPTQ format, with scale/zero transposition
+  - Handles `actorder` permutation: restores original column order before passing to `GPTQLinear` so `g_idx` is constructed correctly
+  - Symmetric quantization: shifts signed integers `[-2^(n-1), 2^(n-1)-1]` to unsigned `[0, 2^n - 1]` for GPTQLinear bit packing
+  - Added `bits == 1` warning in `validate_params()`: GPTQLinear weight packing does not support 1-bit; inference layer must be built with `pack_weights=False`
+  - Added `_build_quantization_bits()` static method to emit per-layer `quantization_bits` metadata for mixed-precision save
+- **RTN**: Added `get_quant_config()`, `finalize_quant_config_for_save()`, `create_inference_layer()`, and `RTNResult.compute_dequantized_weight()` to `RTN` class (`onecomp/quantizer/rtn/_rtn.py`)
+  - Emits `quant_method="gptq"` to reuse `GPTQLinear` and vLLM GPTQ plugin (RTN uses the same qweight/scales/qzeros tensor format)
+  - `compute_dequantized_weight()` implements `W = (quantized_weight - zero) * scale` with per-channel and group-wise paths
+  - `create_inference_layer()` transposes scale/zero from `(out_features, num_groups)` to `(num_groups, out_features)` for GPTQLinear compatibility
+  - Added `_build_quantization_bits()` static method for per-layer metadata
+- **OneBit**: Added `get_quant_config()`, `finalize_quant_config_for_save()`, `create_inference_layer()`, and `OnebitResult.compute_dequantized_weight()` to `Onebit` class (`onecomp/quantizer/onebit/_onebit.py`)
+  - Emits `quant_method="onebit"` with OneBit-specific parameters (`iters`, `use_importance_scaling`, `use_balancing`, `balance_iters`, `balance_alpha`)
+  - `compute_dequantized_weight()` implements `W ≈ a[:, None] * sign * b[None, :]`
+  - `create_inference_layer()` builds `OneBitLinear` via `OneBitLinear.from_quantization_result()`
+  - Added `_build_quantization_bits()` static method for per-layer metadata
+
+### OneBitLinear Inference Layer Improvements
+
+- Added `OneBitLinear.from_quantization_result()` class method: builds `OneBitLinear` from `OnebitResult` (mirrors the pattern used by `GPTQLinear` and `DoubleBinaryLinear`) (`onecomp/quantizer/onebit/onebit_layer.py`)
+- Added `OneBitLinear.from_saved_state()` class method: reconstructs `OneBitLinear` from saved `state_dict` tensors (`a`, `b`, `sign_packed`, optional `bias`), using the same `cls.__new__` pattern as `DoubleBinaryLinear` (`onecomp/quantizer/onebit/onebit_layer.py`)
+- Removed `preunpack` parameter from `OneBitLinear.__init__()` and `replace_linear_with_onebit_layer()`: sign matrix is now always stored as packed `uint8` and unpacked on demand during `forward()`, matching the DBF inference layer pattern (`onecomp/quantizer/onebit/onebit_layer.py`)
+- Normalized buffers to FP16 with `detach()` in `OneBitLinear.__init__()` to drop autograd graph
+- Added `_load_from_state_dict()` override to clear `sign_matrix` cache when loading from checkpoint
+- Extracted `_unpack_sign_matrix()` helper for sign matrix unpacking logic
+- Removed unreferenced functions `replace_linear_with_onebit_layer()` and `extract_onebit_weights_for_save()` from `onebit_layer.py`: layer construction is now handled by `OneBitLinear.from_quantization_result()` / `OneBitLinear.from_saved_state()`, and save-time weight extraction is covered by the unified `create_inference_layer()` / `state_dict()` path (`onecomp/quantizer/onebit/onebit_layer.py`)
+
+### QuantizedModelLoader: OneBit Support
+
+- `QuantizedModelLoader` now supports `quant_method="onebit"` (`onecomp/quantized_model_loader.py`)
+  - Added `OneBitLinear` to import and layer replacement logic
+  - Added `OneBitLinear.from_saved_state()` call path for creating empty OneBit layers during model loading
+  - Hadamard hook registration now recognizes `OneBitLinear` as a quantized layer class
+
+### BlockWisePTQ / CBQ OneBit Optimizer Compatibility
+
+- Updated OneBit block-wise and cross-block quantization (CBQ) optimizers to work with packed-only `OneBitLinear` (`onecomp/post_process/_blockwise/onebit_block_optimizer.py`, `onecomp/post_process/_blockwise/onebit_cbq_optimizer.py`)
+  - Reads current sign matrices from `sign_packed` via `my_unpack()` when `sign_matrix` is not present, while still allowing `sign_matrix` as a temporary optimization override
+  - Writes sign updates back to `sign_packed` with `my_pack()` and clears `sign_matrix` so packed signs remain the single source of truth after hard evaluation, best-state restore, and final updates
+  - Hoisted `my_pack` / `my_unpack` imports in the OneBit CBQ optimizer
+- Clarified `OneBitLinear.sign_matrix` as a non-persistent temporary override used by optimization flows such as BlockWisePTQ and CBQ (`onecomp/quantizer/onebit/onebit_layer.py`)
+
+### Bug Fix
+
+- Fixed `GPTQLinear.from_saved_state()`: `_weight_is_packed` now defaults to `False` when `wbits == 1` (JointQ `wbits=1` checkpoints are saved with `pack_weights=False` because GPTQLinear packing does not support 1-bit) (`onecomp/quantizer/gptq/gptq_layer.py`)
+- Fixed redundant symmetric shift in RTN inference layer (`onecomp/quantizer/rtn/_rtn.py`)
+- Fixed `run_onebit()` returning `False` on NaN/Inf detection; now raises `ValueError` with proper GPU tensor cleanup to prevent OOM cascading (`onecomp/quantizer/onebit/onebit_impl.py`)
+- Removed pre-computed `dequantized_weight` from `run_onebit()` return dict and `OnebitResult`; dequantized weight is now computed on demand via `compute_dequantized_weight()` (`onecomp/quantizer/onebit/onebit_impl.py`, `onecomp/quantizer/onebit/_onebit.py`)
+
+### Tests
+
+- Enabled inherited `test_forward_error` tests for JointQ, OneBit, and RTN (previously skipped with `"does not support create_inference_layer"`) (`tests/onecomp/quantizer/jointq/test_jointq.py`, `tests/onecomp/quantizer/onebit/test_onebit.py`, `tests/onecomp/quantizer/rtn/test_rtn.py`)
+- Added `_forward_error_features` class attribute to `BaseQuantizeSpec` for parameterizing layer size in `test_forward_error`; JointQ overrides to `32` (requires `in_features` divisible by `pack_factor = 32 // wbits`) (`tests/onecomp/quantizer/test_module.py`)
+- Changed JointQ test default `bits` from `1` to `2` to match GPTQLinear packing constraints (`tests/onecomp/quantizer/jointq/test_jointq.py`)
+- Updated `check_equal_results` in RTN and OneBit tests to use `compute_dequantized_weight()` instead of direct `dequantized_weight` attribute access
+- Updated `apply_quantized_weights` in RTN and OneBit tests to use `compute_dequantized_weight()` with proper dtype preservation
+
 ## [v1.1.0] 2026-04-16
 
 ### Gemma 3 / Gemma 4 & VLM Support
