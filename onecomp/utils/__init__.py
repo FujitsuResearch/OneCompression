@@ -25,6 +25,11 @@ from .vram_estimator import (
     effective_bits_for_quantizer,
     weight_memory_gb,
     VRAMBitwidthEstimation,
+    EnvironmentSnapshot,
+    ModelMemoryProfile,
+    EnvCheckResult,
+    check_environment,
+    print_env_report,
 )
 
 from .model_inputs import add_model_specific_inputs

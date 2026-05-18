@@ -53,10 +53,12 @@ cu124 = ["torch", "torchvision"]
 cu126 = ["torch", "torchvision"]
 cu128 = ["torch", "torchvision"]
 cu130 = ["torch", "torchvision"]
+check-env = ["psutil>=5.9"]
 dev = [
     "black",
     "hydra-core",
     "pylint",
+    "psutil>=5.9",
     "pytest",
 ]
 visualize = [

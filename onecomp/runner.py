@@ -417,6 +417,7 @@ class Runner:
         evaluate: bool = True,
         eval_original_model: bool = False,
         save_dir: str = "auto",
+        check_env: bool = False,
         **kwargs,
     ):
         """One-liner quantization with sensible defaults.
@@ -486,6 +487,24 @@ class Runner:
         """
         setup_logger()
         logger = getLogger(__name__)
+
+        if check_env:
+            from .utils.vram_estimator import (  # pylint: disable=import-outside-toplevel
+                check_environment,
+                print_env_report,
+            )
+
+            env_result = check_environment(
+                model_id,
+                total_vram_gb=total_vram_gb,
+                group_size=groupsize,
+                save_dir=save_dir if isinstance(save_dir, str) and save_dir != "auto" else None,
+            )
+            print_env_report(env_result, total_vram_gb_override=total_vram_gb)
+            if env_result.risk == "danger":
+                raise RuntimeError(
+                    f"Environment check failed (OOM risk=danger): {env_result.risk_detail}"
+                )
 
         candidate_bits = (2, 3, 4, 8)
 
