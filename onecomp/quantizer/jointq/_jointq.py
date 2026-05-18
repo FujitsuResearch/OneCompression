@@ -250,6 +250,9 @@ class JointQ(Quantizer):
     flag_calibration: bool = True
     flag_hessian: bool = False
     flag_xtx: bool = True
+    # JointQ does not yet support the generic QEP pipeline.
+    # Planned for a future release.
+    flag_qep_supported: bool = False
     hessian_dtype: torch.dtype = torch.float64
 
     # Parameters for the JointQ quantizer
