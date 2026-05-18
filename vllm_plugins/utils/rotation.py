@@ -10,6 +10,7 @@ from typing import Any
 
 import torch
 
+from onecomp.pre_process.rotation_utils import is_online_hadamard_target
 from onecomp.pre_process.hadamard_utils import get_hadK, matmul_hadU_cuda
 
 try:
@@ -47,7 +48,7 @@ class RotationMetadata:
 
     def requires_hadamard(self, prefix: str) -> bool:
         """Return whether a module prefix should receive the online Hadamard transform."""
-        return self.rotated and prefix.endswith(".mlp.down_proj")
+        return self.rotated and is_online_hadamard_target(prefix)
 
 
 def apply_online_hadamard(x: torch.Tensor, *, fp32_had: bool, cache_owner: Any) -> torch.Tensor:

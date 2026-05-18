@@ -118,6 +118,17 @@ def fuse_layer_norms(model: nn.Module):
 # ============================================================
 
 
+def is_online_hadamard_target(name: str) -> bool:
+    """Return whether a module name should receive the online Hadamard hook.
+
+    Keep this predicate shared between the preprocessing path and vLLM plugins so
+    both runtimes attach the Hadamard transform to the same dense MLP
+    ``down_proj`` layers. MoE expert ``down_proj`` paths are currently out of
+    scope because rotation preprocessing does not support MoE architectures.
+    """
+    return name == "mlp.down_proj" or name.endswith(".mlp.down_proj")
+
+
 def make_online_hadamard_hook(had_K, K, fp32_had: bool = False):
     """Build a forward pre-hook that Hadamard-transforms the module input tensor.
 
@@ -628,7 +639,7 @@ def register_online_hadamard_hooks(model, fp32_had: bool = False, layers_cls=Non
     layers = find_linear_layers(model, layers=layers_cls)
     hooks = []
     for name, module in layers.items():
-        if "down_proj" in name:
+        if is_online_hadamard_target(name):
             had_K, K = get_hadK(module.in_features)
             hook = make_online_hadamard_hook(had_K, K, fp32_had=fp32_had)
             handle = module.register_forward_pre_hook(hook)
