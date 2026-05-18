@@ -174,6 +174,7 @@ class Quantizer(metaclass=ABCMeta):
     flag_calibration: bool = False
     flag_hessian: bool = False
     flag_xtx: bool = False  # Whether X^T X is needed (e.g., JointQ)
+    flag_qep_supported: bool = True
 
     def __post_init__(self):
         """__post_init__ method"""

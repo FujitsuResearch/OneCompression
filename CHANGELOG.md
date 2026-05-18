@@ -2,6 +2,14 @@
 
 ## [v1.1.1] 2026-05-07
 
+## Bug Fixes
+
+- Raise a clear error when ``Runner`` is configured with ``qep=True`` and a quantizer that does not support QEP (currently `JointQ`). Previously the run failed deep inside `quantize_with_qep` / `adjust_weight` with a confusing low-level error. `Runner.check()` now reports e.g. "Quantizer 'JointQ' (or one of its candidate quantizers) does not support QEP (Quantization Error Propagation). Set qep=False, or use a QEP-compatible quantizer (e.g., GPTQ, DBF, AutoBitQuantizer with QEP-compatible candidates)." Implementation: added `flag_qep_supported` (default `True`) on `Quantizer`, set to `False` on `JointQ`, and propagated via `AutoBitQuantizer._sync_flags` (only `True` when *all* candidate quantizers support QEP).
+
+## Tests
+
+- Added `tests/onecomp/test_runner_check.py` covering the new `qep=True` validation path: JointQ + qep=True raises a clear `ValueError`, while JointQ + qep=False and GPTQ + qep=True both pass `Runner.check()`.
+
 ## [v1.1.0] 2026-04-16
 
 ### Gemma 3 / Gemma 4 & VLM Support
