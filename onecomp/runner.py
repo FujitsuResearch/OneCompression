@@ -28,6 +28,7 @@ from .quantizer import GPTQ, Quantizer
 from .quantizer.autobit import AutoBitQuantizer
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
+from .utils.quantization_progress import QuantizationProgressTracker
 from .log import setup_logger
 
 
@@ -86,7 +87,7 @@ class Runner:
         multi_gpu=False,
         gpu_ids=None,
         post_processes=None,
-        quantization_progress=True,
+        report_progress=True,
     ):
         """__init__ method
 
@@ -131,7 +132,7 @@ class Runner:
                 a quantized model on CPU (built via
                 ``create_quantized_model``) and may modify it in-place.
                 Processes are executed in order.  Default is None.
-            quantization_progress (bool):
+            report_progress (bool):
                 When ``True`` (default), emit ``[progress]`` log lines with
                 completed steps, elapsed time, and a linear ETA estimate
                 during long quantization (calibration, chunked, multi-GPU,
@@ -221,7 +222,7 @@ class Runner:
         self.lpcd_config = None
         if lpcd:
             self.lpcd_config = lpcd_config if lpcd_config is not None else LPCDConfig()
-        self.quantization_progress = quantization_progress
+        self.report_progress = report_progress
 
     def check(self):
         """Check the settings
@@ -593,10 +594,7 @@ class Runner:
         # Register hooks to all linear layers
         handles = []
         progress = None
-        if self.quantization_progress:
-            # pylint: disable-next=import-outside-toplevel
-            from .utils.quantization_progress import QuantizationProgressTracker
-
+        if self.report_progress:
             progress = QuantizationProgressTracker(
                 logger,
                 len(self.quantizer.module_to_name),
@@ -655,7 +653,7 @@ class Runner:
             model_config=self.model_config,
             quantizers=self.quantizers if self.quantizers is not None else [self.quantizer],
             calibration_config=self.calibration_config,
-            quantization_progress=self.quantization_progress,
+            report_progress=self.report_progress,
         )
 
     def quantize_with_calibration_on_multi_gpu(self):
@@ -684,7 +682,7 @@ class Runner:
             quantizer=self.quantizer,
             calibration_config=self.calibration_config,
             gpu_ids=self.gpu_ids,
-            quantization_progress=self.quantization_progress,
+            report_progress=self.report_progress,
         )
 
         # Store results in quantizer.results
@@ -712,10 +710,7 @@ class Runner:
             self.quantizer.name,
         )
         progress = None
-        if self.quantization_progress:
-            # pylint: disable-next=import-outside-toplevel
-            from .utils.quantization_progress import QuantizationProgressTracker
-
+        if self.report_progress:
             progress = QuantizationProgressTracker(
                 logger,
                 len(self.quantizer.module_to_name),
@@ -745,7 +740,7 @@ class Runner:
             quantizer=self.quantizer,
             qep_config=self.qep_config,
             calibration_config=self.calibration_config,
-            quantization_progress=self.quantization_progress,
+            report_progress=self.report_progress,
         )
 
         if self.qep_config.general:

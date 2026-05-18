@@ -33,6 +33,7 @@ from onecomp.utils.blockwise import (
     move_kwargs_to_device,
     expand_kwargs_batch,
 )
+from onecomp.utils.quantization_progress import QuantizationProgressTracker
 
 logger = getLogger(__name__)
 
@@ -263,7 +264,7 @@ def run_quantize_with_qep_arch(
     qep_config: QEPConfig,
     calibration_config: CalibrationConfig,
     *,
-    quantization_progress: bool = True,
+    report_progress: bool = True,
 ):
     """Run architecture-aware quantization with QEP.
 
@@ -280,7 +281,7 @@ def run_quantize_with_qep_arch(
         qep_config (QEPConfig): Configuration for QEP
             (percdamp, perccorr, exclude_layer_keywords).
         calibration_config (CalibrationConfig): Calibration parameters.
-        quantization_progress (bool): When True, log ``[progress]`` with ETA per target layer.
+        report_progress (bool): When True, log ``[progress]`` with ETA per target layer.
 
     """
 
@@ -321,10 +322,7 @@ def run_quantize_with_qep_arch(
     }
 
     progress = None
-    if quantization_progress:
-        # pylint: disable-next=import-outside-toplevel
-        from onecomp.utils.quantization_progress import QuantizationProgressTracker
-
+    if report_progress:
         progress = QuantizationProgressTracker(
             logger,
             len(remaining_targets),
