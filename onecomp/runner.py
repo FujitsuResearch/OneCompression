@@ -1658,6 +1658,15 @@ class Runner:
         quant_config["rotated"] = self.model_config.has_additional_data()
         quant_config["fp32_had"] = fp32_had
 
+        # Rotated GPTQ models need the mixed_gptq plugin in vLLM so the
+        # down_proj path can apply the online Hadamard transform.
+        if quant_config.get("quant_method") == "gptq" and quant_config["rotated"]:
+            quant_config["quant_method"] = "mixed_gptq"
+            self.logger.info(
+                "Rotated GPTQ model detected: switching quant_method to mixed_gptq "
+                "for vLLM rotation compatibility"
+            )
+
         # MoE expert layers are not nn.Linear but fused3d tensors and are skipped by the
         # quantizer.  vLLM's built-in "gptq" handler still assumes them
         # GPTQ-quantized.  "mixed_gptq" returns None

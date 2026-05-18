@@ -60,6 +60,7 @@ from vllm_plugins.utils.module import (
     _parse_layer_and_module,
     _validate_quant_config_within_shard,
 )
+from vllm_plugins.utils.rotation import RotationMetadata, maybe_wrap_rotation_method
 
 logger = init_logger(__name__)
 
@@ -83,6 +84,7 @@ class MixedGPTQConfig(QuantizationConfig):
         self.sym = sym
         self.lm_head_quantized = lm_head_quantized
         self.checkpoint_format = checkpoint_format
+        self.rotation_metadata = RotationMetadata()
 
         all_bits = set()
         all_methods = set()
@@ -132,7 +134,7 @@ class MixedGPTQConfig(QuantizationConfig):
         sym = config.get("sym", True)
         lm_head_quantized = config.get("lm_head", False)
         checkpoint_format = config.get("checkpoint_format", "gptq_v2")
-        return cls(
+        cfg = cls(
             quantization_bits=quantization_bits,
             group_size=group_size,
             desc_act=desc_act,
@@ -140,6 +142,8 @@ class MixedGPTQConfig(QuantizationConfig):
             lm_head_quantized=lm_head_quantized,
             checkpoint_format=checkpoint_format,
         )
+        cfg.rotation_metadata = RotationMetadata.from_quant_config(config)
+        return cfg
 
     def _resolve_group_size(self, mod_cfg: dict) -> int:
         """Resolve group_size: per-module direct > params > global."""
@@ -192,11 +196,19 @@ class MixedGPTQConfig(QuantizationConfig):
 
         layer_idx, module_suffix = _parse_layer_and_module(prefix)
         if layer_idx is None:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         mod_cfg = _lookup_module_config(self.quantization_bits, layer_idx, module_suffix)
         if mod_cfg is None:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         if not _validate_quant_config_within_shard(
             self.quantization_bits, layer_idx, module_suffix
@@ -212,19 +224,31 @@ class MixedGPTQConfig(QuantizationConfig):
         group_size = self._resolve_group_size(mod_cfg)
 
         if bits == 0:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         int_bits = int(bits)
 
         if method == "gptq" and int_bits in (4, 8) and self.sym:
             try:
                 cfg = self._make_marlin_config(int_bits, group_size)
-                return GPTQMarlinLinearMethod(cfg)
+                return maybe_wrap_rotation_method(
+                    GPTQMarlinLinearMethod(cfg),
+                    prefix=prefix,
+                    metadata=self.rotation_metadata,
+                )
             except Exception:
                 pass
 
         if method == "gptq" and int_bits in (2, 3, 4, 8):
-            return GPTQLinearMethod(self._make_gptq_config(int_bits, group_size))
+            return maybe_wrap_rotation_method(
+                GPTQLinearMethod(self._make_gptq_config(int_bits, group_size)),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         logger.warning(
             "mixed_gptq: unsupported method=%s bits=%s at %s, " "falling back to unquantized",
@@ -232,7 +256,11 @@ class MixedGPTQConfig(QuantizationConfig):
             bits,
             prefix,
         )
-        return UnquantizedLinearMethod()
+        return maybe_wrap_rotation_method(
+            UnquantizedLinearMethod(),
+            prefix=prefix,
+            metadata=self.rotation_metadata,
+        )
 
 
 def register_vllm_plugin():
