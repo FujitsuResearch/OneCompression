@@ -21,6 +21,7 @@ import torch
 
 from .__version__ import __version__
 from .calibration import CalibrationConfig, prepare_calibration_dataset
+from .checkpoint import CheckpointConfig, CheckpointManager
 from .model_config import ModelConfig
 from .qep import QEPConfig
 from .lpcd import LPCDConfig
@@ -88,6 +89,7 @@ class Runner:
         gpu_ids=None,
         post_processes=None,
         report_progress=True,
+        checkpoint_config=None,
     ):
         """__init__ method
 
@@ -137,6 +139,12 @@ class Runner:
                 completed steps, elapsed time, and a linear ETA estimate
                 during long quantization (calibration, chunked, multi-GPU,
                 QEP).  Set to ``False`` for quiet runs (e.g. CI).
+            checkpoint_config (CheckpointConfig or None):
+                Configuration for checkpoint saving and resuming.  When
+                provided, the runner saves partial quantization results at
+                transformer-block boundaries so that interrupted runs can
+                be resumed.  See :class:`CheckpointConfig` for details.
+                Default is None (checkpointing disabled).
 
         Note:
             For zero-config quantization (VRAM auto-estimation +
@@ -223,6 +231,9 @@ class Runner:
         if lpcd:
             self.lpcd_config = lpcd_config if lpcd_config is not None else LPCDConfig()
         self.report_progress = report_progress
+
+        self.checkpoint_config = checkpoint_config
+        self._checkpoint_manager: Optional[CheckpointManager] = None
 
     def check(self):
         """Check the settings
@@ -322,6 +333,63 @@ class Runner:
                     f"CalibrationConfig objects."
                 )
 
+    def _setup_checkpoint_manager(self) -> None:
+        """Initialise CheckpointManager, verify checkpoint compatibility, and wire callback."""
+        cfg = self.checkpoint_config
+        model_id = self.model_config.get_model_id_or_path()
+
+        primary_quantizer = (
+            self.quantizer
+            if self.quantizer is not None
+            else (self.quantizers[0] if self.quantizers else None)
+        )
+        if primary_quantizer is None:
+            return
+
+        manager = CheckpointManager(
+            config=cfg,
+            model_id=model_id,
+            quantizer=primary_quantizer,
+        )
+
+        if cfg.resume and manager.load_meta() is not None:
+            manager.verify_compatibility()
+
+        self._checkpoint_manager = manager
+
+        target_quantizers = (
+            self.quantizers if self.quantizers is not None else [self.quantizer]
+        )
+        for q in target_quantizers:
+            q.on_layer_quantized = manager.on_layer_quantized
+
+    def _apply_checkpoint_resume(self, model) -> set:
+        """Load checkpoint results, apply dequantized weights to *model*, and return done layers.
+
+        When the runner resumes from a checkpoint, already-quantized layers must
+        have their weights replaced with dequantized versions so that subsequent
+        layers receive realistic (quantized) activations during the forward pass.
+
+        Returns:
+            set[str]: Layer names that have already been quantized and should be
+                skipped when registering forward hooks.
+        """
+        if self._checkpoint_manager is None or not self.checkpoint_config.resume:
+            return set()
+
+        results = self._checkpoint_manager.load_latest()
+        if not results:
+            return set()
+
+        self.quantizer.results = results
+        completed = self._checkpoint_manager.get_completed_layers()
+        self.logger.info(
+            "Resuming from checkpoint: %d layers already quantized, skipping them.",
+            len(completed),
+        )
+        self.update_model_weights(model)
+        return completed
+
     def _exclude_moe_router_if_needed(self):
         """Exclude MoE router layers from quantization.
 
@@ -366,6 +434,9 @@ class Runner:
         self.check()
         self._exclude_moe_router_if_needed()
 
+        if self.checkpoint_config is not None:
+            self._setup_checkpoint_manager()
+
         if self.lpcd_config is not None:
             logger.info("Start quantization with LPCD")
             self.quantize_with_lpcd()
@@ -375,6 +446,13 @@ class Runner:
         else:
             logger.info("Start quantization")
             self.quantize()
+
+        if self._checkpoint_manager is not None:
+            target_quantizers = (
+                self.quantizers if self.quantizers is not None else [self.quantizer]
+            )
+            for q in target_quantizers:
+                self._checkpoint_manager.flush(q.results)
 
         if self.post_processes:
             self.run_post_processes()
@@ -417,6 +495,7 @@ class Runner:
         evaluate: bool = True,
         eval_original_model: bool = False,
         save_dir: str = "auto",
+        checkpoint_config=None,
         **kwargs,
     ):
         """One-liner quantization with sensible defaults.
@@ -448,6 +527,8 @@ class Runner:
                 ``"auto"`` (default) derives the path from model_id
                 (e.g., ``"TinyLlama-1.1B-...-autobit-3.5bit"``).
                 Set to ``None`` to skip saving.
+            checkpoint_config (CheckpointConfig or None): Configuration for
+                checkpoint saving and resuming.  Default is None (disabled).
             **kwargs: Additional keyword arguments forwarded to the
                 ``GPTQ`` constructor (e.g., ``actorder``, ``sym``).
 
@@ -544,7 +625,12 @@ class Runner:
                 save_path=save_dir if save_dir is not None else None,
                 enable_fused_groups=True,
             )
-        runner = cls(model_config=model_config, quantizer=quantizer, qep=qep)
+        runner = cls(
+            model_config=model_config,
+            quantizer=quantizer,
+            qep=qep,
+            checkpoint_config=checkpoint_config,
+        )
         runner.run()
 
         if evaluate:
@@ -600,13 +686,19 @@ class Runner:
         # Setup the quantizer
         self.quantizer.setup(model)
 
-        # Register hooks to all linear layers
+        # Apply checkpoint: update model weights for completed layers and skip their hooks.
+        completed = self._apply_checkpoint_resume(model)
+
+        # Register hooks to remaining (not yet quantized) layers
         handles = []
         progress = None
         if self.report_progress:
+            remaining = sum(
+                1 for name in self.quantizer.module_to_name.values() if name not in completed
+            )
             progress = QuantizationProgressTracker(
                 logger,
-                len(self.quantizer.module_to_name),
+                remaining,
                 "Calibration quantization layers",
             )
 
@@ -621,7 +713,9 @@ class Runner:
         else:
             hook_fn = self.quantizer.quantize
 
-        for module in self.quantizer.module_to_name.keys():
+        for module, name in self.quantizer.module_to_name.items():
+            if name in completed:
+                continue
             handle = module.register_forward_hook(hook_fn)
             handles.append(handle)
 
@@ -658,11 +752,27 @@ class Runner:
         # pylint: disable-next=import-outside-toplevel
         from .runner_methods.chunked_quantization import run_chunked_quantization
 
+        completed_layers = set()
+        completed_results = None
+        if self._checkpoint_manager is not None and self.checkpoint_config.resume:
+            completed_results = self._checkpoint_manager.load_latest()
+            if completed_results:
+                completed_layers = self._checkpoint_manager.get_completed_layers()
+                primary_quantizer = (
+                    self.quantizer
+                    if self.quantizer is not None
+                    else (self.quantizers[0] if self.quantizers else None)
+                )
+                if primary_quantizer is not None:
+                    primary_quantizer.results = completed_results
+
         run_chunked_quantization(
             model_config=self.model_config,
             quantizers=self.quantizers if self.quantizers is not None else [self.quantizer],
             calibration_config=self.calibration_config,
             report_progress=self.report_progress,
+            completed_layers=completed_layers,
+            completed_results=completed_results,
         )
 
     def quantize_with_calibration_on_multi_gpu(self):
@@ -713,6 +823,9 @@ class Runner:
         # Setup the quantizer
         self.quantizer.setup(model)
 
+        # Skip layers already quantized in a previous run.
+        completed = self._apply_checkpoint_resume(model)
+
         # Quantize each layer
         logger.info(
             "Quantizing the model without calibration using %s",
@@ -720,15 +833,21 @@ class Runner:
         )
         progress = None
         if self.report_progress:
+            remaining = sum(
+                1 for name in self.quantizer.module_to_name.values() if name not in completed
+            )
             progress = QuantizationProgressTracker(
                 logger,
-                len(self.quantizer.module_to_name),
+                remaining,
                 "Quantization without calibration (layers)",
             )
-        for module in self.quantizer.module_to_name.keys():
+        for module, name in self.quantizer.module_to_name.items():
+            if name in completed:
+                logger.info("Skipping already-quantized layer: %s", name)
+                continue
             self.quantizer.quantize(module, None, None)
             if progress:
-                progress.step_complete(self.quantizer.module_to_name[module])
+                progress.step_complete(name)
 
         self.quantizer.execute_post_processing()
 

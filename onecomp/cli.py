@@ -64,6 +64,22 @@ def main():
         help='save directory (default: auto-generated, "none" to skip)',
     )
     parser.add_argument(
+        "--checkpoint-dir",
+        default=None,
+        help="directory to save/load quantization checkpoints (default: disabled)",
+    )
+    parser.add_argument(
+        "--checkpoint-interval-blocks",
+        type=int,
+        default=1,
+        help="save a checkpoint every N transformer blocks (default: 1)",
+    )
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="do not resume from an existing checkpoint even if one is found",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -75,6 +91,15 @@ def main():
 
     # Lazy import to keep --help fast
     from .runner import Runner  # pylint: disable=import-outside-toplevel
+    from .checkpoint import CheckpointConfig  # pylint: disable=import-outside-toplevel
+
+    checkpoint_config = None
+    if args.checkpoint_dir is not None:
+        checkpoint_config = CheckpointConfig(
+            checkpoint_dir=args.checkpoint_dir,
+            interval_blocks=args.checkpoint_interval_blocks,
+            resume=not args.no_resume,
+        )
 
     Runner.auto_run(
         model_id=args.model_id,
@@ -86,4 +111,5 @@ def main():
         evaluate=not args.no_eval,
         eval_original_model=args.eval_original,
         save_dir=save_dir,
+        checkpoint_config=checkpoint_config,
     )

@@ -176,6 +176,11 @@ class Quantizer(metaclass=ABCMeta):
     flag_xtx: bool = False  # Whether X^T X is needed (e.g., JointQ)
     flag_qep_supported: bool = True
 
+    # Optional callback invoked after each layer is quantized.
+    # Signature: on_layer_quantized(layer_name: str, results: dict) -> None
+    # Used by CheckpointManager to trigger checkpoint saves.
+    on_layer_quantized: Optional[Any] = field(default=None, repr=False)
+
     def __post_init__(self):
         """__post_init__ method"""
 
@@ -220,6 +225,9 @@ class Quantizer(metaclass=ABCMeta):
 
         self.results[name] = result
         torch.cuda.empty_cache()
+
+        if self.on_layer_quantized is not None:
+            self.on_layer_quantized(name, self.results)
 
         if self.calc_quant_error:
             # Record quantization error
@@ -280,6 +288,9 @@ class Quantizer(metaclass=ABCMeta):
 
         self.results[name] = result
         torch.cuda.empty_cache()
+
+        if self.on_layer_quantized is not None:
+            self.on_layer_quantized(name, self.results)
 
         if self.calc_quant_error:
             # Record quantization error

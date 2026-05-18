@@ -50,6 +50,8 @@ def run_chunked_quantization(
     calibration_config: CalibrationConfig,
     *,
     report_progress: bool = True,
+    completed_layers: set = None,
+    completed_results: dict = None,
 ):
     """Run quantization for large-scale calibration data.
 
@@ -64,10 +66,20 @@ def run_chunked_quantization(
         calibration_config (CalibrationConfig): Calibration parameters.
         report_progress (bool): When True, log ``[progress]`` lines with ETA
             for X^T X chunks and per-layer quantization.
+        completed_layers (set[str] or None): Layer names already quantized in a
+            previous run (checkpoint resume).  These layers are skipped during
+            Phase 2 quantization.  Default is None (no resume).
+        completed_results (dict or None): Quantization results loaded from a
+            checkpoint.  When provided, the corresponding dequantized weights are
+            applied to the model before the first forward pass so that subsequent
+            layers receive realistic (already-quantized) activations.
 
     Note:
         Results are stored directly in each quantizer.results.
     """
+
+    if completed_layers is None:
+        completed_layers = set()
 
     calibration_batch_size = calibration_config.batch_size
     num_layers_per_group = calibration_config.num_layers_per_group
@@ -76,6 +88,23 @@ def run_chunked_quantization(
     model = model_config.load_model()
     tokenizer = model_config.load_tokenizer()
     input_device = next(model.parameters()).device
+
+    # Apply checkpoint weights so subsequent layers see quantized activations.
+    if completed_results:
+        for name, module in model.named_modules():
+            if name in completed_results:
+                dtype = module.weight.data.dtype
+                device = module.weight.data.device
+                module.weight.data = (
+                    completed_results[name]
+                    .compute_dequantized_weight()
+                    .to(device)
+                    .to(dtype)
+                )
+        logger.info(
+            "Checkpoint resume: applied dequantized weights for %d layers.",
+            len(completed_results),
+        )
 
     # Prepare calibration data on CPU (to save GPU memory)
     inputs = prepare_calibration_dataset(
@@ -132,6 +161,17 @@ def run_chunked_quantization(
         group = all_layers[group_start : group_start + num_layers_per_group]
         group_names = [name for _, name in group]
 
+        # Skip entire group if all layers are already quantized.
+        if completed_layers and all(name in completed_layers for name in group_names):
+            group_idx = group_start // num_layers_per_group + 1
+            logger.info(
+                "Skipping layer group %d/%d (all %d layers already in checkpoint).",
+                group_idx,
+                num_groups,
+                len(group),
+            )
+            continue
+
         group_idx = group_start // num_layers_per_group + 1
         layers_list = "\n".join(f"  - {name}" for name in group_names)
         logger.info(
@@ -164,7 +204,11 @@ def run_chunked_quantization(
         # --- Phase 2 & 3: Quantize and compute errors for each quantizer ---
         for quantizer in quantizers:
             logger.info("Quantizing with %s ...", quantizer.name)
-            quantize_group(quantizer, group, xtx_dict, nsamples, layer_progress=layer_progress)
+            quantize_group(
+                quantizer, group, xtx_dict, nsamples,
+                layer_progress=layer_progress,
+                completed_layers=completed_layers,
+            )
 
             if quantizer.calc_quant_error:
                 record_quantization_errors(quantizer, group, xtx_dict, nsamples)
@@ -288,7 +332,7 @@ def accumulate_xtx(
 # =============================================================================
 
 
-def quantize_group(quantizer, group, xtx_dict, nsamples, layer_progress=None):
+def quantize_group(quantizer, group, xtx_dict, nsamples, layer_progress=None, completed_layers=None):
     """Quantize each layer in the group using accumulated X^T X.
 
     flag_hessian=True (GPTQ, DBF, etc.):
@@ -304,9 +348,17 @@ def quantize_group(quantizer, group, xtx_dict, nsamples, layer_progress=None):
         nsamples: int
             Number of samples (= total_samples * seq_len).
         layer_progress: Optional progress tracker for completed layer quantizations.
+        completed_layers (set[str] or None): Layer names already quantized (skipped).
     """
 
+    if completed_layers is None:
+        completed_layers = set()
+
     for module, name in group:
+        if name in completed_layers:
+            logger.info("Skipping already-quantized layer (checkpoint): %s", name)
+            continue
+
         if name not in xtx_dict and (quantizer.flag_hessian or quantizer.flag_xtx):
             logger.warning("Skipping %s: no activations captured (unused during forward)", name)
             if layer_progress is not None:
@@ -345,6 +397,9 @@ def quantize_group(quantizer, group, xtx_dict, nsamples, layer_progress=None):
         torch.cuda.empty_cache()
         if layer_progress is not None:
             layer_progress.step_complete(name)
+
+        if quantizer.on_layer_quantized is not None:
+            quantizer.on_layer_quantized(name, quantizer.results)
 
 
 # =============================================================================
