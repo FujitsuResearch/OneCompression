@@ -33,7 +33,7 @@ Kernel dispatch per module (automatic, Marlin preferred):
   - bits 0 or not listed: UnquantizedLinearMethod
 """
 
-from typing import Any, List
+from typing import Any, Optional
 
 import torch
 
@@ -76,6 +76,7 @@ class MixedGPTQConfig(QuantizationConfig):
         sym=True,
         lm_head_quantized=False,
         checkpoint_format="gptq_v2",
+        rotation_metadata: Optional[RotationMetadata] = None,
     ):
         super().__init__()
         self.quantization_bits = quantization_bits
@@ -84,7 +85,9 @@ class MixedGPTQConfig(QuantizationConfig):
         self.sym = sym
         self.lm_head_quantized = lm_head_quantized
         self.checkpoint_format = checkpoint_format
-        self.rotation_metadata = RotationMetadata()
+        self.rotation_metadata = (
+            rotation_metadata if rotation_metadata is not None else RotationMetadata()
+        )
 
         all_bits = set()
         all_methods = set()
@@ -134,16 +137,15 @@ class MixedGPTQConfig(QuantizationConfig):
         sym = config.get("sym", True)
         lm_head_quantized = config.get("lm_head", False)
         checkpoint_format = config.get("checkpoint_format", "gptq_v2")
-        cfg = cls(
+        return cls(
             quantization_bits=quantization_bits,
             group_size=group_size,
             desc_act=desc_act,
             sym=sym,
             lm_head_quantized=lm_head_quantized,
             checkpoint_format=checkpoint_format,
+            rotation_metadata=RotationMetadata.from_quant_config(config),
         )
-        cfg.rotation_metadata = RotationMetadata.from_quant_config(config)
-        return cfg
 
     def _resolve_group_size(self, mod_cfg: dict) -> int:
         """Resolve group_size: per-module direct > params > global."""
@@ -155,7 +157,7 @@ class MixedGPTQConfig(QuantizationConfig):
                 return additional["group_size"]
         return self.group_size
 
-    def _make_gptq_config(self, bits: int, group_size: int | None = None) -> GPTQConfig:
+    def _make_gptq_config(self, bits: int, group_size: Optional[int] = None) -> GPTQConfig:
         gs = group_size if group_size is not None else self.group_size
         return GPTQConfig(
             weight_bits=bits,
@@ -166,7 +168,7 @@ class MixedGPTQConfig(QuantizationConfig):
             checkpoint_format=self.checkpoint_format,
         )
 
-    def _make_marlin_config(self, bits: int, group_size: int | None = None) -> GPTQMarlinConfig:
+    def _make_marlin_config(self, bits: int, group_size: Optional[int] = None) -> GPTQMarlinConfig:
         gs = group_size if group_size is not None else self.group_size
         return GPTQMarlinConfig(
             weight_bits=bits,
@@ -190,7 +192,9 @@ class MixedGPTQConfig(QuantizationConfig):
         # Signature updated for vLLM>=0.20 (added hf_config kwarg).
         pass
 
-    def get_quant_method(self, layer: torch.nn.Module, prefix: str) -> QuantizeMethodBase | None:
+    def get_quant_method(
+        self, layer: torch.nn.Module, prefix: str
+    ) -> Optional[QuantizeMethodBase]:
         if not isinstance(layer, LinearBase):
             return None
 

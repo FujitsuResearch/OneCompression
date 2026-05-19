@@ -14,8 +14,23 @@ from onecomp.pre_process.rotation_utils import is_online_hadamard_target
 from onecomp.pre_process.hadamard_utils import get_hadK, matmul_hadU_cuda
 
 try:
+    from vllm.distributed import tensor_model_parallel_all_gather
+    from vllm.distributed.utils import split_tensor_along_last_dim
     from vllm.model_executor.layers.linear import LinearMethodBase
 except ImportError:  # pragma: no cover - exercised only without vLLM installed.
+    def tensor_model_parallel_all_gather(input_: torch.Tensor, dim: int = -1) -> torch.Tensor:
+        raise RuntimeError("vLLM tensor-model-parallel all_gather is unavailable.")
+
+    def split_tensor_along_last_dim(
+        tensor: torch.Tensor,
+        num_partitions: int,
+        contiguous_split_chunks: bool = False,
+    ):
+        chunks = torch.chunk(tensor, num_partitions, dim=tensor.dim() - 1)
+        if contiguous_split_chunks:
+            return tuple(chunk.contiguous() for chunk in chunks)
+        return chunks
+
     class LinearMethodBase:  # type: ignore[no-redef]
         """Fallback base so metadata-only imports still work without vLLM."""
 
@@ -66,17 +81,76 @@ def apply_online_hadamard(x: torch.Tensor, *, fp32_had: bool, cache_owner: Any) 
     return matmul_hadU_cuda(x, had_k, block_size)
 
 
+def make_hadamard_forward_pre_hook(*, fp32_had: bool):
+    """Build a layer pre-hook for layers that still receive the full activation tensor."""
+
+    def hook(layer: torch.nn.Module, inputs: tuple[torch.Tensor, ...]):
+        if not inputs:
+            return inputs
+        x = apply_online_hadamard(inputs[0], fp32_had=fp32_had, cache_owner=layer)
+        return (x, *inputs[1:])
+
+    return hook
+
+
 class RotatedLinearMethod(LinearMethodBase):
-    """LinearMethod wrapper that applies the online Hadamard transform before matmul."""
+    """LinearMethod wrapper that installs the online Hadamard at layer entry."""
 
     def __init__(self, base_method: LinearMethodBase, *, fp32_had: bool):
         self.base_method = base_method
         self.fp32_had = fp32_had
 
+    def _requires_tp_gather(self, layer: torch.nn.Module) -> bool:
+        tp_size = getattr(layer, "tp_size", 1) or 1
+        return bool(getattr(layer, "input_is_parallel", False)) and tp_size > 1
+
+    def _get_tp_metadata(self, layer: torch.nn.Module) -> tuple[int, int]:
+        tp_rank = getattr(layer, "tp_rank", None)
+        tp_size = getattr(layer, "tp_size", None)
+        if tp_rank is None or tp_size is None:
+            raise RuntimeError(
+                "RotatedLinearMethod requires tp_rank and tp_size on tensor-parallel layers."
+            )
+        if tp_size <= 1:
+            raise RuntimeError("Tensor-parallel Hadamard path requires tp_size > 1.")
+        if tp_rank < 0 or tp_rank >= tp_size:
+            raise RuntimeError(
+                f"Invalid tensor-parallel metadata: tp_rank={tp_rank}, tp_size={tp_size}."
+            )
+        return tp_rank, tp_size
+
+    def _apply_tp_hadamard(self, layer: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:
+        tp_rank, tp_size = self._get_tp_metadata(layer)
+        full_x = tensor_model_parallel_all_gather(x, dim=-1)
+        transformed_full_x = apply_online_hadamard(
+            full_x,
+            fp32_had=self.fp32_had,
+            cache_owner=layer,
+        )
+        local_shards = split_tensor_along_last_dim(
+            transformed_full_x,
+            num_partitions=tp_size,
+            contiguous_split_chunks=True,
+        )
+        return local_shards[tp_rank]
+
+    def _ensure_hadamard_pre_hook(self, layer: torch.nn.Module) -> None:
+        if self._requires_tp_gather(layer):
+            return
+        if getattr(layer, "_onecomp_hadamard_prehook_installed", False):
+            return
+        handle = layer.register_forward_pre_hook(
+            make_hadamard_forward_pre_hook(fp32_had=self.fp32_had)
+        )
+        setattr(layer, "_onecomp_hadamard_prehook_installed", True)
+        setattr(layer, "_onecomp_hadamard_prehook_handle", handle)
+
     def create_weights(self, layer: torch.nn.Module, *weight_args, **extra_weight_attrs):
+        self._ensure_hadamard_pre_hook(layer)
         return self.base_method.create_weights(layer, *weight_args, **extra_weight_attrs)
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
+        self._ensure_hadamard_pre_hook(layer)
         process = getattr(self.base_method, "process_weights_after_loading", None)
         if process is not None:
             process(layer)
@@ -86,9 +160,12 @@ class RotatedLinearMethod(LinearMethodBase):
         layer: torch.nn.Module,
         x: torch.Tensor,
         bias: torch.Tensor | None = None,
+        *args,
+        **kwargs,
     ) -> torch.Tensor:
-        x = apply_online_hadamard(x, fp32_had=self.fp32_had, cache_owner=layer)
-        return self.base_method.apply(layer, x, bias)
+        if self._requires_tp_gather(layer):
+            x = self._apply_tp_hadamard(layer, x)
+        return self.base_method.apply(layer, x, bias, *args, **kwargs)
 
 
 def maybe_wrap_rotation_method(
