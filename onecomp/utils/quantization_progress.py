@@ -68,11 +68,11 @@ class QuantizationProgressTracker:
         done = min(self._done, self._total)
         elapsed = now - self._start
 
-        if done < self._total and done > 0:
+        if done < self._total:
             eta_sec = (elapsed / done) * (self._total - done)
             eta_str = _format_duration(eta_sec)
         else:
-            eta_str = "unknown" if done == 0 else "0s"
+            eta_str = "0s"
 
         pct = 100.0 * done / self._total
         suffix = f" ({detail})" if detail else ""

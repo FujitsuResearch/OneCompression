@@ -27,6 +27,7 @@ from onecomp.model_config import ModelConfig
 from onecomp.qep._qep_config import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
 from onecomp.utils import capture_input_activations
+from onecomp.utils.quantization_progress import QuantizationProgressTracker
 
 logger = getLogger(__name__)
 
@@ -37,7 +38,7 @@ def run_quantize_with_qep(
     qep_config: QEPConfig,
     calibration_config: CalibrationConfig,
     *,
-    quantization_progress: bool = True,
+    report_progress: bool = True,
 ):
     """Run quantization with Quantization Error Propagation (QEP).
 
@@ -53,7 +54,7 @@ def run_quantize_with_qep(
         qep_config (QEPConfig): Configuration for QEP
             (percdamp, perccorr, exclude_layer_keywords).
         calibration_config (CalibrationConfig): Calibration parameters.
-        quantization_progress (bool): When True, log ``[progress]`` with ETA per layer.
+        report_progress (bool): When True, log ``[progress]`` with ETA per layer.
 
     """
     model = model_config.load_model()
@@ -84,10 +85,7 @@ def run_quantize_with_qep(
     logger.info("Quantizing the model using %s", quantizer.name)
 
     progress = None
-    if quantization_progress:
-        # pylint: disable-next=import-outside-toplevel
-        from onecomp.utils.quantization_progress import QuantizationProgressTracker
-
+    if report_progress:
         progress = QuantizationProgressTracker(
             logger,
             len(quantizer.module_to_name),

@@ -34,6 +34,7 @@ import torch
 from onecomp.calibration import CalibrationConfig, prepare_calibration_dataset
 from onecomp.model_config import ModelConfig
 from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+from onecomp.utils.quantization_progress import QuantizationProgressTracker
 
 logger = getLogger(__name__)
 
@@ -48,7 +49,7 @@ def run_chunked_quantization(
     quantizers: List[Quantizer],
     calibration_config: CalibrationConfig,
     *,
-    quantization_progress: bool = True,
+    report_progress: bool = True,
 ):
     """Run quantization for large-scale calibration data.
 
@@ -61,7 +62,7 @@ def run_chunked_quantization(
         quantizers (list[Quantizer]): List of quantizers. Each quantizer must have
             flag_hessian=True or flag_xtx=True.
         calibration_config (CalibrationConfig): Calibration parameters.
-        quantization_progress (bool): When True, log ``[progress]`` lines with ETA
+        report_progress (bool): When True, log ``[progress]`` lines with ETA
             for X^T X chunks and per-layer quantization.
 
     Note:
@@ -120,10 +121,7 @@ def run_chunked_quantization(
 
     num_groups = (len(all_layers) + num_layers_per_group - 1) // num_layers_per_group
     layer_progress = None
-    if quantization_progress:
-        # pylint: disable-next=import-outside-toplevel
-        from onecomp.utils.quantization_progress import QuantizationProgressTracker
-
+    if report_progress:
         layer_progress = QuantizationProgressTracker(
             logger,
             len(all_layers) * len(quantizers),
@@ -145,7 +143,7 @@ def run_chunked_quantization(
         )
 
         chunk_progress = None
-        if quantization_progress:
+        if report_progress:
             num_chunks = (total_samples + calibration_batch_size - 1) // calibration_batch_size
             chunk_progress = QuantizationProgressTracker(
                 logger,
