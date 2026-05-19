@@ -177,6 +177,8 @@ def run_quantization_phase(
     layer_names: List[str],
     quantizer,
     gpu_ids: List[int],
+    *,
+    quantization_progress: bool = True,
 ) -> Dict[str, Dict]:
     """Phase 2: Parallel quantization using multiple threads.
 
@@ -192,6 +194,18 @@ def run_quantization_phase(
     logger.info("=== Phase 2: Quantization (multi-threaded) ===")
     logger.info("Using GPUs: %s for %d layers", gpu_ids, len(layer_names))
     start_time = time.time()
+
+    progress = None
+    if quantization_progress:
+        # pylint: disable-next=import-outside-toplevel
+        from onecomp.utils.quantization_progress import QuantizationProgressTracker
+
+        progress = QuantizationProgressTracker(
+            logger,
+            len(layer_names),
+            "Multi-GPU layer quantization",
+            thread_safe=True,
+        )
 
     # Force PyTorch lazy initialization upfront (avoid multi-thread race conditions)
     # torch.linalg.solve's internal initialization can cause
@@ -270,6 +284,8 @@ def run_quantization_phase(
         with lock:
             results[layer_name] = quant_result
             logger.info("  %s on GPU %d: %.2f sec", layer_name, gpu_id, layer_elapsed)
+            if progress is not None:
+                progress.step_complete(layer_name)
 
         # Free memory
         del dummy_module
@@ -342,6 +358,8 @@ def run_multi_gpu_quantization(
     quantizer,
     calibration_config: CalibrationConfig,
     gpu_ids: Optional[List[int]] = None,
+    *,
+    quantization_progress: bool = True,
 ) -> Dict[str, Any]:
     """Main entry point for multi-GPU quantization.
 
@@ -350,6 +368,7 @@ def run_multi_gpu_quantization(
         quantizer: Quantizer instance.
         calibration_config (CalibrationConfig): Calibration parameters.
         gpu_ids: List of GPU IDs to use (all GPUs if None).
+        quantization_progress: When True, log ``[progress]`` with ETA per completed layer.
 
     Returns:
         Dict containing "results" with quantization results for each layer
@@ -375,6 +394,7 @@ def run_multi_gpu_quantization(
         layer_names=capture_result["layer_names"],
         quantizer=quantizer,
         gpu_ids=gpu_ids,
+        quantization_progress=quantization_progress,
     )
 
     total_elapsed = time.time() - total_start
