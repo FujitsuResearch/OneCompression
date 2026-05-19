@@ -16,6 +16,10 @@ import pytest
 
 try:
     from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
+    try:
+        from vllm.model_executor.layers.linear import WEIGHT_LOADER_V2_SUPPORTED
+    except ImportError:
+        WEIGHT_LOADER_V2_SUPPORTED = None
     from vllm.model_executor.layers.quantization.gptq import GPTQLinearMethod
     from vllm.model_executor.layers.quantization.gptq_marlin import (
         GPTQMarlinLinearMethod,
@@ -38,6 +42,16 @@ _needs_onecomp = pytest.mark.skipif(not _HAS_ONECOMP, reason="onecomp deps not i
 
 if _HAS_VLLM:
     from vllm_plugins.gptq.vllm_plugin import MixedGPTQConfig
+    from vllm_plugins.utils.rotation import RotatedLinearMethod
+
+
+class _DummyLinearLayer:
+    def __init__(self):
+        self.registered_hooks = []
+
+    def register_forward_pre_hook(self, hook):
+        self.registered_hooks.append(hook)
+        return MagicMock()
 
 
 # ---------------------------------------------------------------------------
@@ -333,3 +347,51 @@ class TestGetQuantMethodGroupSize:
         method = cfg.get_quant_method(layer, "model.layers.0.self_attn.q_proj")
         assert isinstance(method, GPTQLinearMethod)
         assert method.quant_config.group_size == 64
+
+
+@_needs_vllm
+class TestRotatedQuantMethod:
+    """Verify rotation wrappers preserve vLLM LinearMethod dispatch contracts."""
+
+    def test_rotated_method_preserves_vllm_weight_loader_v2_dispatch(self):
+        """Rotated wrapper must not hide GPTQ methods from vLLM's v2 weight loader."""
+        if WEIGHT_LOADER_V2_SUPPORTED is None:
+            pytest.skip("vLLM version does not expose WEIGHT_LOADER_V2_SUPPORTED")
+
+        cfg = MixedGPTQConfig.from_config(
+            {
+                "quant_method": "mixed_gptq",
+                "quantization_bits": [
+                    {
+                        "mlp.down_proj": {
+                            "bits": 4,
+                            "method": "gptq",
+                            "group_size": 128,
+                        }
+                    }
+                ],
+                "group_size": 128,
+                "desc_act": False,
+                "sym": True,
+                "rotated": True,
+                "checkpoint_format": "gptq",
+            }
+        )
+
+        layer = _make_linear_layer("model.layers.0.mlp.down_proj")
+        method = cfg.get_quant_method(layer, "model.layers.0.mlp.down_proj")
+
+        assert isinstance(method, RotatedLinearMethod)
+        assert method.__class__.__name__ in WEIGHT_LOADER_V2_SUPPORTED
+        assert method.base_method.__class__.__name__ in WEIGHT_LOADER_V2_SUPPORTED
+
+    def test_process_weights_after_loading_delegates_to_base_method(self):
+        base_method = MagicMock()
+        layer = _DummyLinearLayer()
+        method = RotatedLinearMethod(base_method, fp32_had=False)
+
+        method.process_weights_after_loading(layer)
+
+        base_method.process_weights_after_loading.assert_called_once_with(layer)
+        assert getattr(layer, "_onecomp_hadamard_prehook_installed") is True
+        assert len(layer.registered_hooks) == 1

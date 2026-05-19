@@ -122,9 +122,12 @@ def is_online_hadamard_target(name: str) -> bool:
     """Return whether a module name should receive the online Hadamard hook.
 
     Keep this predicate shared between the preprocessing path and vLLM plugins so
-    both runtimes attach the Hadamard transform to the same dense MLP
-    ``down_proj`` layers. MoE expert ``down_proj`` paths are currently out of
-    scope because rotation preprocessing does not support MoE architectures.
+    both runtimes attach the Hadamard transform to the same dense
+    ``mlp.down_proj`` layers. Other dense down-projection names (for example a
+    future architecture-specific ``shared_mlp.down_proj``) must update this
+    predicate together with the rotation path. MoE expert ``down_proj`` paths
+    are currently out of scope because rotation preprocessing does not support
+    MoE architectures.
     """
     return name == "mlp.down_proj" or name.endswith(".mlp.down_proj")
 

@@ -17,6 +17,25 @@ try:
     from vllm.distributed import tensor_model_parallel_all_gather
     from vllm.distributed.utils import split_tensor_along_last_dim
     from vllm.model_executor.layers.linear import LinearMethodBase
+    try:
+        from vllm.model_executor.layers.linear import WEIGHT_LOADER_V2_SUPPORTED
+    except ImportError:
+        WEIGHT_LOADER_V2_SUPPORTED = None
+    try:
+        from vllm.model_executor.layers.linear import (
+            register_weight_loader_v2_supported_method as _vllm_register_weight_loader_v2_supported_method,
+        )
+    except ImportError:
+        _vllm_register_weight_loader_v2_supported_method = None
+
+    def register_weight_loader_v2_supported_method(cls):
+        if WEIGHT_LOADER_V2_SUPPORTED is not None:
+            if cls.__name__ not in WEIGHT_LOADER_V2_SUPPORTED:
+                WEIGHT_LOADER_V2_SUPPORTED.append(cls.__name__)
+            return cls
+        if _vllm_register_weight_loader_v2_supported_method is not None:
+            return _vllm_register_weight_loader_v2_supported_method(cls)
+        return cls
 except ImportError:  # pragma: no cover - exercised only without vLLM installed.
     def tensor_model_parallel_all_gather(input_: torch.Tensor, dim: int = -1) -> torch.Tensor:
         raise RuntimeError("vLLM tensor-model-parallel all_gather is unavailable.")
@@ -39,6 +58,9 @@ except ImportError:  # pragma: no cover - exercised only without vLLM installed.
 
         def apply(self, layer: torch.nn.Module, *args, **kwargs) -> torch.Tensor:
             raise NotImplementedError
+
+    def register_weight_loader_v2_supported_method(cls):
+        return cls
 
 
 @dataclass(frozen=True)
@@ -93,6 +115,7 @@ def make_hadamard_forward_pre_hook(*, fp32_had: bool):
     return hook
 
 
+@register_weight_loader_v2_supported_method
 class RotatedLinearMethod(LinearMethodBase):
     """LinearMethod wrapper that installs the online Hadamard at layer entry."""
 
@@ -121,6 +144,9 @@ class RotatedLinearMethod(LinearMethodBase):
 
     def _apply_tp_hadamard(self, layer: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:
         tp_rank, tp_size = self._get_tp_metadata(layer)
+        # The Hadamard transform mixes the full intermediate dimension, so row
+        # parallel inputs must be gathered before applying it. This deliberately
+        # adds one all_gather before RowParallelLinear's normal output reduce.
         full_x = tensor_model_parallel_all_gather(x, dim=-1)
         transformed_full_x = apply_online_hadamard(
             full_x,
