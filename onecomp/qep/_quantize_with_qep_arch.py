@@ -143,6 +143,7 @@ def compute_hessian_and_crossterm(
     def make_hook(name):
         def hook(module, inp, out):
             dest[name] = inp[0] if isinstance(inp, tuple) else inp
+
         return hook
 
     handlers = [
@@ -213,6 +214,7 @@ def _compute_per_module_hessians(
     def _make_hook(key):
         def hook(_, inp, __):
             dest[key] = inp[0] if isinstance(inp, tuple) else inp
+
         return hook
 
     handlers = [m.register_forward_hook(_make_hook(i)) for i, m in enumerate(modules)]
@@ -251,10 +253,7 @@ def _compute_per_module_hessians(
     for h in handlers:
         h.remove()
 
-    return {
-        modules[i]: (hessians[i] if nsamples[i] > 0 else None)
-        for i in range(len(modules))
-    }
+    return {modules[i]: (hessians[i] if nsamples[i] > 0 else None) for i in range(len(modules))}
 
 
 @torch.no_grad()
@@ -263,6 +262,8 @@ def run_quantize_with_qep_arch(
     quantizer: Quantizer,
     qep_config: QEPConfig,
     calibration_config: CalibrationConfig,
+    *,
+    quantization_progress: bool = True,
 ):
     """Run architecture-aware quantization with QEP.
 
@@ -279,6 +280,7 @@ def run_quantize_with_qep_arch(
         qep_config (QEPConfig): Configuration for QEP
             (percdamp, perccorr, exclude_layer_keywords).
         calibration_config (CalibrationConfig): Calibration parameters.
+        quantization_progress (bool): When True, log ``[progress]`` with ETA per target layer.
 
     """
 
@@ -317,6 +319,17 @@ def run_quantize_with_qep_arch(
     remaining_targets = {
         name for module, name in quantizer.module_to_name.items() if module in block_modules
     }
+
+    progress = None
+    if quantization_progress:
+        # pylint: disable-next=import-outside-toplevel
+        from onecomp.utils.quantization_progress import QuantizationProgressTracker
+
+        progress = QuantizationProgressTracker(
+            logger,
+            len(remaining_targets),
+            "QEP quantization (architecture-aware)",
+        )
 
     # 2. For each target transformer block, perform the following sequentially
     for block_idx, block in enumerate(blocks):
@@ -365,9 +378,7 @@ def run_quantize_with_qep_arch(
             targets = [m for m in group_q if m in quantizer.module_to_name]
             if not targets:
                 continue
-            is_expert = any(
-                ".experts." in quantizer.module_to_name[m] for m in targets
-            )
+            is_expert = any(".experts." in quantizer.module_to_name[m] for m in targets)
             if is_expert:
                 expert_modules_q.extend(targets)
             else:
@@ -442,6 +453,8 @@ def run_quantize_with_qep_arch(
                         name,
                     )
                 remaining_targets.discard(name)
+                if progress is not None:
+                    progress.step_complete(name)
 
         # 4. Process MoE expert layers with per-module Hessians (no cross-term)
         if expert_modules_q:
@@ -451,7 +464,12 @@ def run_quantize_with_qep_arch(
                 len(expert_modules_q),
             )
             expert_hessians = _compute_per_module_hessians(
-                block_q, expert_modules_q, inps_q, kwargs, batch_size, device,
+                block_q,
+                expert_modules_q,
+                inps_q,
+                kwargs,
+                batch_size,
+                device,
             )
             for module_q in expert_modules_q:
                 name = quantizer.module_to_name[module_q]
@@ -462,6 +480,8 @@ def run_quantize_with_qep_arch(
                         name,
                     )
                     remaining_targets.discard(name)
+                    if progress is not None:
+                        progress.step_complete(f"{name} (skipped, no tokens)")
                     continue
 
                 logger.info(
@@ -489,6 +509,8 @@ def run_quantize_with_qep_arch(
                         name,
                     )
                 remaining_targets.discard(name)
+                if progress is not None:
+                    progress.step_complete(name)
 
         # forward input to the next block
         inps_q = forward_input(inps_q, block_q, kwargs, batch_size, device)

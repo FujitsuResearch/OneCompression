@@ -23,6 +23,8 @@ Processing flow:
 
 """
 
+from __future__ import annotations
+
 import time
 from logging import getLogger
 from typing import List
@@ -45,6 +47,8 @@ def run_chunked_quantization(
     model_config: ModelConfig,
     quantizers: List[Quantizer],
     calibration_config: CalibrationConfig,
+    *,
+    quantization_progress: bool = True,
 ):
     """Run quantization for large-scale calibration data.
 
@@ -57,6 +61,8 @@ def run_chunked_quantization(
         quantizers (list[Quantizer]): List of quantizers. Each quantizer must have
             flag_hessian=True or flag_xtx=True.
         calibration_config (CalibrationConfig): Calibration parameters.
+        quantization_progress (bool): When True, log ``[progress]`` lines with ETA
+            for X^T X chunks and per-layer quantization.
 
     Note:
         Results are stored directly in each quantizer.results.
@@ -112,10 +118,21 @@ def run_chunked_quantization(
         (len(all_layers) + num_layers_per_group - 1) // num_layers_per_group,
     )
 
+    num_groups = (len(all_layers) + num_layers_per_group - 1) // num_layers_per_group
+    layer_progress = None
+    if quantization_progress:
+        # pylint: disable-next=import-outside-toplevel
+        from onecomp.utils.quantization_progress import QuantizationProgressTracker
+
+        layer_progress = QuantizationProgressTracker(
+            logger,
+            len(all_layers) * len(quantizers),
+            "Chunked quantization (layers × quantizers)",
+        )
+
     for group_start in range(0, len(all_layers), num_layers_per_group):
         group = all_layers[group_start : group_start + num_layers_per_group]
         group_names = [name for _, name in group]
-        num_groups = (len(all_layers) + num_layers_per_group - 1) // num_layers_per_group
 
         group_idx = group_start // num_layers_per_group + 1
         layers_list = "\n".join(f"  - {name}" for name in group_names)
@@ -127,6 +144,15 @@ def run_chunked_quantization(
             layers_list,
         )
 
+        chunk_progress = None
+        if quantization_progress:
+            num_chunks = (total_samples + calibration_batch_size - 1) // calibration_batch_size
+            chunk_progress = QuantizationProgressTracker(
+                logger,
+                num_chunks,
+                f"X^T X accumulation chunks (group {group_idx}/{num_groups})",
+            )
+
         # --- Phase 1: Forward per chunk -> accumulate X^T X (FP64) ---
         xtx_dict, nsamples = accumulate_xtx(
             model=model,
@@ -134,12 +160,13 @@ def run_chunked_quantization(
             input_device=input_device,
             group=group,
             calibration_batch_size=calibration_batch_size,
+            chunk_progress=chunk_progress,
         )
 
         # --- Phase 2 & 3: Quantize and compute errors for each quantizer ---
         for quantizer in quantizers:
             logger.info("Quantizing with %s ...", quantizer.name)
-            quantize_group(quantizer, group, xtx_dict, nsamples)
+            quantize_group(quantizer, group, xtx_dict, nsamples, layer_progress=layer_progress)
 
             if quantizer.calc_quant_error:
                 record_quantization_errors(quantizer, group, xtx_dict, nsamples)
@@ -163,6 +190,7 @@ def accumulate_xtx(
     input_device,
     group,
     calibration_batch_size,
+    chunk_progress=None,
 ):
     """Accumulate X^T X in FP64 on GPU by forwarding in chunks.
 
@@ -177,6 +205,8 @@ def accumulate_xtx(
         input_device: Model's input device (GPU).
         group: List of target layers [(module, name), ...].
         calibration_batch_size: Number of sentences per chunk.
+        chunk_progress: Optional :class:`~onecomp.utils.quantization_progress.QuantizationProgressTracker`
+            to record chunk completion with ETA.
 
     Returns:
         xtx_dict: Dict[name, torch.Tensor]
@@ -242,6 +272,8 @@ def accumulate_xtx(
             chunk_start,
             chunk_end,
         )
+        if chunk_progress is not None:
+            chunk_progress.step_complete(f"samples {chunk_start}-{chunk_end}")
 
     # Remove hooks
     for handle in handles:
@@ -258,7 +290,7 @@ def accumulate_xtx(
 # =============================================================================
 
 
-def quantize_group(quantizer, group, xtx_dict, nsamples):
+def quantize_group(quantizer, group, xtx_dict, nsamples, layer_progress=None):
     """Quantize each layer in the group using accumulated X^T X.
 
     flag_hessian=True (GPTQ, DBF, etc.):
@@ -273,11 +305,14 @@ def quantize_group(quantizer, group, xtx_dict, nsamples):
             X^T X for each layer (FP64, CPU), shape (in_features, in_features).
         nsamples: int
             Number of samples (= total_samples * seq_len).
+        layer_progress: Optional progress tracker for completed layer quantizations.
     """
 
     for module, name in group:
         if name not in xtx_dict and (quantizer.flag_hessian or quantizer.flag_xtx):
             logger.warning("Skipping %s: no activations captured (unused during forward)", name)
+            if layer_progress is not None:
+                layer_progress.step_complete(f"{name} (skipped, no activations)")
             continue
 
         logger.info("Quantizing layer: %s", name)
@@ -285,7 +320,8 @@ def quantize_group(quantizer, group, xtx_dict, nsamples):
 
         if quantizer.flag_xtx:
             result = quantizer.quantize_layer(
-                module, input=None,
+                module,
+                input=None,
                 matrix_XX=xtx_dict[name].to(module.weight.device),
                 dim_n=nsamples,
             )
@@ -309,6 +345,8 @@ def quantize_group(quantizer, group, xtx_dict, nsamples):
 
         quantizer.results[name] = result
         torch.cuda.empty_cache()
+        if layer_progress is not None:
+            layer_progress.step_complete(name)
 
 
 # =============================================================================
