@@ -6,6 +6,7 @@
 
 - Added `QuantizationProgressTracker` (`onecomp/utils/quantization_progress.py`) that emits a single `[progress]` INFO line per completed step with done/total, percentage, elapsed time, and a linear ETA estimate; supports an optional `thread_safe=True` mode for multi-GPU quantization
 - Added `report_progress: bool = True` flag to `Runner.__init__` (`onecomp/runner.py`) and to the underlying entry points `run_chunked_quantization` (`onecomp/runner_methods/chunked_quantization.py`), `run_multi_gpu_quantization` / `run_quantization_phase` (`onecomp/runner_methods/multi_gpu_quantization.py`), `run_quantize_with_qep` (`onecomp/qep/_quantize_with_qep.py`), and `run_quantize_with_qep_arch` (`onecomp/qep/_quantize_with_qep_arch.py`) so long quantization runs (calibration, chunked, multi-GPU, QEP) report progress by default; pass `report_progress=False` for quiet runs
+- Demoted some INFO-level per-layer / per-chunk logs to DEBUG to avoid duplication with the new `[progress]` line (still available via `logging.basicConfig(level=logging.DEBUG)` for deep debugging)
 
 ### Bug Fixes
 

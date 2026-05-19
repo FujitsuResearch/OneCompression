@@ -607,7 +607,7 @@ class Runner:
             progress = QuantizationProgressTracker(
                 logger,
                 len(self.quantizer.module_to_name),
-                "Calibration quantization layers",
+                "Quantization",
             )
 
         if progress:
