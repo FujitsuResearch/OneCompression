@@ -299,6 +299,15 @@ class Runner:
                 )
             if self.multi_gpu and not self.quantizer.flag_calibration:
                 raise ValueError("'multi_gpu' requires a quantizer with flag_calibration=True.")
+            if self.qep and not self.quantizer.flag_qep_supported:
+                raise ValueError(
+                    f"Quantizer '{type(self.quantizer).__name__}' "
+                    f"(or one of its candidate quantizers) does not support "
+                    f"QEP (Quantization Error Propagation). "
+                    f"Set qep=False, or use a QEP-compatible quantizer "
+                    f"(e.g., GPTQ, DBF, AutoBitQuantizer with "
+                    f"QEP-compatible candidates)."
+                )
 
         # Cross-validate calibration_dataset when AutoBitQuantizer is used
         quantizer = self.quantizer or (self.quantizers[0] if self.quantizers else None)
