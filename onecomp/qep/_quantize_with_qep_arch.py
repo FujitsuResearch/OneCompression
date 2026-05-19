@@ -326,13 +326,13 @@ def run_quantize_with_qep_arch(
         progress = QuantizationProgressTracker(
             logger,
             len(remaining_targets),
-            "QEP quantization (architecture-aware)",
+            "QEP",
         )
 
     # 2. For each target transformer block, perform the following sequentially
     for block_idx, block in enumerate(blocks):
 
-        logger.info(
+        logger.debug(
             "Processing : %2d-th Transformer Block -------------------------------------------------",
             block_idx + 1,
         )
@@ -385,7 +385,7 @@ def run_quantize_with_qep_arch(
         # 3. Process regular (non-expert) groups with full QEP
         for group_q, group_f in regular_pairs:
 
-            logger.info(
+            logger.debug(
                 "Processing group of layers: %s",
                 ", ".join([quantizer.module_to_name.get(m, "N/A") for m in group_q]),
             )
@@ -421,7 +421,7 @@ def run_quantize_with_qep_arch(
                 exclude = any(kw in name for kw in qep_config.exclude_layer_keywords)
                 layer_delta = None if exclude else delta_hatX.clone()
 
-                logger.info(
+                logger.debug(
                     "Processing layer: %s %s=================================================",
                     name,
                     "(no weight correction) " if exclude else "",
@@ -452,7 +452,9 @@ def run_quantize_with_qep_arch(
                     )
                 remaining_targets.discard(name)
                 if progress is not None:
-                    progress.step_complete(name)
+                    progress.step_complete(
+                        f"{name}, no weight correction" if exclude else name
+                    )
 
         # 4. Process MoE expert layers with per-module Hessians (no cross-term)
         if expert_modules_q:
@@ -479,10 +481,10 @@ def run_quantize_with_qep_arch(
                     )
                     remaining_targets.discard(name)
                     if progress is not None:
-                        progress.step_complete(f"{name} (skipped, no tokens)")
+                        progress.step_complete(f"{name}, skipped: no tokens")
                     continue
 
-                logger.info(
+                logger.debug(
                     "Processing layer: %s (no weight correction) =================================================",
                     name,
                 )
@@ -516,7 +518,7 @@ def run_quantize_with_qep_arch(
 
         # Compute MSE between quantized and full-precision block outputs
         mse = F.mse_loss(inps_q.float(), inps_f.float()).item()
-        logger.info(f"[INFO] Layer {block_idx + 1} MSE: {mse:.6e}")
+        logger.info("Block %d MSE: %.6e", block_idx + 1, mse)
 
         # free memory
         block_q.cpu()
