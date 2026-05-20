@@ -1811,9 +1811,7 @@ class Runner:
 
             return snapshot_download(src, local_files_only=True)
         except Exception as exc:  # pylint: disable=broad-except
-            self.logger.warning(
-                "Could not resolve source model dir for %s: %s", src, exc
-            )
+            self.logger.warning("Could not resolve source model dir for %s: %s", src, exc)
             return None
 
     # File patterns excluded from the auxiliary-config copy in
@@ -1879,9 +1877,7 @@ class Runner:
                 # overwriting it with the original-model file.  Logging
                 # the skip simply makes the auxiliary-copy step easier
                 # to follow alongside the ``Copied %s`` entries below.
-                self.logger.info(
-                    "Using existing %s in save directory", name
-                )
+                self.logger.info("Using existing %s in save directory", name)
                 continue
             shutil.copy2(src, dst)
             copied += 1
@@ -1944,9 +1940,7 @@ class Runner:
         if src_dir and os.path.isdir(src_dir):
             self._copy_auxiliary_files(src_dir, save_directory)
         else:
-            logger.warning(
-                "Source model dir not resolvable; skipping auxiliary file copy."
-            )
+            logger.warning("Source model dir not resolvable; skipping auxiliary file copy.")
 
         logger.info(f"Quantized model saved to {save_directory}")
         return save_directory

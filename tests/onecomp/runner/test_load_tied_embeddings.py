@@ -66,9 +66,7 @@ def _write_quantized_save_dir(model, config, save_dir: Path) -> None:
         "sym": True,
         "modules_in_block_to_quantize": [],
     }
-    (save_dir / "config.json").write_text(
-        json.dumps(cfg_dict, indent=2), encoding="utf-8"
-    )
+    (save_dir / "config.json").write_text(json.dumps(cfg_dict, indent=2), encoding="utf-8")
 
     state_dict: dict[str, torch.Tensor] = {}
     embed_ptr = model.model.embed_tokens.weight.data_ptr()
@@ -106,8 +104,7 @@ def test_load_quantized_model_reties_lm_head_for_tied_embeddings(tmp_path):
     assert loaded_model.lm_head.weight.dtype == torch.bfloat16
     assert loaded_model.model.embed_tokens.weight.dtype == torch.bfloat16
     assert (
-        loaded_model.lm_head.weight.data_ptr()
-        == loaded_model.model.embed_tokens.weight.data_ptr()
+        loaded_model.lm_head.weight.data_ptr() == loaded_model.model.embed_tokens.weight.data_ptr()
     ), "lm_head should be re-tied to embed_tokens after assign-load"
 
 
@@ -140,10 +137,7 @@ def test_load_quantized_model_forward_is_finite_for_tied_model(tmp_path):
         )
     loaded_model.eval()
 
-    assert (
-        loaded_model.lm_head.weight.dtype
-        == loaded_model.model.embed_tokens.weight.dtype
-    )
+    assert loaded_model.lm_head.weight.dtype == loaded_model.model.embed_tokens.weight.dtype
 
     inputs = torch.randint(0, config.vocab_size, (1, 4))
     with torch.no_grad():
@@ -169,9 +163,7 @@ def test_load_quantized_model_does_not_tie_when_disabled(tmp_path):
         tie_word_embeddings=False,
     )
     model = LlamaForCausalLM(config).to(torch.bfloat16).eval()
-    assert (
-        model.lm_head.weight.data_ptr() != model.model.embed_tokens.weight.data_ptr()
-    )
+    assert model.lm_head.weight.data_ptr() != model.model.embed_tokens.weight.data_ptr()
 
     save_dir = tmp_path / "untied_save"
     _write_quantized_save_dir(model, config, save_dir)
@@ -189,8 +181,7 @@ def test_load_quantized_model_does_not_tie_when_disabled(tmp_path):
 
     assert loaded_model.config.tie_word_embeddings is False
     assert (
-        loaded_model.lm_head.weight.data_ptr()
-        != loaded_model.model.embed_tokens.weight.data_ptr()
+        loaded_model.lm_head.weight.data_ptr() != loaded_model.model.embed_tokens.weight.data_ptr()
     )
 
 

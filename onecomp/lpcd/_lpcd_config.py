@@ -54,4 +54,3 @@ class LPCDConfig:
     gd_batch_size: int = 16
     gd_base_lr: float = 1e-4
     device: str = "cuda:0"
-    

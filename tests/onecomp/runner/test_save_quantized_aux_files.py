@@ -106,16 +106,13 @@ def test_copy_auxiliary_files_does_not_overwrite_existing(tmp_path, caplog):
         copied = runner._copy_auxiliary_files(str(src), str(dst))
 
     assert copied == 0
-    assert (dst / "tokenizer_config.json").read_text(encoding="utf-8") == (
-        '{"from": "dst"}'
-    )
+    assert (dst / "tokenizer_config.json").read_text(encoding="utf-8") == ('{"from": "dst"}')
     # Pre-existing destination files (typically the just-written
     # ``tokenizer.save_pretrained`` outputs) must produce a matter-of-fact
     # log line so the auxiliary-copy step is auditable alongside the
     # ``Copied %s`` entries.
     assert any(
-        "tokenizer_config.json" in record.message
-        and "Using existing" in record.message
+        "tokenizer_config.json" in record.message and "Using existing" in record.message
         for record in caplog.records
     )
 
