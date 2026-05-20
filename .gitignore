@@ -11,6 +11,7 @@ models
 .cursor/rules/test-workflow.mdc
 .cursor/rules/gitlab-integration.mdc
 .cursor/rules/slurm-submit.mdc
+.cursor/rules/run-tests-examples.mdc
 .hydra/
 *.out
 *.err
