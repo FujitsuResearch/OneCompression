@@ -118,9 +118,7 @@ class QuantizedModelLoader:
         # untouched, and quantized layers are skipped so that GPTQ scales
         # and similar fp16 metadata are preserved.
         target_dtype = (
-            torch_dtype
-            if torch_dtype is not None
-            else cls._resolve_dtype_from_config(config_dict)
+            torch_dtype if torch_dtype is not None else cls._resolve_dtype_from_config(config_dict)
         )
         if target_dtype is None:
             target_dtype = torch.float16
@@ -267,9 +265,7 @@ class QuantizedModelLoader:
         return config_dict, quant_config
 
     @staticmethod
-    def _cast_fp16_to_target_dtype(
-        model: torch.nn.Module, target_dtype: torch.dtype
-    ) -> List[str]:
+    def _cast_fp16_to_target_dtype(model: torch.nn.Module, target_dtype: torch.dtype) -> List[str]:
         """Cast fp16 params/buffers of non-quantized modules to ``target_dtype``.
 
         Quantized layers (``GPTQLinear``, ``DoubleBinaryLinear``) are
@@ -511,7 +507,7 @@ class QuantizedModelLoader:
 
         def _get_layer_sd(name: str) -> dict:
             prefix = name + "."
-            result = {k[len(prefix):]: v for k, v in state_dict.items() if k.startswith(prefix)}
+            result = {k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)}
             if result:
                 return result
             # Fallback: match by layer suffix (e.g. "layers.0.self_attn.q_proj")
@@ -521,11 +517,18 @@ class QuantizedModelLoader:
                 hits = [s for s in sd_prefix_map if s.endswith(suffix)]
                 if len(hits) > 1:
                     logger.warning(
-                        "Ambiguous suffix %s for %s: %s", suffix, name, hits,
+                        "Ambiguous suffix %s for %s: %s",
+                        suffix,
+                        name,
+                        hits,
                     )
                 if hits:
                     alt_prefix = hits[0] + "."
-                    return {k[len(alt_prefix):]: v for k, v in state_dict.items() if k.startswith(alt_prefix)}
+                    return {
+                        k[len(alt_prefix) :]: v
+                        for k, v in state_dict.items()
+                        if k.startswith(alt_prefix)
+                    }
             return {}
 
         for name in quantized_names:

@@ -169,7 +169,9 @@ class Quantizer:
         # Max safe scale value to avoid FP16 overflow in dequantized weights.
         # dequantized = scale * assignment, so scale must satisfy:
         #   |scale| * max(|assignment|) < FP16_MAX (65504)
-        self.scale_threshold = torch.finfo(torch.float16).max / max(abs(self.lower_bound), abs(self.upper_bound))
+        self.scale_threshold = torch.finfo(torch.float16).max / max(
+            abs(self.lower_bound), abs(self.upper_bound)
+        )
 
     def set_begin_time(self):
         """Set the begin time."""
@@ -673,7 +675,9 @@ class Quantizer:
         exploded = scales_new.abs().max(dim=-1).values > self.scale_threshold
         if exploded.any():
             n_exploded = int(exploded.sum().item())
-            print(f"Warning: {n_exploded} rows have exploded scales (>{self.scale_threshold:.0f}), re-solving with damping")
+            print(
+                f"Warning: {n_exploded} rows have exploded scales (>{self.scale_threshold:.0f}), re-solving with damping"
+            )
             diag_max = GG_all[exploded].diagonal(dim1=-2, dim2=-1).max(dim=-1).values
             damping = (diag_max * 0.01).clamp(min=1e-6)
             GG_damped = GG_all[exploded].clone()

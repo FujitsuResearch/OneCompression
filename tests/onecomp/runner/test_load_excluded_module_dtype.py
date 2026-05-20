@@ -74,9 +74,7 @@ def _write_save_dir(
         "sym": True,
         "modules_in_block_to_quantize": [],
     }
-    (save_dir / "config.json").write_text(
-        json.dumps(cfg_dict, indent=2), encoding="utf-8"
-    )
+    (save_dir / "config.json").write_text(json.dumps(cfg_dict, indent=2), encoding="utf-8")
     save_file(state_dict, str(save_dir / "model.safetensors"))
 
 
@@ -122,9 +120,7 @@ def test_build_empty_model_uses_config_torch_dtype():
     config_dict = config.to_dict()
     config_dict["torch_dtype"] = "bfloat16"
 
-    model = QuantizedModelLoader._build_empty_model_from_config(
-        config_dict, torch_dtype=None
-    )
+    model = QuantizedModelLoader._build_empty_model_from_config(config_dict, torch_dtype=None)
 
     sample = next(model.parameters())
     assert sample.dtype == torch.bfloat16
@@ -149,9 +145,7 @@ def test_build_empty_model_falls_back_to_fp16_when_config_is_silent():
     config_dict.pop("torch_dtype", None)
     config_dict.pop("dtype", None)
 
-    model = QuantizedModelLoader._build_empty_model_from_config(
-        config_dict, torch_dtype=None
-    )
+    model = QuantizedModelLoader._build_empty_model_from_config(config_dict, torch_dtype=None)
 
     sample = next(model.parameters())
     assert sample.dtype == torch.float16
@@ -169,9 +163,7 @@ def test_load_quantized_model_uses_config_dtype_for_empty_model(tmp_path):
     ``config.json`` so the missing parameter ends up in bf16 too.
     """
     model, config = _build_tiny_llama(dtype=torch.bfloat16)
-    state_dict = {
-        k: v.detach().clone().contiguous() for k, v in model.state_dict().items()
-    }
+    state_dict = {k: v.detach().clone().contiguous() for k, v in model.state_dict().items()}
     dropped_key = "model.layers.0.mlp.down_proj.weight"
     assert dropped_key in state_dict
     del state_dict[dropped_key]
@@ -193,9 +185,7 @@ def test_load_quantized_model_safety_net_casts_fp16_to_target(tmp_path):
     ``assign=True`` swapping the empty Parameter for a fp16 tensor.
     """
     model, config = _build_tiny_llama(dtype=torch.bfloat16)
-    state_dict = {
-        k: v.detach().clone().contiguous() for k, v in model.state_dict().items()
-    }
+    state_dict = {k: v.detach().clone().contiguous() for k, v in model.state_dict().items()}
     fp16_key = "model.layers.0.self_attn.q_proj.weight"
     assert fp16_key in state_dict
     state_dict[fp16_key] = state_dict[fp16_key].to(torch.float16).contiguous()
@@ -212,9 +202,7 @@ def test_load_quantized_model_safety_net_casts_fp16_to_target(tmp_path):
 def test_load_quantized_model_safety_net_preserves_fp32(tmp_path):
     """fp32 parameters (e.g. mixed-precision LayerNorm) must NOT be cast."""
     model, config = _build_tiny_llama(dtype=torch.bfloat16)
-    state_dict = {
-        k: v.detach().clone().contiguous() for k, v in model.state_dict().items()
-    }
+    state_dict = {k: v.detach().clone().contiguous() for k, v in model.state_dict().items()}
     norm_key = "model.norm.weight"
     assert norm_key in state_dict
     state_dict[norm_key] = state_dict[norm_key].to(torch.float32).contiguous()
@@ -225,10 +213,7 @@ def test_load_quantized_model_safety_net_preserves_fp32(tmp_path):
     loaded_model, _ = _load(save_dir)
 
     assert loaded_model.model.norm.weight.dtype == torch.float32
-    assert (
-        loaded_model.model.layers[0].self_attn.q_proj.weight.dtype
-        == torch.bfloat16
-    )
+    assert loaded_model.model.layers[0].self_attn.q_proj.weight.dtype == torch.bfloat16
 
 
 def test_cast_fp16_to_target_dtype_skips_quantized_layers():
@@ -246,32 +231,24 @@ def test_cast_fp16_to_target_dtype_skips_quantized_layers():
     class _StubGPTQ(GPTQLinear):
         def __init__(self):
             torch.nn.Module.__init__(self)
-            self.scales = torch.nn.Parameter(
-                torch.ones(2, 2, dtype=torch.float16)
-            )
+            self.scales = torch.nn.Parameter(torch.ones(2, 2, dtype=torch.float16))
 
     class _StubDBF(DoubleBinaryLinear):
         def __init__(self):
             torch.nn.Module.__init__(self)
-            self.scaling0 = torch.nn.Parameter(
-                torch.ones(2, 2, dtype=torch.float16)
-            )
+            self.scaling0 = torch.nn.Parameter(torch.ones(2, 2, dtype=torch.float16))
 
     class _Wrapper(torch.nn.Module):
         def __init__(self):
             super().__init__()
             self.regular = torch.nn.Linear(4, 4)
-            self.regular.weight.data = self.regular.weight.data.to(
-                torch.float16
-            )
+            self.regular.weight.data = self.regular.weight.data.to(torch.float16)
             self.regular.bias.data = self.regular.bias.data.to(torch.float16)
             self.gptq = _StubGPTQ()
             self.dbf = _StubDBF()
 
     model = _Wrapper()
-    converted = QuantizedModelLoader._cast_fp16_to_target_dtype(
-        model, torch.bfloat16
-    )
+    converted = QuantizedModelLoader._cast_fp16_to_target_dtype(model, torch.bfloat16)
 
     assert model.regular.weight.dtype == torch.bfloat16
     assert model.regular.bias.dtype == torch.bfloat16
@@ -291,9 +268,7 @@ def test_cast_fp16_to_target_dtype_is_noop_for_fp16_target():
     layer.weight.data = layer.weight.data.to(torch.float16)
     layer.bias.data = layer.bias.data.to(torch.float16)
 
-    converted = QuantizedModelLoader._cast_fp16_to_target_dtype(
-        layer, torch.float16
-    )
+    converted = QuantizedModelLoader._cast_fp16_to_target_dtype(layer, torch.float16)
     assert converted == []
     assert layer.weight.dtype == torch.float16
 
@@ -305,9 +280,7 @@ def test_cast_fp16_to_target_dtype_returns_buffer_names():
     class _WithBuffer(torch.nn.Module):
         def __init__(self):
             super().__init__()
-            self.register_buffer(
-                "running_mean", torch.zeros(4, dtype=torch.float16)
-            )
+            self.register_buffer("running_mean", torch.zeros(4, dtype=torch.float16))
 
     class _Root(torch.nn.Module):
         def __init__(self):
@@ -315,9 +288,7 @@ def test_cast_fp16_to_target_dtype_returns_buffer_names():
             self.child = _WithBuffer()
 
     model = _Root()
-    converted = QuantizedModelLoader._cast_fp16_to_target_dtype(
-        model, torch.bfloat16
-    )
+    converted = QuantizedModelLoader._cast_fp16_to_target_dtype(model, torch.bfloat16)
 
     assert converted == ["child.running_mean"]
     assert model.child.running_mean.dtype == torch.bfloat16
@@ -349,7 +320,4 @@ def test_resolve_dtype_from_config_falls_back_to_dtype_key():
     from onecomp.quantized_model_loader import QuantizedModelLoader
 
     config = {"dtype": "bfloat16"}
-    assert (
-        QuantizedModelLoader._resolve_dtype_from_config(config)
-        == torch.bfloat16
-    )
+    assert QuantizedModelLoader._resolve_dtype_from_config(config) == torch.bfloat16

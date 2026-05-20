@@ -452,9 +452,7 @@ def run_quantize_with_qep_arch(
                     )
                 remaining_targets.discard(name)
                 if progress is not None:
-                    progress.step_complete(
-                        f"{name}, no weight correction" if exclude else name
-                    )
+                    progress.step_complete(f"{name}, no weight correction" if exclude else name)
 
         # 4. Process MoE expert layers with per-module Hessians (no cross-term)
         if expert_modules_q:
