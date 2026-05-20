@@ -699,7 +699,7 @@ class Runner:
             progress = QuantizationProgressTracker(
                 logger,
                 remaining,
-                "Calibration quantization layers",
+                "Quantization",
             )
 
         if progress:
