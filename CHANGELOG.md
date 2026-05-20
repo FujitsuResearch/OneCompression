@@ -10,6 +10,10 @@
 
 - Tightened GPTQ unit test tolerances in `tests/onecomp/quantizer/gptq/test_gptq.py` so regressions in dequantized-weight error are detected earlier (`error < 0.4`, `max_error < 1.71`; previously `0.6` / `2.5`)
 
+### Test infrastructure
+
+- Extracted the duplicated attention+MLP forward loop in `test_quantize_error` into `TestModel.forward()` (`tests/onecomp/quantizer/test_module.py`); both the pre-quantization and post-quantization inference paths now call `model(inp)` directly, eliminating 34 duplicate lines
+
 ## [v1.1.0] 2026-04-16
 
 ### Gemma 3 / Gemma 4 & VLM Support
