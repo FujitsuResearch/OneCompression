@@ -22,6 +22,8 @@ from .quantizer.dbf.config import resolve_dbf_layer_bits
 from .quantizer.dbf.dbf_layer import DoubleBinaryLinear
 from .quantizer.gptq.config import resolve_gptq_layer_wbits, resolve_gptq_layer_group_size
 from .quantizer.gptq.gptq_layer import GPTQLinear
+from .quantizer.mdbf.config import resolve_mdbf_layer_bits
+from .quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
 from .utils.dtype import needs_bfloat16
 from .utils.quant_config import get_quant_param
 
@@ -101,6 +103,8 @@ class QuantizedModelLoader:
                 layers_cls = [GPTQLinear]
             elif effective_method == "dbf":
                 layers_cls = [DoubleBinaryLinear]
+            elif effective_method == "mdbf":
+                layers_cls = [MultipathMDBFLinear]
             else:
                 layers_cls = None
             hooks = register_online_hadamard_hooks(
@@ -389,6 +393,15 @@ class QuantizedModelLoader:
             elif effective_method == "dbf":
                 layer_target_bits = resolve_dbf_layer_bits(name, quant_config)
                 quantized_module = DoubleBinaryLinear.from_saved_state(
+                    layer_sd,
+                    in_features=in_features,
+                    out_features=out_features,
+                    empty=True,
+                    target_bits=layer_target_bits,
+                )
+            elif effective_method == "mdbf":
+                layer_target_bits = resolve_mdbf_layer_bits(name, quant_config)
+                quantized_module = MultipathMDBFLinear.from_saved_state(
                     layer_sd,
                     in_features=in_features,
                     out_features=out_features,

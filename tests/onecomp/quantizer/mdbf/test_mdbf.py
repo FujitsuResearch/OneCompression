@@ -175,7 +175,3 @@ class TestMDBF(BaseQuantizeSpec):
         ]
         module.MDBF_params = params_list
         module.is_quantized = True
-
-    def test_forward_error(self, helper):
-        """Skip forward error test to match quantizers without stable inference-layer coverage."""
-        pytest.skip("MDBF forward_error is skipped to align with quantizers without stable inference-layer tests")

@@ -219,7 +219,7 @@ class PackedBinaryLinear(nn.Module):
 
 class MDBFLinear(nn.Module):
     """
-    1-pass MDBF inference layer
+    1-pass MDBF inference layer (always on-the-fly unpack).
 
     W^{(p)} = F @ G
     where F = S_A * (A_amp @ Q_U_amp^T)
@@ -228,7 +228,7 @@ class MDBFLinear(nn.Module):
     Inference: y = x @ W^T = x @ G^T @ F^T
     """
 
-    def __init__(self, params: MDBFParams, preunpack: bool = True):
+    def __init__(self, params: MDBFParams):
         super().__init__()
 
         n, r = params.A_sign.shape
@@ -239,7 +239,6 @@ class MDBFLinear(nn.Module):
         self.m = m
         self.r = r
         self.l = params.A_amp.shape[1]
-        self._preunpack = preunpack
 
         # Packed sign matrices
         A_sign_packed, _ = pack_binary(params.A_sign)
@@ -256,17 +255,9 @@ class MDBFLinear(nn.Module):
         self.register_buffer("Q_U_amp", params.Q_U_amp.half())
         self.register_buffer("Q_V_amp", params.Q_V_amp.half())
 
-        # Unpacked sign matrices
-        if preunpack:
-            self.register_buffer("A_sign", unpack_binary(A_sign_packed, (n, r)), persistent=False)
-            self.register_buffer("B_sign", unpack_binary(B_sign_packed, (r, m)), persistent=False)
-        else:
-            self.register_buffer("A_sign", None, persistent=False)
-            self.register_buffer("B_sign", None, persistent=False)
-
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
                                missing_keys, unexpected_keys, error_msgs):
-        """Reconstruct unpacked sign matrices during loading"""
+        """Reconstruct dimensions from shape buffers during loading"""
         super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
                                        missing_keys, unexpected_keys, error_msgs)
 
@@ -278,23 +269,10 @@ class MDBFLinear(nn.Module):
             _, self.m = B_shape
             self.l = self.A_amp.shape[1] if hasattr(self, 'A_amp') else 1
 
-            if getattr(self, '_preunpack', True):
-                if not hasattr(self, 'A_sign') or self.A_sign is None:
-                    self.register_buffer("A_sign", unpack_binary(self.A_sign_packed, A_shape), persistent=False)
-                if not hasattr(self, 'B_sign') or self.B_sign is None:
-                    self.register_buffer("B_sign", unpack_binary(self.B_sign_packed, B_shape), persistent=False)
-
     def _get_factor_matrices(self, dtype: torch.dtype) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Compute factor matrices F, G"""
-        if self.A_sign is None:
-            A_sign = unpack_binary(self.A_sign_packed, (self.n, self.r)).to(dtype)
-        else:
-            A_sign = self.A_sign.to(dtype)
-
-        if self.B_sign is None:
-            B_sign = unpack_binary(self.B_sign_packed, (self.r, self.m)).to(dtype)
-        else:
-            B_sign = self.B_sign.to(dtype)
+        """Compute factor matrices F, G (always on-the-fly unpack)"""
+        A_sign = unpack_binary(self.A_sign_packed, (self.n, self.r)).to(dtype)
+        B_sign = unpack_binary(self.B_sign_packed, (self.r, self.m)).to(dtype)
 
         amp_A = self.A_amp.to(dtype) @ self.Q_U_amp.to(dtype).T
         F = A_sign * amp_A
@@ -327,7 +305,6 @@ class MultipathMDBFLinear(nn.Module):
     def __init__(
         self,
         params_list: List[MDBFParams],
-        preunpack: bool = True,
         bias: Optional[torch.Tensor] = None,
         device=None,
     ):
@@ -341,14 +318,14 @@ class MultipathMDBFLinear(nn.Module):
         self.m = params_list[0].B_sign.shape[1]
 
         self.paths = nn.ModuleList([
-            MDBFLinear(params, preunpack=preunpack)
+            MDBFLinear(params)
             for params in params_list
         ])
 
         if bias is not None:
-            self.register_buffer("bias", bias)
+            self.register_buffer("bias", bias.clone().to(torch.float16))
         else:
-            self.register_buffer("bias", None)
+            self.bias = None
 
         if device is not None:
             self.to(device)
@@ -390,6 +367,103 @@ class MultipathMDBFLinear(nn.Module):
         params_list = result.get_MDBF_params_list()
         return cls(params_list=params_list, bias=bias, device=device)
 
+    @classmethod
+    def from_saved_state(
+        cls,
+        layer_state_dict: dict,
+        in_features: int,
+        out_features: int,
+        empty: bool = False,
+        target_bits: float = None,
+    ) -> "MultipathMDBFLinear":
+        """Build MultipathMDBFLinear from saved state_dict tensors.
+
+        P (number of paths) and l (multi-scale rank) are inferred from the
+        state_dict (path index keys and A_amp.shape[1] respectively), so
+        callers do not need to pass them.
+
+        Args:
+            layer_state_dict: Sub-state_dict for this layer.
+                Keys follow the pattern:
+                  paths.{p}.A_sign_packed, paths.{p}.B_sign_packed,
+                  paths.{p}._A_sign_shape, paths.{p}._B_sign_shape,
+                  paths.{p}.A_amp, paths.{p}.B_amp,
+                  paths.{p}.Q_U_amp, paths.{p}.Q_V_amp
+                  bias (optional)
+            in_features: Input feature size (m).
+            out_features: Output feature size (n).
+            empty: If True, create zero-initialized tensors (for
+                "replace then load_state_dict" flow).
+            target_bits: Nominal bit-width (from config).
+
+        Returns:
+            MultipathMDBFLinear instance.
+        """
+        self = cls.__new__(cls)
+        nn.Module.__init__(self)
+        self.target_bits = target_bits
+        self.n = out_features
+        self.m = in_features
+
+        def _t(k):
+            t = layer_state_dict[k]
+            return torch.zeros_like(t) if empty else t
+
+        # Detect P from state_dict keys
+        path_indices = set()
+        for key in layer_state_dict:
+            if key.startswith("paths."):
+                parts = key.split(".")
+                if len(parts) >= 2 and parts[1].isdigit():
+                    path_indices.add(int(parts[1]))
+        if not path_indices:
+            raise ValueError(
+                "MultipathMDBFLinear.from_saved_state: no `paths.{p}.*` keys "
+                "found in layer_state_dict."
+            )
+        self.P = max(path_indices) + 1
+
+        paths = nn.ModuleList()
+        for p_idx in range(self.P):
+            path_prefix = f"paths.{p_idx}."
+
+            path_layer = MDBFLinear.__new__(MDBFLinear)
+            nn.Module.__init__(path_layer)
+
+            # Recover rank r from Q_U_amp's shape ((r, l)).
+            # (DBF analog: mid_dim = layer_state_dict["scaling2"].numel().)
+            r = layer_state_dict[f"{path_prefix}Q_U_amp"].shape[0]
+            path_layer.n = out_features
+            path_layer.r = r
+            path_layer.m = in_features
+            shape_A = (out_features, r)
+            shape_B = (r, in_features)
+
+            path_layer.register_buffer("A_sign_packed", _t(f"{path_prefix}A_sign_packed"))
+            path_layer.register_buffer("B_sign_packed", _t(f"{path_prefix}B_sign_packed"))
+            path_layer.register_buffer("_A_sign_shape",
+                                        torch.tensor(shape_A, dtype=torch.int64))
+            path_layer.register_buffer("_B_sign_shape",
+                                        torch.tensor(shape_B, dtype=torch.int64))
+            path_layer.register_buffer("A_amp", _t(f"{path_prefix}A_amp"))
+            path_layer.register_buffer("B_amp", _t(f"{path_prefix}B_amp"))
+            path_layer.register_buffer("Q_U_amp", _t(f"{path_prefix}Q_U_amp"))
+            path_layer.register_buffer("Q_V_amp", _t(f"{path_prefix}Q_V_amp"))
+
+            path_layer.l = path_layer.A_amp.shape[1]
+
+            paths.append(path_layer)
+
+        self.paths = paths
+
+        bias = layer_state_dict.get("bias")
+        if bias is not None:
+            self.register_buffer("bias", torch.zeros_like(bias) if empty else bias)
+        else:
+            self.bias = None
+
+        return self
+
 
 # =============================================================================
 # Layer replacement functions (QEP-DEV compatible, not used in OneComp framework)
@@ -414,7 +488,6 @@ def create_mdbf_layer_from_linear(
 
     return MultipathMDBFLinear(
         params_list=params_list,
-        preunpack=preunpack,
         bias=bias,
     )
 
