@@ -145,7 +145,7 @@ def refiner(
             )
 
             # Projection step
-            H, _ = compute_hessian_and_crossterm(
+            H, _, nsamples = compute_hessian_and_crossterm(
                 metric_q.block,
                 metric_f.block,
                 module_q,
@@ -156,7 +156,13 @@ def refiner(
                 batch_size,
                 device,
             )
-            quantizer.quantize(module_q, None, None, hessian=H.clone())
+            quantizer.quantize(
+                module_q,
+                None,
+                None,
+                hessian=H.clone(),
+                nsamples=nsamples if quantizer.flag_nsamples else None,
+            )
 
             # Update the weights of the target layer
             dtype = module_q.weight.data.dtype

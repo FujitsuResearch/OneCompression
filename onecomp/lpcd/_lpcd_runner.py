@@ -128,7 +128,7 @@ def run_quantize_with_lpcd(
             )
 
             # 3-1. compute hessian and cross-term matrix
-            H, delta_hatX = compute_hessian_and_crossterm(
+            H, delta_hatX, nsamples_arch = compute_hessian_and_crossterm(
                 block_q,
                 block_f,
                 group_q[0],
@@ -171,6 +171,7 @@ def run_quantize_with_lpcd(
                             input=None,
                             output=None,
                             hessian=H.clone(),
+                            nsamples=nsamples_arch if quantizer.flag_nsamples else None,
                         )
                     else:
                         # Quantize with QEP
@@ -185,6 +186,7 @@ def run_quantize_with_lpcd(
                             perccorr=qep_config.perccorr,
                             hessian=H.clone(),
                             delta_hatX=layer_delta,
+                            nsamples=nsamples_arch if quantizer.flag_nsamples else None,
                         )
 
                     # Update the weights of the target layer
@@ -234,4 +236,3 @@ def run_quantize_with_lpcd(
         torch.cuda.empty_cache()
 
     quantizer.execute_post_processing()
-    

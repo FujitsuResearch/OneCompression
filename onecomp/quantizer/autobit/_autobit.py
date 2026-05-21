@@ -485,10 +485,10 @@ class AutoBitQuantizer(Quantizer):
             self.logger.info("Saved assignment heatmap: %s", fig_path)
 
     def quantize(
-        self, module, input, output
+        self, module, input, output, hessian=None, nsamples=None
     ):  # pylint: disable=redefined-builtin, unused-argument
         child_q = self._module_to_quantizer[module]
-        child_q.quantize(module, input, output)
+        child_q.quantize(module, input, output, hessian=hessian, nsamples=nsamples)
         name = self.module_to_name[module]
         self.results[name] = child_q.results[name]
 
