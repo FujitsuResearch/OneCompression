@@ -1,5 +1,8 @@
 # Change log
 
+## [v1.2.0] 2026-06-04 (WIP)
+
+
 ## [v1.1.1] 2026-05-21
 
 ### New Feature: Quantization progress logging
