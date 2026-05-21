@@ -250,6 +250,9 @@ class JointQ(Quantizer):
     flag_calibration: bool = True
     flag_hessian: bool = False
     flag_xtx: bool = True
+    # JointQ does not yet support the generic QEP pipeline.
+    # Planned for a future release.
+    flag_qep_supported: bool = False
     hessian_dtype: torch.dtype = torch.float64
 
     # Parameters for the JointQ quantizer
@@ -295,9 +298,7 @@ class JointQ(Quantizer):
     def __post_init__(self):
         if self.gptq is None:
             gptq_groupsize = self.group_size if self.group_size is not None else -1
-            self.gptq = GPTQ(
-                wbits=self.bits, groupsize=gptq_groupsize, sym=self.symmetric
-            )
+            self.gptq = GPTQ(wbits=self.bits, groupsize=gptq_groupsize, sym=self.symmetric)
         if self.lambda_list is None:
             self.lambda_list = list(_DEFAULT_LAMBDA_LIST)
         super().__post_init__()
@@ -372,8 +373,10 @@ class JointQ(Quantizer):
                     "regularization_mode='diagonal' is only supported "
                     "with lambda_mode='fixed_lambda'."
                 )
-            if not (isinstance(self.regularization_gamma, (int, float))
-                    and self.regularization_gamma > 0):
+            if not (
+                isinstance(self.regularization_gamma, (int, float))
+                and self.regularization_gamma > 0
+            ):
                 bad.append(
                     f"Invalid JointQ parameter 'regularization_gamma': "
                     f"{self.regularization_gamma!r} (expected float > 0)."
@@ -395,12 +398,16 @@ class JointQ(Quantizer):
                     "Invalid JointQ parameter 'lambda_list': "
                     "all elements must be non-negative numbers."
                 )
-            if not (isinstance(self.incremental_eps_y, (int, float)) and self.incremental_eps_y >= 0):
+            if not (
+                isinstance(self.incremental_eps_y, (int, float)) and self.incremental_eps_y >= 0
+            ):
                 bad.append(
                     f"Invalid JointQ parameter 'incremental_eps_y': {self.incremental_eps_y!r} "
                     f"(expected float >= 0)."
                 )
-            if not (isinstance(self.incremental_eps_w, (int, float)) and self.incremental_eps_w >= 0):
+            if not (
+                isinstance(self.incremental_eps_w, (int, float)) and self.incremental_eps_w >= 0
+            ):
                 bad.append(
                     f"Invalid JointQ parameter 'incremental_eps_w': {self.incremental_eps_w!r} "
                     f"(expected float >= 0)."
@@ -416,9 +423,7 @@ class JointQ(Quantizer):
                 )
 
         if self.gptq.wbits != self.bits:
-            bad.append(
-                f"GPTQ.wbits (= {self.gptq.wbits}) must match JointQ.bits (= {self.bits})."
-            )
+            bad.append(f"GPTQ.wbits (= {self.gptq.wbits}) must match JointQ.bits (= {self.bits}).")
         expected_groupsize = self.group_size if self.group_size is not None else -1
         if self.gptq.groupsize != expected_groupsize:
             bad.append(
@@ -533,7 +538,9 @@ class JointQ(Quantizer):
         initial_solutions = {}
         if self.enable_gptq:
             gptq_layer = torch.nn.Linear(
-                module.in_features, module.out_features, bias=False,
+                module.in_features,
+                module.out_features,
+                bias=False,
                 device=device,
             )
             gptq_layer.weight.data = matrix_W.to(dtype=module.weight.dtype, device=device)
@@ -621,17 +628,24 @@ class JointQ(Quantizer):
         )
 
         from collections import Counter
+
         counts = Counter(vals)
 
         self.logger.info(
             "[incremental_lambda] summary: %d layers, "
             "mean=%.4f, median=%.4f, min=%.4f, max=%.4f",
-            n, mean_val, median_val, vals_sorted[0], vals_sorted[-1],
+            n,
+            mean_val,
+            median_val,
+            vals_sorted[0],
+            vals_sorted[-1],
         )
         for lam in sorted(counts):
             self.logger.info(
                 "[incremental_lambda]   lambda=%.4f: %d layers (%.1f%%)",
-                lam, counts[lam], counts[lam] / n * 100,
+                lam,
+                counts[lam],
+                counts[lam] / n * 100,
             )
 
     # ------------------------------------------------------------------
@@ -712,9 +726,7 @@ class JointQ(Quantizer):
 
         for step_idx, lam in enumerate(self.lambda_list):
             # Build regularized matrix_XX for this lambda
-            reg_matrix_XX = self._build_regularization_matrix(
-                matrix_XX_raw, dim_n, lam
-            )
+            reg_matrix_XX = self._build_regularization_matrix(matrix_XX_raw, dim_n, lam)
 
             # Until the first candidate is accepted, keep using the base
             # initializers (GPTQ / Clip-Optimize / etc.) rather than warm start.
@@ -778,12 +790,18 @@ class JointQ(Quantizer):
                     self.logger.info(
                         "[incremental_lambda] step %d: lambda=%.4f  "
                         "Ew=%.4f%%  Ey=%.4f%%  -> initial accept",
-                        step_idx, lam, ew * 100, ey * 100,
+                        step_idx,
+                        lam,
+                        ew * 100,
+                        ey * 100,
                     )
                 continue
 
             accepted, reason = self._accept_candidate(
-                accepted_ew, accepted_ey, ew, ey,
+                accepted_ew,
+                accepted_ey,
+                ew,
+                ey,
                 eps_y=self.incremental_eps_y,
                 eps_w=self.incremental_eps_w,
             )
@@ -794,9 +812,12 @@ class JointQ(Quantizer):
                     "[incremental_lambda] step %d: lambda=%.4f  "
                     "Ew=%.4f%% (%+.2f%%)  Ey=%.4f%% (%+.2f%%)  "
                     "-> %s (%s)",
-                    step_idx, lam,
-                    ew * 100, ew_delta,
-                    ey * 100, ey_delta,
+                    step_idx,
+                    lam,
+                    ew * 100,
+                    ew_delta,
+                    ey * 100,
+                    ey_delta,
                     "accept" if accepted else "reject",
                     reason,
                 )
@@ -812,7 +833,9 @@ class JointQ(Quantizer):
         if self.log_level >= 1:
             self.logger.info(
                 "[incremental_lambda] final: lambda=%.4f  Ew=%.4f%%  Ey=%.4f%%",
-                accepted_lambda, accepted_ew * 100, accepted_ey * 100,
+                accepted_lambda,
+                accepted_ew * 100,
+                accepted_ey * 100,
             )
 
         scale, assignment, zero_point = accepted_solution.get_quantized_result()
@@ -892,8 +915,8 @@ class JointQ(Quantizer):
         dW = W_hat - W_dev  # (p, m)
 
         # Ew = ||dW||^2_F / ||W||^2_F
-        w_norm_sq = torch.sum(W_dev ** 2).item()
-        dw_norm_sq = torch.sum(dW ** 2).item()
+        w_norm_sq = torch.sum(W_dev**2).item()
+        dw_norm_sq = torch.sum(dW**2).item()
         ew = dw_norm_sq / w_norm_sq if w_norm_sq > 0 else 0.0
 
         # Ey = trace(dW @ XX @ dW^T) / trace(W @ XX @ W^T)
@@ -912,8 +935,7 @@ class JointQ(Quantizer):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _accept_candidate(ew_prev, ey_prev, ew_new, ey_new,
-                          eps_y=None, eps_w=None):
+    def _accept_candidate(ew_prev, ey_prev, ew_new, ey_new, eps_y=None, eps_w=None):
         """Decide whether to accept a candidate solution.
 
         Rules (evaluated in order):

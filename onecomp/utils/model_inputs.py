@@ -24,7 +24,5 @@ def add_model_specific_inputs(inputs, model):
     """
     config = getattr(model, "config", None)
     if getattr(config, "model_type", "") == "gemma4":
-        inputs["mm_token_type_ids"] = torch.zeros_like(
-            inputs["input_ids"], dtype=torch.long
-        )
+        inputs["mm_token_type_ids"] = torch.zeros_like(inputs["input_ids"], dtype=torch.long)
     return inputs

@@ -1,24 +1,24 @@
 """Regression tests for the qzero=0 corruption fix in GPTQLinear.
- 
+
 Copyright 2025-2026 Fujitsu Ltd.
- 
+
 Author: Keiji Kimura
- 
+
 These tests exist to pin exactly two changes in
 ``onecomp/quantizer/gptq/gptq_layer.py``:
- 
+
 1. ``_pack_rows`` masks each value with ``(1 << wbits) - 1`` before shift/OR.
    Without the mask, a signed ``-1`` (which occurs in the AutoGPTQ v1 encoding
    ``qzero - 1`` when ``qzero == 0``) OR's its sign-extended high bits into
    neighboring slots of the packed INT32 word, corrupting every slot it shares
    a word with.
- 
+
 2. ``GPTQLinear.forward`` applies the same mask after the v1 ``+1``
    restoration. Without the mask, ``stored = 2^wbits - 1`` (the encoding of
    ``qzero == 0``) overflows to ``2^wbits`` instead of wrapping to ``0``.
    The restoration is gated on ``checkpoint_format != "gptq_v2"``; the v2 path
    must remain untouched.
- 
+
 Test Contents
 -------------
 test_pack_rows_does_not_corrupt_neighbors_on_signed_minus_one:
@@ -27,7 +27,7 @@ test_pack_rows_does_not_corrupt_neighbors_on_signed_minus_one:
     round-trip via ``pack_zeros``/``unpack_zeros`` as ``2^wbits - 1`` without
     disturbing its neighbors. Exhaustive per-position iteration covers both
     the same-word branch and the 3-bit cross-word branch.
- 
+
 test_forward_restores_qzero_zero:
     Pins fix 2 (and fix 1 in combination when ``pack_weights=True``).
     Parametrized over wbits in {2, 3, 4, 8} and ``pack_weights`` in
@@ -35,7 +35,7 @@ test_forward_restores_qzero_zero:
     output columns and verifies forward output matches a reference dequant
     within FP16 tolerance. The ``pack_weights=False`` cases isolate fix 2
     from fix 1.
- 
+
 test_forward_v2_checkpoint_leaves_zeros_unshifted:
     Pins the ``_v1`` branch gate in fix 2. Parametrized over wbits in
     {2, 3, 4, 8}. Loads a ``gptq_v2`` checkpoint (qzeros stored as raw
@@ -70,13 +70,13 @@ from onecomp.quantizer.gptq.gptq_layer import (
     pack_zeros,
     unpack_zeros,
 )
- 
- 
+
+
 @pytest.mark.parametrize("wbits", [2, 3, 4, 8])
 def test_pack_rows_does_not_corrupt_neighbors_on_signed_minus_one(wbits):
     """Fix 1: at every slot position within a packed INT32 word, placing ``-1``
     must round-trip as ``2^wbits - 1`` without disturbing the other slots.
- 
+
     Iterating over every slot position exhaustively covers both the same-word
     branch and the 3-bit cross-word branch (which straddles two INT32 words at
     slot positions 10 and 21). This catches a hypothetical half-applied fix
@@ -92,51 +92,46 @@ def test_pack_rows_does_not_corrupt_neighbors_on_signed_minus_one(wbits):
         values[pos, :] = -1  # triggers the sign-extension bug at this slot
 
         packed = pack_zeros(values.t().contiguous(), wbits).t().contiguous()
-        unpacked = (
-            unpack_zeros(packed.t().contiguous(), wbits, pack_factor).t().contiguous()
-        )
- 
+        unpacked = unpack_zeros(packed.t().contiguous(), wbits, pack_factor).t().contiguous()
+
         expected = values.clone()
         expected[pos, :] = mask  # -1 mod 2^wbits
- 
+
         assert torch.equal(unpacked, expected), (
-            f"wbits={wbits}, pos={pos}: neighbor corruption, "
-            f"got={unpacked[:, 0].tolist()}"
+            f"wbits={wbits}, pos={pos}: neighbor corruption, " f"got={unpacked[:, 0].tolist()}"
         )
- 
- 
+
+
 @pytest.mark.parametrize("wbits", [2, 3, 4, 8])
 @pytest.mark.parametrize("pack_weights", [True, False])
 def test_forward_restores_qzero_zero(wbits, pack_weights):
     """Fix 2 (and, for ``pack_weights=True``, fix 1 in combination):
     ``GPTQLinear.forward`` must dequantize ``qzero=0`` columns as
     ``scale * qweight``.
- 
+
     Before the fix the output diverged by ``O(scale * 2^wbits)`` either
     because neighbor slots were corrupted (pack path) or because
     ``zeros + 1`` overflowed instead of wrapping modularly.
     """
     torch.manual_seed(0)
     device = "cuda" if torch.cuda.is_available() else "cpu"
- 
+
     groupsize = 32
     in_features = groupsize * 2
     out_features = 32
     num_groups = in_features // groupsize
     vmax = (1 << wbits) - 1
- 
+
     qweight = torch.randint(
         0, vmax + 1, (out_features, in_features), dtype=torch.int32, device=device
     )
-    scales = (
-        torch.rand(num_groups, out_features, device=device, dtype=torch.float32) * 0.05 + 0.02
-    )
+    scales = torch.rand(num_groups, out_features, device=device, dtype=torch.float32) * 0.05 + 0.02
     # First 4 output columns trigger the bug (qzero=0); the rest use any valid non-zero.
     zeros = torch.full(
         (num_groups, out_features), float(min(vmax, 5)), device=device, dtype=torch.float32
     )
     zeros[:, :4] = 0.0
- 
+
     layer = GPTQLinear(
         in_features=in_features,
         out_features=out_features,
@@ -151,14 +146,12 @@ def test_forward_restores_qzero_zero(wbits, pack_weights):
         pack_weights=pack_weights,
         use_gemlite=False,
     )
- 
+
     ref_w = torch.zeros(out_features, in_features, dtype=torch.float32, device=device)
     for g in range(num_groups):
         s, e = g * groupsize, (g + 1) * groupsize
-        ref_w[:, s:e] = scales[g].unsqueeze(1) * (
-            qweight[:, s:e].float() - zeros[g].unsqueeze(1)
-        )
- 
+        ref_w[:, s:e] = scales[g].unsqueeze(1) * (qweight[:, s:e].float() - zeros[g].unsqueeze(1))
+
     x = torch.randn(2, in_features, device=device, dtype=torch.float16)
     ref_out = torch.nn.functional.linear(x, ref_w.to(torch.float16))
     layer_out = layer(x)
@@ -166,8 +159,8 @@ def test_forward_restores_qzero_zero(wbits, pack_weights):
         f"wbits={wbits}, pack_weights={pack_weights}: "
         f"max |diff|={(ref_out - layer_out).abs().max().item()}"
     )
- 
- 
+
+
 @pytest.mark.parametrize("wbits", [2, 3, 4, 8])
 def test_forward_v2_checkpoint_leaves_zeros_unshifted(wbits):
     """Fix 2 gates the modular ``+1`` restoration on ``checkpoint_format !=
@@ -177,32 +170,28 @@ def test_forward_v2_checkpoint_leaves_zeros_unshifted(wbits):
     """
     torch.manual_seed(0)
     device = "cuda" if torch.cuda.is_available() else "cpu"
- 
+
     groupsize = 32
     in_features = groupsize * 2
     out_features = 32
     num_groups = in_features // groupsize
     vmax = (1 << wbits) - 1
- 
+
     qweight = torch.randint(
         0, vmax + 1, (out_features, in_features), dtype=torch.int32, device=device
     )
-    scales = (
-        torch.rand(num_groups, out_features, device=device, dtype=torch.float32) * 0.05 + 0.02
-    )
+    scales = torch.rand(num_groups, out_features, device=device, dtype=torch.float32) * 0.05 + 0.02
     # v2 convention: stored = raw qzero, with no -1 offset. All values must lie
     # in [0, vmax]; we pick values in [1, vmax] to keep it independent of fix 2.
     zeros_raw = torch.randint(
         1, vmax + 1, (num_groups, out_features), dtype=torch.int32, device=device
     )
- 
+
     state_dict = {
         "qweight": pack_int_weights(qweight, wbits),
         "scales": scales.to(torch.float16),
         "qzeros": pack_zeros(zeros_raw, wbits),
-        "g_idx": (
-            torch.arange(in_features, device=device, dtype=torch.int32) // groupsize
-        ),
+        "g_idx": (torch.arange(in_features, device=device, dtype=torch.int32) // groupsize),
     }
     layer = GPTQLinear.from_saved_state(
         state_dict,
@@ -214,14 +203,14 @@ def test_forward_v2_checkpoint_leaves_zeros_unshifted(wbits):
         empty=False,
         checkpoint_format="gptq_v2",
     )
- 
+
     ref_w = torch.zeros(out_features, in_features, dtype=torch.float32, device=device)
     for g in range(num_groups):
         s, e = g * groupsize, (g + 1) * groupsize
         ref_w[:, s:e] = scales[g].unsqueeze(1) * (
             qweight[:, s:e].float() - zeros_raw[g].unsqueeze(1).float()
         )
- 
+
     x = torch.randn(2, in_features, device=device, dtype=torch.float16)
     ref_out = torch.nn.functional.linear(x, ref_w.to(torch.float16))
     layer_out = layer(x)
@@ -254,9 +243,7 @@ def test_forward_v1_saved_state_restores_qzero_zero(wbits):
     qweight = torch.randint(
         0, vmax + 1, (out_features, in_features), dtype=torch.int32, device=device
     )
-    scales = (
-        torch.rand(num_groups, out_features, device=device, dtype=torch.float32) * 0.05 + 0.02
-    )
+    scales = torch.rand(num_groups, out_features, device=device, dtype=torch.float32) * 0.05 + 0.02
     # First 4 output columns trigger the bug (qzero=0); the rest use a valid non-zero.
     zeros_raw = torch.full(
         (num_groups, out_features), float(min(vmax, 5)), device=device, dtype=torch.float32
