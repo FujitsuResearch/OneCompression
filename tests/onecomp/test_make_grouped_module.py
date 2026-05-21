@@ -1,6 +1,4 @@
-"""Unit tests for make_grouped_module.
-
-"""
+"""Unit tests for make_grouped_module."""
 
 import torch
 import torch.nn as nn
@@ -104,9 +102,7 @@ class _BugTriggerBlock(nn.Module):
         self.self_attn = _ZeroAttention(hidden)
         self.post_attention_layernorm = nn.RMSNorm(hidden)
         self.mlp = _MLP(hidden, intermediate)
-        self.post_attention_layernorm.load_state_dict(
-            self.input_layernorm.state_dict()
-        )
+        self.post_attention_layernorm.load_state_dict(self.input_layernorm.state_dict())
 
     def forward(self, hidden_states, **kwargs):
         residual = hidden_states
@@ -178,9 +174,9 @@ class TestSequentialBlock:
         for g in groups:
             has_attn = any("self_attn" in n for n in g)
             has_mlp = any("mlp" in n for n in g)
-            assert not (has_attn and has_mlp), (
-                f"Attention and MLP should never share a group, got {g}"
-            )
+            assert not (
+                has_attn and has_mlp
+            ), f"Attention and MLP should never share a group, got {g}"
 
     def test_o_proj_alone(self):
         block = _SequentialBlock()
@@ -195,9 +191,7 @@ class TestSequentialBlock:
     def test_total_group_count(self):
         block = _SequentialBlock()
         groups = _run(block)
-        assert len(groups) == 4, (
-            f"Expected 4 groups (qkv, o, gate_up, down), got {len(groups)}"
-        )
+        assert len(groups) == 4, f"Expected 4 groups (qkv, o, gate_up, down), got {len(groups)}"
 
 
 class TestParallelBlock:
@@ -207,12 +201,15 @@ class TestParallelBlock:
         block = _ParallelBlock()
         groups = _get_names(block, _run(block))
         shared = {
-            "self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj",
-            "mlp.gate_proj", "mlp.up_proj",
+            "self_attn.q_proj",
+            "self_attn.k_proj",
+            "self_attn.v_proj",
+            "mlp.gate_proj",
+            "mlp.up_proj",
         }
-        assert shared in groups, (
-            f"In a parallel block, q/k/v/gate/up should share a group, got {groups}"
-        )
+        assert (
+            shared in groups
+        ), f"In a parallel block, q/k/v/gate/up should share a group, got {groups}"
 
 
 class TestBugTriggerBlock:
@@ -260,6 +257,4 @@ class TestMoEBlock:
         block = _MoEBlock()
         groups = _get_names(block, _run(block))
         gate_up = {"gate_proj", "up_proj"}
-        assert any(g >= gate_up for g in groups), (
-            f"gate/up should be grouped, got {groups}"
-        )
+        assert any(g >= gate_up for g in groups), f"gate/up should be grouped, got {groups}"

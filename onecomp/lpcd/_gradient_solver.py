@@ -2,6 +2,7 @@
 Copyright 2025-2026 Fujitsu Ltd.
 
 """
+
 from abc import ABC, abstractmethod
 
 import torch
@@ -19,7 +20,7 @@ class PenaltyFn(ABC):
     @abstractmethod
     def __call__(self, module_q: LpcdMetric, module_f: LpcdMetric) -> torch.Tensor:
         pass
- 
+
 
 def gradient_solver(
     lpcd_config: LPCDConfig,
@@ -35,19 +36,21 @@ def gradient_solver(
     device = lpcd_config.device
     batch_size = 16
 
-    assert lpcd_config.gd_batch_size % batch_size == 0, \
-        f"gd_batch_size should be divisible by batch_size, " + \
-        f"but got {lpcd_config.gd_batch_size} and {batch_size}"
-    
-    assert target_modules[0].weight.data.dtype in [torch.float32, torch.bfloat16], \
-        "The model must be loaded in float32 or bfloat16 " + \
-        "for gradient-based LPCD refinement due to numerical stability."
-    
+    assert lpcd_config.gd_batch_size % batch_size == 0, (
+        f"gd_batch_size should be divisible by batch_size, "
+        + f"but got {lpcd_config.gd_batch_size} and {batch_size}"
+    )
+
+    assert target_modules[0].weight.data.dtype in [torch.float32, torch.bfloat16], (
+        "The model must be loaded in float32 or bfloat16 "
+        + "for gradient-based LPCD refinement due to numerical stability."
+    )
+
     # backup and configure grad state
     grad_state_q = [p.requires_grad for p in metric_q.parameters()]
     grad_state_f = [p.requires_grad for p in metric_f.parameters()]
 
-    # set target modules as trainablethe     
+    # set target modules as trainablethe
     metric_q.requires_grad_(False)
     metric_f.requires_grad_(False)
     for module in target_modules:
@@ -60,13 +63,11 @@ def gradient_solver(
 
     optimizer = optim.Adam(metric_q.parameters(), lr=lpcd_config.gd_base_lr)
     scheduler = get_cosine_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=int(total_iters * 0.1),
-        num_training_steps=total_iters
+        optimizer, num_warmup_steps=int(total_iters * 0.1), num_training_steps=total_iters
     )
 
     # Perform gradient descent to relax the weights
-    for epoch in range(1, lpcd_config.gd_steps+1):
+    for epoch in range(1, lpcd_config.gd_steps + 1):
 
         chunked_inps = zip(
             inps_q.split(batch_size),
@@ -75,7 +76,7 @@ def gradient_solver(
 
         # TODO: shuffle the inputs for better convergence
         for iter, (inp_q, inp_f) in enumerate(chunked_inps):
-        
+
             with torch.no_grad():
                 out_f = metric_f(inp_f.to(device), **kwargs)
 
