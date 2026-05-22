@@ -1,6 +1,6 @@
 # Change log
 
-## [v1.1.0+feature/dev_save_load] 2026/05/15
+## [v1.1.1+feature/dev_save_load] 2026/05/22
 
 ### Save/Load Support for JointQ, RTN, and OneBit Quantizers
 
@@ -61,6 +61,45 @@
 - Changed JointQ test default `bits` from `1` to `2` to match GPTQLinear packing constraints (`tests/onecomp/quantizer/jointq/test_jointq.py`)
 - Updated `check_equal_results` in RTN and OneBit tests to use `compute_dequantized_weight()` instead of direct `dequantized_weight` attribute access
 - Updated `apply_quantized_weights` in RTN and OneBit tests to use `compute_dequantized_weight()` with proper dtype preservation
+
+## [v1.1.1] 2026-05-21
+
+### New Feature: Quantization progress logging
+
+- Added `QuantizationProgressTracker` (`onecomp/utils/quantization_progress.py`) that emits a single `[progress]` INFO line per completed step with done/total, percentage, elapsed time, and a linear ETA estimate; supports an optional `thread_safe=True` mode for multi-GPU quantization
+- Added `report_progress: bool = True` flag to `Runner.__init__` (`onecomp/runner.py`) and to the underlying entry points `run_chunked_quantization` (`onecomp/runner_methods/chunked_quantization.py`), `run_multi_gpu_quantization` / `run_quantization_phase` (`onecomp/runner_methods/multi_gpu_quantization.py`), `run_quantize_with_qep` (`onecomp/qep/_quantize_with_qep.py`), and `run_quantize_with_qep_arch` (`onecomp/qep/_quantize_with_qep_arch.py`) so long quantization runs (calibration, chunked, multi-GPU, QEP) report progress by default; pass `report_progress=False` for quiet runs
+- Demoted some INFO-level per-layer / per-chunk logs to DEBUG to avoid duplication with the new `[progress]` line (still available via `logging.basicConfig(level=logging.DEBUG)` for deep debugging)
+
+### Bug fixes: QEP + JointQ validation
+
+- Raise a clear error when `Runner` is configured with `qep=True` and a quantizer that does not support QEP (currently `JointQ`). Previously the run failed deep inside `quantize_with_qep` / `adjust_weight` with a confusing low-level error. `Runner.check()` now reports e.g. "Quantizer 'JointQ' (or one of its candidate quantizers) does not support QEP (Quantization Error Propagation). Set qep=False, or use a QEP-compatible quantizer (e.g., GPTQ, DBF, AutoBitQuantizer with QEP-compatible candidates)." Implementation: added `flag_qep_supported` (default `True`) on `Quantizer`, set to `False` on `JointQ`, and propagated via `AutoBitQuantizer._sync_flags` (only `True` when *all* candidate quantizers support QEP) (`quantizer/_quantizer.py`, `quantizer/jointq/_jointq.py`, `quantizer/autobit/_autobit.py`, `runner.py`).
+
+### Bug fixes: VLM save / load
+
+- `Runner.save_quantized_model()` now copies all auxiliary `*.json` and `*.jinja` files (e.g. `preprocessor_config.json`, `processor_config.json`, `special_tokens_map.json`, `chat_template.jinja`) from the original model directory to the save directory, so the quantized model is fully self-contained for VLM / multimodal inference. Weight tensors (`*.safetensors`, `*.bin`, `*.pt`, `*.pth`), weight index files, `config.json` and `generation_config.json` are skipped, and any file already written by `model.save_pretrained` / `tokenizer.save_pretrained` is preserved (`runner.py`).
+- Source-model directory resolution (incl. `huggingface_hub.snapshot_download` fallback for Hub IDs) was extracted into a private helper `Runner._resolve_source_model_dir()` (`runner.py`).
+- `load_quantized_model()` now re-establishes the `lm_head` <-> `embed_tokens` weight tie for models with `tie_word_embeddings=True`. `load_state_dict(..., assign=True)` would otherwise leave `lm_head.weight` as the freshly initialised tensor (typically `float16`) while `embed_tokens.weight` got replaced with the checkpoint tensor (typically `bfloat16`), causing `RuntimeError: expected mat1 and mat2 to have the same dtype` at the final `lm_head` matmul during generation. The re-tie is gated on `lm_head` still being an `nn.Linear` so it does not interfere when `lm_head` itself was quantized (`quantized_model_loader.py`).
+- `load_quantized_model()` now reads `torch_dtype` from `config.json` when no explicit `torch_dtype` is passed by the caller, so the empty model is built in the same dtype as the saved checkpoint. Previously it always defaulted to `torch.float16`, which left non-quantized VLM submodules (e.g. `multi_modal_projector` in Cohere2Vision) at fp16 whenever `load_state_dict(..., assign=True)` could not find their key in the state_dict (`quantized_model_loader.py`).
+- `load_quantized_model()` now casts any leftover `float16` parameters and buffers of non-quantized modules to `model.config.torch_dtype` after the `lm_head` re-tie step. Quantized layers (`GPTQLinear`, `DoubleBinaryLinear`) and `float32` params (e.g. fp32 LayerNorm in mixed-precision models) are deliberately untouched. This generalises the existing `lm_head` re-tie to any non-quantized module and fixes the dtype mismatch reported in issue 64-3 (`RuntimeError: ... c10::Half != c10::BFloat16` on VLM image features) (`quantized_model_loader.py`).
+- Added regression tests `tests/onecomp/runner/test_save_quantized_aux_files.py` (auxiliary-file copy whitelist), `tests/onecomp/runner/test_load_tied_embeddings.py` (tied-embedding dtype round-trip) and `tests/onecomp/runner/test_load_excluded_module_dtype.py` (non-quantized module dtype handling, including config-based empty-model dtype default, fp16 safety-net cast, fp32 preservation, and quantized-layer skip).
+- Loosened `test_save_load_pipeline_tinyllama.py` and `test_save_load_pipeline_qwen3.py` save/load round-trip threshold from absolute `1e-3` to relative `1%` of the per-tensor logits magnitude (`tests/onecomp/pre_process/test_save_load_pipeline_*.py`). The original absolute bound was below fp16's representable precision once accumulated through the 22-28 decoder layers of TinyLlama / Qwen3, causing the `gptq + save_dequantized` cases to fail on aarch64 + Blackwell (GB200) where cuBLAS picks slightly different reduction kernels than reference x86_64 / Hopper hosts. The save/load equivalence intent is preserved via the relative comparison, which is robust to platform-specific fp16 rounding noise.
+- Set `gpu_memory_utilization=0.78` explicitly when constructing `LLM(...)` in `example/vllm_inference/example_autobit_vllm_inference.py` and `example/vllm_inference/example_gptq_vllm_inference.py`. The vLLM default `0.92` cgroup-OOMs on UMA hosts (e.g. DGX Spark / GB200, 121.7 GiB UMA) because vLLM's startup memory check fails: the residual quantizer process leaves only ~106 GiB free, which is below `0.92 * 121.7 = 111.96 GiB`. `0.78` matches the value already used in `tests/vllm_plugins/gptq/test_mixed_gptq_e2e.py` and is documented in the workspace `slurm-submit.mdc` rule.
+
+### Logging / observability tweaks
+
+- `Runner._copy_auxiliary_files()` now emits a matter-of-fact `INFO`-level log when an auxiliary file from the original model directory is *not* copied because the destination already contains a file of the same name (typically because `tokenizer.save_pretrained` wrote it just before, or a previous `save_quantized_model` call did). The new line is symmetrical to the existing `Copied %s to save directory` entry so the auxiliary-copy step can be audited end-to-end (`runner.py`).
+- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now returns the list of fully-qualified parameter / buffer names whose dtype was actually converted instead of a plain count. The post-load `INFO` log in `load_quantized_model()` includes those names so it is obvious which non-quantized submodules were normalised by the safety-net cast (e.g. `multi_modal_projector.linear_*` in Cohere2Vision). Existing tests are updated accordingly and a new test pins the buffer-name reporting (`quantized_model_loader.py`, `tests/onecomp/runner/test_load_excluded_module_dtype.py`, `tests/onecomp/runner/test_save_quantized_aux_files.py`).
+- `QuantizedModelLoader.load_quantized_model()` now detects `tie_word_embeddings=True` even when the flag is nested in a sub-config (e.g. `model.config.text_config.tie_word_embeddings` in Llama 3.2-Vision and other torchtune-derived VLMs) by walking one level of sub-configs. Previously the flag was only read from the top-level `model.config`, so VLMs that placed it in `text_config` skipped the post-load re-tie; with HF deduplicating `lm_head.weight` for tied checkpoints, that left `lm_head.weight` at the empty-model random initial values rather than re-pointing to `embed_tokens.weight` (`quantized_model_loader.py`).
+
+### Tests
+
+- Added regression tests for the save/load fixes above: `tests/onecomp/runner/test_save_quantized_aux_files.py` (auxiliary-file copy whitelist), `tests/onecomp/runner/test_load_tied_embeddings.py` (tied-embedding dtype round-trip), and `tests/onecomp/runner/test_load_excluded_module_dtype.py` (non-quantized module dtype handling, including config-based empty-model dtype default, fp16 safety-net cast, fp32 preservation, and quantized-layer skip).
+- Added `tests/onecomp/test_runner_check.py` for the new `qep=True` validation path: JointQ + qep=True raises a clear `ValueError`, while JointQ + qep=False and GPTQ + qep=True both pass `Runner.check()`.
+- Added `tests/onecomp/runner/test_load_tied_embeddings.py::test_should_retie_word_embeddings_*` unit tests covering top-level, nested-text-config, all-False and unrelated-sub-attribute shapes.
+
+### New Contributors
+
+- [@sotanengel](https://github.com/sotanengel) made their first contribution in [#13](https://github.com/FujitsuResearch/OneCompression/pull/13)
 
 ## [v1.1.0] 2026-04-16
 

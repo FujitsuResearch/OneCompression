@@ -2,6 +2,7 @@
 Copyright 2025-2026 Fujitsu Ltd.
 
 """
+
 import math
 
 import torch
@@ -9,15 +10,12 @@ from torch import nn
 from .._metric import ClosedFormSolverArgument
 
 from logging import getLogger
+
 logger = getLogger(__name__)
 
 
 @torch.no_grad()
-def _closed_form_solver(
-    arg: ClosedFormSolverArgument, 
-    module: nn.Linear,
-    dest: dict
-) -> None:
+def _closed_form_solver(arg: ClosedFormSolverArgument, module: nn.Linear, dest: dict) -> None:
     """Common Closed-form solver for weight correction
 
     Args:
@@ -51,18 +49,18 @@ def _closed_form_solver(
         # capture activations
         _ = arg.block_q(inp_q.to(arg.device), **arg.kwargs)
         _ = arg.block_f(inp_f.to(arg.device), **arg.kwargs)
-        
-        x_q = dest['x_q'].view(-1, D_in).float()
-        x_f = dest['x_f'].view(-1, D_in).float()
 
-        h_q = dest['h_q'].view(-1, D_out).float()
-        h_f = dest['h_f'].view(-1, D_out).float()
+        x_q = dest["x_q"].view(-1, D_in).float()
+        x_f = dest["x_f"].view(-1, D_in).float()
+
+        h_q = dest["h_q"].view(-1, D_out).float()
+        h_f = dest["h_f"].view(-1, D_out).float()
 
         n_tokens = x_q.size(0)
-        
+
         # Compute Hessian and cross-term
         accum_scale = sample_cnt / (sample_cnt + n_tokens)
-        H        *= accum_scale
+        H *= accum_scale
         deltax_x *= accum_scale
         deltah_x *= accum_scale
 
@@ -76,7 +74,7 @@ def _closed_form_solver(
         h_f *= inp_scale
 
         # Compute residual cross-terms
-        H        += torch.matmul(x_q.t(), x_q)
+        H += torch.matmul(x_q.t(), x_q)
         deltax_x += torch.matmul(x_q.t(), (x_f - x_q))
         deltah_x += torch.matmul(x_q.t(), (h_f - h_q))
 
@@ -95,10 +93,10 @@ def _closed_form_solver(
         L = torch.linalg.cholesky(H)
         corr_x = torch.cholesky_solve(deltax_x, L).to(dtype)
         corr_w = W + perccorr * torch.matmul(W, corr_x.t())
-        
+
         corr_h = torch.cholesky_solve(deltah_x, L).to(dtype)
         corr_w += perccorr * corr_h.t()
-        
+
         module.weight.data = corr_w
     except torch.linalg.LinAlgError as e:
         logger.warning(f"{e}")
@@ -108,6 +106,7 @@ def _closed_form_solver(
 def _make_inp_hook(dest: dict, name: str):
     def hook(module, inp, out):
         dest[name] = (inp[0] if isinstance(inp, tuple) else inp).clone()
+
     return hook
 
 
@@ -116,9 +115,9 @@ def closed_form_solver_o_proj(arg: ClosedFormSolverArgument) -> None:
     Args:
         arg (ClosedFormSolverArgument): closed-form solver argument
     """
-    
+
     dest = {}
-    
+
     handler = [
         arg.block_q.self_attn.o_proj.register_forward_hook(_make_inp_hook(dest, "x_q")),
         arg.block_f.self_attn.o_proj.register_forward_hook(_make_inp_hook(dest, "x_f")),
@@ -139,7 +138,7 @@ def closed_form_solver_down_proj(arg: ClosedFormSolverArgument) -> None:
     """
 
     dest = {}
-    
+
     handler = [
         arg.block_q.mlp.down_proj.register_forward_hook(_make_inp_hook(dest, "x_q")),
         arg.block_f.mlp.down_proj.register_forward_hook(_make_inp_hook(dest, "x_f")),

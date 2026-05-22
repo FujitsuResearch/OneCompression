@@ -107,15 +107,21 @@ def _plot_layer_type(ax, layer_type, label_points, colors):
                 cy = min(y, ylim * 0.92)
                 text = f"{k} ({x:.1f}, {y:.2f})"
                 ax.annotate(
-                    text, (cx, cy),
-                    fontsize=6, color=color, fontstyle="italic",
+                    text,
+                    (cx, cy),
+                    fontsize=6,
+                    color=color,
+                    fontstyle="italic",
                     bbox=dict(boxstyle="round,pad=0.2", fc="white", ec=color, alpha=0.8),
                 )
             else:
                 ax.annotate(
-                    str(k), (x, y),
-                    textcoords="offset points", xytext=(5, 3),
-                    fontsize=7, color=color,
+                    str(k),
+                    (x, y),
+                    textcoords="offset points",
+                    xytext=(5, 3),
+                    fontsize=7,
+                    color=color,
                 )
 
     ax.set_xlim(0, xlim)

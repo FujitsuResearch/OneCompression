@@ -52,8 +52,7 @@ class ModelConfig:
         if needs_bfloat16(model_id or path):
             if dtype != "bfloat16":
                 self.logger.warning(
-                    "Overriding dtype to bfloat16 for %s "
-                    "to prevent performance degradation.",
+                    "Overriding dtype to bfloat16 for %s " "to prevent performance degradation.",
                     model_id or path,
                 )
             dtype = "bfloat16"
@@ -102,7 +101,11 @@ class ModelConfig:
         try:
             model = AutoModelForCausalLM.from_pretrained(self.get_model_id_or_path(), **kwargs)
         except ValueError as e:
-            _vlm_hints = ("Unrecognized configuration class", "Unrecognized model", "is not supported")
+            _vlm_hints = (
+                "Unrecognized configuration class",
+                "Unrecognized model",
+                "is not supported",
+            )
             if not _HAS_VLM_AUTO or not any(h in str(e) for h in _vlm_hints):
                 raise
             self.logger.info("AutoModelForCausalLM failed; trying AutoModelForImageTextToText.")
