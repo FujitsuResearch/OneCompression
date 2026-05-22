@@ -626,7 +626,7 @@ class Runner:
             progress = QuantizationProgressTracker(
                 logger,
                 len(self.quantizer.module_to_name),
-                "Calibration quantization layers",
+                "Quantization",
             )
 
         if progress:
@@ -1807,6 +1807,102 @@ class Runner:
     # Unified Save/Load Methods (Using quantizer.results)
     # ========================================
 
+    def _resolve_source_model_dir(self) -> Optional[str]:
+        """Resolve the original model directory for auxiliary file copy.
+
+        Returns the local directory of the source model used by this runner.
+        If ``ModelConfig`` points at a Hugging Face Hub ID rather than a local
+        directory, attempts to locate the snapshot via
+        ``huggingface_hub.snapshot_download(local_files_only=True)``.
+
+        Returns:
+            The absolute path to the source model directory, or ``None`` if it
+            could not be resolved (in which case auxiliary copying is skipped
+            and a warning is logged by the caller).
+        """
+        src = self.model_config.get_model_id_or_path()
+        if not src:
+            return None
+        if os.path.isdir(src):
+            return src
+        try:
+            from huggingface_hub import snapshot_download
+
+            return snapshot_download(src, local_files_only=True)
+        except Exception as exc:  # pylint: disable=broad-except
+            self.logger.warning("Could not resolve source model dir for %s: %s", src, exc)
+            return None
+
+    # File patterns excluded from the auxiliary-config copy in
+    # ``save_quantized_model``.  Weight tensors are written by HF
+    # ``save_pretrained`` directly, so copying the originals would either
+    # collide with the quantized weights or balloon the save directory.
+    _AUX_COPY_EXCLUDE_FILES = frozenset(
+        {
+            "config.json",
+            "generation_config.json",
+            "model.safetensors.index.json",
+            "pytorch_model.bin.index.json",
+        }
+    )
+    _AUX_COPY_WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth")
+    _AUX_COPY_INCLUDE_SUFFIXES = (".json", ".jinja")
+
+    def _copy_auxiliary_files(self, src_dir: str, save_directory: str) -> int:
+        """Copy auxiliary ``*.json`` / ``*.jinja`` files from ``src_dir``.
+
+        Files already present in ``save_directory`` are left untouched so that
+        the artifacts written by ``model.save_pretrained`` /
+        ``tokenizer.save_pretrained`` (and the Gemma BOS post-processing) are
+        never overwritten.  Weight tensors and weight index files are skipped.
+
+        Args:
+            src_dir: Resolved original model directory.
+            save_directory: Destination directory.
+
+        Returns:
+            Number of files actually copied.
+        """
+        import shutil
+
+        copied = 0
+        try:
+            entries = os.listdir(src_dir)
+        except OSError as exc:
+            self.logger.warning(
+                "Failed to list source model dir %s for aux copy: %s", src_dir, exc
+            )
+            return 0
+
+        for name in entries:
+            src = os.path.join(src_dir, name)
+            if not os.path.isfile(src):
+                continue
+            if name in self._AUX_COPY_EXCLUDE_FILES:
+                continue
+            lower = name.lower()
+            if lower.endswith(self._AUX_COPY_WEIGHT_SUFFIXES):
+                continue
+            if not lower.endswith(self._AUX_COPY_INCLUDE_SUFFIXES):
+                continue
+            dst = os.path.join(save_directory, name)
+            if os.path.exists(dst):
+                # Don't clobber files already in the save directory.
+                # Typically these were just written by
+                # ``model.save_pretrained`` / ``tokenizer.save_pretrained``
+                # (and possibly post-edited, e.g. the Gemma 4
+                # ``add_bos_token`` patch on ``tokenizer_config.json``);
+                # we deliberately keep that fresh copy instead of
+                # overwriting it with the original-model file.  Logging
+                # the skip simply makes the auxiliary-copy step easier
+                # to follow alongside the ``Copied %s`` entries below.
+                self.logger.info("Using existing %s in save directory", name)
+                continue
+            shutil.copy2(src, dst)
+            copied += 1
+            self.logger.info("Copied %s to save directory", name)
+        return copied
+
     def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
         """Save the quantized model to the specified directory
 
@@ -1854,21 +1950,16 @@ class Runner:
                 tc_path.write_text(json.dumps(tc, indent=2, ensure_ascii=False) + "\n")
                 logger.info("Set add_bos_token=true in tokenizer_config.json")
 
-        # Copy processor config from original model (for VLMs with image/audio support)
-        import shutil
-
-        src_dir = self.model_config.get_model_id_or_path()
-        if src_dir and not os.path.isdir(src_dir):
-            # when the model_id is specified, the path is modifed to the local directory
-            from huggingface_hub import snapshot_download
-
-            src_dir = snapshot_download(src_dir, local_files_only=True)
+        # Copy auxiliary config / template files from the original model so the
+        # save directory is self-contained for VLM (image/audio) inference and
+        # for runtimes that expect e.g. ``preprocessor_config.json``,
+        # ``processor_config.json``, ``special_tokens_map.json``,
+        # ``chat_template.jinja`` to live next to the weights.
+        src_dir = self._resolve_source_model_dir()
         if src_dir and os.path.isdir(src_dir):
-            for fname in ("processor_config.json", "preprocessor_config.json"):
-                src = os.path.join(src_dir, fname)
-                if os.path.isfile(src):
-                    shutil.copy2(src, save_directory)
-                    logger.info("Copied %s to save directory", fname)
+            self._copy_auxiliary_files(src_dir, save_directory)
+        else:
+            logger.warning("Source model dir not resolvable; skipping auxiliary file copy.")
 
         logger.info(f"Quantized model saved to {save_directory}")
         return save_directory
