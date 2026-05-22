@@ -64,6 +64,14 @@ def main():
         help='save directory (default: auto-generated, "none" to skip)',
     )
     parser.add_argument(
+        "--check-env",
+        action="store_true",
+        help=(
+            "Print an environment and memory report before quantization. "
+            "Exits with code 1 if OOM risk is 'danger'."
+        ),
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -75,6 +83,23 @@ def main():
 
     # Lazy import to keep --help fast
     from .runner import Runner  # pylint: disable=import-outside-toplevel
+
+    if args.check_env:
+        import sys  # pylint: disable=import-outside-toplevel
+        from .utils.vram_estimator import (  # pylint: disable=import-outside-toplevel
+            check_environment,
+            print_env_report,
+        )
+
+        env_result = check_environment(
+            args.model_id,
+            total_vram_gb=args.total_vram_gb,
+            group_size=args.groupsize,
+            save_dir=save_dir if isinstance(save_dir, str) and save_dir != "auto" else None,
+        )
+        print_env_report(env_result, total_vram_gb_override=args.total_vram_gb)
+        if env_result.risk == "danger":
+            sys.exit(1)
 
     Runner.auto_run(
         model_id=args.model_id,
