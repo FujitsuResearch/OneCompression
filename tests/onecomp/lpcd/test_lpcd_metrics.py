@@ -84,10 +84,7 @@ def _metric_classes(group: LpcdMetricGroup) -> list[type]:
 
 def _metric_target_names(group: LpcdMetricGroup) -> list[list[str]]:
     """Return the list of target names for each metric in the group."""
-    return [
-        [name for name, _ in metric_q.named_targets()]
-        for metric_q, _ in group.metrics
-    ]
+    return [[name for name, _ in metric_q.named_targets()] for metric_q, _ in group.metrics]
 
 
 class TestMakeLpcdMetricsLlama:
@@ -152,9 +149,7 @@ class TestMakeLpcdMetricsLlama:
     def test_no_metrics_when_all_disabled(self, blocks):
         """All flags off → empty metric group."""
         block_q, block_f = blocks
-        cfg = LPCDConfig(
-            enable_qk=False, enable_vo=False, enable_ud=False, enable_residual=False
-        )
+        cfg = LPCDConfig(enable_qk=False, enable_vo=False, enable_ud=False, enable_residual=False)
         group = make_lpcd_metrics(cfg, block_q, block_f)
         assert group.metrics == []
 

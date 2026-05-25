@@ -93,6 +93,51 @@ class QuantizedModelLoader:
         # Load all weights (quantized + non-quantized) in one go
         model.load_state_dict(state_dict, strict=False, assign=True)
 
+        # ``assign=True`` swaps Parameter objects in place, which breaks the
+        # weight sharing established by ``from_config`` for models with
+        # ``tie_word_embeddings=True``.  Concretely, ``embed_tokens.weight``
+        # gets replaced by the bf16 tensor from the checkpoint while
+        # ``lm_head.weight`` keeps its original (often fp16) tensor, leading
+        # to a dtype mismatch at the final ``F.linear`` call during
+        # generation.  Re-tie when (a) the config tree still asks for it
+        # (multi-config VLMs such as Llama 3.2-Vision place the flag in
+        # ``text_config`` rather than at the top level, so we walk the
+        # nested configs) and (b) ``lm_head`` is still a plain
+        # ``nn.Linear`` -- if it has been replaced by a quantized layer
+        # (e.g. ``GPTQLinear``) it has no ``weight`` attribute to retie
+        # and tying would be meaningless.
+        if cls._should_retie_word_embeddings(model.config):
+            lm_head = getattr(model, "lm_head", None)
+            if isinstance(lm_head, torch.nn.Linear):
+                model.tie_weights()
+                logger.info("Re-tied lm_head to embed_tokens after assign-load")
+
+        # Safety net: ``load_state_dict(..., assign=True)`` only replaces
+        # parameters whose key in the checkpoint exactly matches the model's
+        # ``named_parameters`` path.  For some VLMs (e.g. Cohere2Vision's
+        # ``multi_modal_projector``) the path prefix differs between the
+        # checkpoint and the model class produced by ``from_config``, so a
+        # subset of params silently keeps the empty-model dtype.  Together
+        # with the config-based dtype default in
+        # ``_build_empty_model_from_config`` this normalises any remaining
+        # fp16 tensors of non-quantized modules to ``target_dtype``.  fp32
+        # params (e.g. fp32 LayerNorm in mixed-precision models) are left
+        # untouched, and quantized layers are skipped so that GPTQ scales
+        # and similar fp16 metadata are preserved.
+        target_dtype = (
+            torch_dtype if torch_dtype is not None else cls._resolve_dtype_from_config(config_dict)
+        )
+        if target_dtype is None:
+            target_dtype = torch.float16
+        converted = cls._cast_fp16_to_target_dtype(model, target_dtype)
+        if converted:
+            logger.info(
+                "Cast %d non-quantized fp16 tensor(s) to %s: %s",
+                len(converted),
+                target_dtype,
+                converted,
+            )
+
         # Register Hadamard hooks for rotation-preprocessed models
         if quant_config.get("rotated", False):
             from .pre_process.rotation_utils import register_online_hadamard_hooks
@@ -232,7 +277,117 @@ class QuantizedModelLoader:
         return config_dict, quant_config
 
     @staticmethod
+    def _cast_fp16_to_target_dtype(model: torch.nn.Module, target_dtype: torch.dtype) -> List[str]:
+        """Cast fp16 params/buffers of non-quantized modules to ``target_dtype``.
+
+        Quantized layers (``GPTQLinear``, ``DoubleBinaryLinear``) are
+        skipped so their fp16 metadata (e.g. GPTQ ``scales``) is preserved.
+        Only fp16 tensors are cast: fp32 params (e.g. fp32 LayerNorm in
+        mixed-precision models) and other dtypes are left untouched.
+
+        Args:
+            model: The model whose parameters/buffers should be normalised.
+            target_dtype: Destination dtype.  When equal to
+                ``torch.float16`` this is a no-op.
+
+        Returns:
+            Fully-qualified names of every parameter / buffer whose
+            dtype was actually converted (e.g. ``"model.layers.0.mlp.
+            down_proj.weight"``).  An empty list means nothing needed
+            casting (or ``target_dtype == torch.float16``).  The list
+            form makes it easy for tests and operators to inspect
+            which submodules were touched by the safety net.
+        """
+        converted: List[str] = []
+        if target_dtype == torch.float16:
+            return converted
+        skip_types = (GPTQLinear, DoubleBinaryLinear)
+        for mod_name, mod in model.named_modules():
+            if isinstance(mod, skip_types):
+                continue
+            for p_name, p in mod.named_parameters(recurse=False):
+                if p.dtype == torch.float16:
+                    p.data = p.data.to(target_dtype)
+                    full_name = f"{mod_name}.{p_name}" if mod_name else p_name
+                    converted.append(full_name)
+            for b_name, b in mod.named_buffers(recurse=False):
+                if b.dtype == torch.float16:
+                    b.data = b.data.to(target_dtype)
+                    full_name = f"{mod_name}.{b_name}" if mod_name else b_name
+                    converted.append(full_name)
+        return converted
+
+    @classmethod
+    def _should_retie_word_embeddings(cls, config: Any) -> bool:
+        """Return True if any nesting level of ``config`` requests weight tying.
+
+        Single-config language models (e.g. Llama, Qwen) expose
+        ``tie_word_embeddings`` directly on ``model.config``.  Multi-
+        config VLMs vary: ``gemma-4`` puts the flag at the top level
+        but ``llama3.2-vlm-torchtune`` and other torchtune-derived
+        checkpoints place it inside ``text_config`` only, so the naive
+        ``getattr(model.config, "tie_word_embeddings", False)`` would
+        miss the tying request and skip the re-tie that
+        ``load_state_dict(..., assign=True)`` necessitates.
+
+        We walk the config tree shallowly: any direct sub-attribute
+        that itself exposes ``tie_word_embeddings`` is inspected.  The
+        check is intentionally non-recursive past one level because
+        HuggingFace nests language sub-configs at most one level deep
+        in practice (``text_config``, ``language_config`` etc.) and a
+        deeper recursion would risk being confused by unrelated
+        sub-objects.
+
+        Args:
+            config: A ``transformers.PretrainedConfig``-like object
+                (anything supporting ``getattr``).
+
+        Returns:
+            ``True`` if ``tie_word_embeddings`` is truthy at the top
+            level or on any direct sub-attribute that itself looks
+            like a config (i.e. carries a ``tie_word_embeddings``
+            attribute).  ``False`` otherwise.
+        """
+        if getattr(config, "tie_word_embeddings", False):
+            return True
+        try:
+            sub_items = vars(config).items()
+        except TypeError:
+            return False
+        for _, value in sub_items:
+            # Duck-type check: only descend into things that themselves
+            # carry the flag, so we don't accidentally walk unrelated
+            # auxiliary objects (e.g. tokenizer caches) that happen to
+            # be stored on the config.
+            if hasattr(value, "tie_word_embeddings") and getattr(
+                value, "tie_word_embeddings", False
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _resolve_dtype_from_config(
+        config_dict: Dict,
+    ) -> Optional[torch.dtype]:
+        """Read ``torch_dtype`` / ``dtype`` from a config dict.
+
+        Accepts both the JSON-serialised string form (e.g. ``"bfloat16"``)
+        and a real ``torch.dtype`` value.  Returns ``None`` when the field
+        is missing, ``"auto"``, or otherwise unresolvable.
+        """
+        for key in ("torch_dtype", "dtype"):
+            val = config_dict.get(key)
+            if isinstance(val, torch.dtype):
+                return val
+            if isinstance(val, str) and val and val != "auto":
+                resolved = getattr(torch, val, None)
+                if isinstance(resolved, torch.dtype):
+                    return resolved
+        return None
+
+    @classmethod
     def _build_empty_model_from_config(
+        cls,
         config_dict: Dict,
         torch_dtype: Optional[torch.dtype] = None,
     ) -> torch.nn.Module:
@@ -250,6 +405,13 @@ class QuantizedModelLoader:
                 f"Cannot build config: model_type={model_type!r} not in CONFIG_MAPPING."
             )
 
+        # Default to the dtype recorded in config.json so the empty model
+        # starts in the same dtype as the saved checkpoint.  This avoids
+        # leaving non-quantized submodules at the hard-coded fp16 default
+        # if ``load_state_dict(..., assign=True)`` cannot find their key
+        # in the state_dict (e.g. tied or path-shifted VLM submodules).
+        if torch_dtype is None:
+            torch_dtype = cls._resolve_dtype_from_config(clean_config)
         dtype = torch_dtype if torch_dtype is not None else torch.float16
         config_cls = CONFIG_MAPPING[model_type]
         model_config = config_cls.from_dict(clean_config)
@@ -357,7 +519,7 @@ class QuantizedModelLoader:
 
         def _get_layer_sd(name: str) -> dict:
             prefix = name + "."
-            result = {k[len(prefix):]: v for k, v in state_dict.items() if k.startswith(prefix)}
+            result = {k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)}
             if result:
                 return result
             # Fallback: match by layer suffix (e.g. "layers.0.self_attn.q_proj")
@@ -367,11 +529,18 @@ class QuantizedModelLoader:
                 hits = [s for s in sd_prefix_map if s.endswith(suffix)]
                 if len(hits) > 1:
                     logger.warning(
-                        "Ambiguous suffix %s for %s: %s", suffix, name, hits,
+                        "Ambiguous suffix %s for %s: %s",
+                        suffix,
+                        name,
+                        hits,
                     )
                 if hits:
                     alt_prefix = hits[0] + "."
-                    return {k[len(alt_prefix):]: v for k, v in state_dict.items() if k.startswith(alt_prefix)}
+                    return {
+                        k[len(alt_prefix) :]: v
+                        for k, v in state_dict.items()
+                        if k.startswith(alt_prefix)
+                    }
             return {}
 
         for name in quantized_names:

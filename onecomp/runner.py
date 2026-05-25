@@ -28,6 +28,7 @@ from .quantizer import GPTQ, Quantizer
 from .quantizer.autobit import AutoBitQuantizer
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
+from .utils.quantization_progress import QuantizationProgressTracker
 from .log import setup_logger
 
 
@@ -86,6 +87,7 @@ class Runner:
         multi_gpu=False,
         gpu_ids=None,
         post_processes=None,
+        report_progress=True,
     ):
         """__init__ method
 
@@ -130,6 +132,11 @@ class Runner:
                 a quantized model on CPU (built via
                 ``create_quantized_model``) and may modify it in-place.
                 Processes are executed in order.  Default is None.
+            report_progress (bool):
+                When ``True`` (default), emit ``[progress]`` log lines with
+                completed steps, elapsed time, and a linear ETA estimate
+                during long quantization (calibration, chunked, multi-GPU,
+                QEP).  Set to ``False`` for quiet runs (e.g. CI).
 
         Note:
             For zero-config quantization (VRAM auto-estimation +
@@ -215,6 +222,7 @@ class Runner:
         self.lpcd_config = None
         if lpcd:
             self.lpcd_config = lpcd_config if lpcd_config is not None else LPCDConfig()
+        self.report_progress = report_progress
 
     def check(self):
         """Check the settings
@@ -291,6 +299,15 @@ class Runner:
                 )
             if self.multi_gpu and not self.quantizer.flag_calibration:
                 raise ValueError("'multi_gpu' requires a quantizer with flag_calibration=True.")
+            if self.qep and not self.quantizer.flag_qep_supported:
+                raise ValueError(
+                    f"Quantizer '{type(self.quantizer).__name__}' "
+                    f"(or one of its candidate quantizers) does not support "
+                    f"QEP (Quantization Error Propagation). "
+                    f"Set qep=False, or use a QEP-compatible quantizer "
+                    f"(e.g., GPTQ, DBF, AutoBitQuantizer with "
+                    f"QEP-compatible candidates)."
+                )
 
         # Cross-validate calibration_dataset when AutoBitQuantizer is used
         quantizer = self.quantizer or (self.quantizers[0] if self.quantizers else None)
@@ -314,27 +331,19 @@ class Runner:
         config = self.model_config.load_config()
         num_experts = (
             getattr(config, "num_experts", 0)
-            or getattr(
-                getattr(config, "text_config", None), "num_experts", 0
-            ) or 
-            0
+            or getattr(getattr(config, "text_config", None), "num_experts", 0)
+            or 0
         )
         if num_experts == 0:
             return
 
         keyword = "router"
-        target_quantizers = (
-            self.quantizers
-            if self.quantizers is not None
-            else [self.quantizer]
-        )
+        target_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
         for q in target_quantizers:
             if q.exclude_layer_keywords is None:
                 q.exclude_layer_keywords = [keyword]
             elif keyword not in q.exclude_layer_keywords:
-                q.exclude_layer_keywords = list(q.exclude_layer_keywords) + [
-                    keyword
-                ]
+                q.exclude_layer_keywords = list(q.exclude_layer_keywords) + [keyword]
 
         self.logger.info(
             "MoE model (num_experts=%d): excluding '%s' layers from "
@@ -511,12 +520,9 @@ class Runner:
             uniform_bit = max(valid_wbits)
             if save_dir == "auto":
                 model_name = model_id.rstrip("/").split("/")[-1]
-                save_dir = (
-                    f"{model_name}-gptq-{uniform_bit}bit"
-                )
+                save_dir = f"{model_name}-gptq-{uniform_bit}bit"
             logger.warning(
-                "Gemma 4 detected → falling back to uniform GPTQ %d-bit "
-                "(target wbits=%.2f)",
+                "Gemma 4 detected → falling back to uniform GPTQ %d-bit " "(target wbits=%.2f)",
                 uniform_bit,
                 wbits,
             )
@@ -527,6 +533,7 @@ class Runner:
                 save_dir = f"{model_name}-autobit-{wbits}bit"
 
             from .quantizer.autobit import AutoBitQuantizer
+
             candidate_quantizers = [
                 GPTQ(wbits=b, groupsize=groupsize, **kwargs) for b in candidate_bits
             ]
@@ -595,8 +602,27 @@ class Runner:
 
         # Register hooks to all linear layers
         handles = []
+        progress = None
+        if self.report_progress:
+            progress = QuantizationProgressTracker(
+                logger,
+                len(self.quantizer.module_to_name),
+                "Quantization",
+            )
+
+        if progress:
+            quantize_bound = self.quantizer.quantize
+
+            def _quantize_hook(module, input, output):  # pylint: disable=redefined-builtin
+                quantize_bound(module, input, output)
+                progress.step_complete(self.quantizer.module_to_name[module])
+
+            hook_fn = _quantize_hook
+        else:
+            hook_fn = self.quantizer.quantize
+
         for module in self.quantizer.module_to_name.keys():
-            handle = module.register_forward_hook(self.quantizer.quantize)
+            handle = module.register_forward_hook(hook_fn)
             handles.append(handle)
 
         logger.info("Quantizing the model using %s", self.quantizer.name)
@@ -636,6 +662,7 @@ class Runner:
             model_config=self.model_config,
             quantizers=self.quantizers if self.quantizers is not None else [self.quantizer],
             calibration_config=self.calibration_config,
+            report_progress=self.report_progress,
         )
 
     def quantize_with_calibration_on_multi_gpu(self):
@@ -664,6 +691,7 @@ class Runner:
             quantizer=self.quantizer,
             calibration_config=self.calibration_config,
             gpu_ids=self.gpu_ids,
+            report_progress=self.report_progress,
         )
 
         # Store results in quantizer.results
@@ -690,8 +718,17 @@ class Runner:
             "Quantizing the model without calibration using %s",
             self.quantizer.name,
         )
+        progress = None
+        if self.report_progress:
+            progress = QuantizationProgressTracker(
+                logger,
+                len(self.quantizer.module_to_name),
+                "Quantization without calibration (layers)",
+            )
         for module in self.quantizer.module_to_name.keys():
             self.quantizer.quantize(module, None, None)
+            if progress:
+                progress.step_complete(self.quantizer.module_to_name[module])
 
         self.quantizer.execute_post_processing()
 
@@ -712,6 +749,7 @@ class Runner:
             quantizer=self.quantizer,
             qep_config=self.qep_config,
             calibration_config=self.calibration_config,
+            report_progress=self.report_progress,
         )
 
         if self.qep_config.general:
@@ -859,7 +897,7 @@ class Runner:
 
         Args:
             device (torch.device): Device to place tensors on (CPU or GPU)
-            model: Model instance (optional). Add model-specific fields 
+            model: Model instance (optional). Add model-specific fields
             (e.g. mm_token_type_ids for Gemma 4).
 
         Returns:
@@ -983,10 +1021,7 @@ class Runner:
 
         logger.info("Saving the quantization statistics to %s", path)
 
-        statistics = {
-            key: result.get_statistics()
-            for key, result in quantizer.results.items()
-        }
+        statistics = {key: result.get_statistics() for key, result in quantizer.results.items()}
 
         with open(path, "w", encoding="utf-8") as f:
             json.dump(statistics, f, indent=4)
@@ -1665,15 +1700,10 @@ class Runner:
         # cf) https://docs.vllm.ai/en/stable/features/quantization/#implementing-a-quantized-moe-method
         num_experts = (
             getattr(model.config, "num_experts", None)
-            or getattr(
-                getattr(model.config, "text_config", None), "num_experts", None
-            )
+            or getattr(getattr(model.config, "text_config", None), "num_experts", None)
             or 0
         )
-        if (
-            quant_config.get("quant_method") == "gptq"
-            and num_experts > 0
-        ):
+        if quant_config.get("quant_method") == "gptq" and num_experts > 0:
             quant_config["quant_method"] = "mixed_gptq"
             self.logger.info(
                 "MoE model detected (num_experts=%d): "
@@ -1697,15 +1727,13 @@ class Runner:
         Gemma4 full-attention layers with attention_k_eq_v=True have no
         v_proj weight — the model reuses key states as value states.
         vLLM fuses q/k/v into a single qkv_proj and requires all shards
-        to share the same quantization status.  
+        to share the same quantization status.
         """
         text_cfg = getattr(model.config, "text_config", None)
         if text_cfg is None or not getattr(text_cfg, "attention_k_eq_v", False):
             return
         layer_types = getattr(text_cfg, "layer_types", [])
-        k_eq_v_indices = {
-            i for i, lt in enumerate(layer_types) if lt == "full_attention"
-        }
+        k_eq_v_indices = {i for i, lt in enumerate(layer_types) if lt == "full_attention"}
         if not k_eq_v_indices:
             return
 
@@ -1743,9 +1771,7 @@ class Runner:
                 and "self_attn.k_proj" in layer_cfg
                 and "self_attn.v_proj" not in layer_cfg
             ):
-                layer_cfg["self_attn.v_proj"] = copy.deepcopy(
-                    layer_cfg["self_attn.k_proj"]
-                )
+                layer_cfg["self_attn.v_proj"] = copy.deepcopy(layer_cfg["self_attn.k_proj"])
 
         for key in ("modules_in_block_to_quantize", "quantized_layer_names"):
             names = quant_config.get(key, [])
@@ -1866,6 +1892,101 @@ class Runner:
         )
         return True
 
+    def _resolve_source_model_dir(self) -> Optional[str]:
+        """Resolve the original model directory for auxiliary file copy.
+
+        Returns the local directory of the source model used by this runner.
+        If ``ModelConfig`` points at a Hugging Face Hub ID rather than a local
+        directory, attempts to locate the snapshot via
+        ``huggingface_hub.snapshot_download(local_files_only=True)``.
+
+        Returns:
+            The absolute path to the source model directory, or ``None`` if it
+            could not be resolved (in which case auxiliary copying is skipped
+            and a warning is logged by the caller).
+        """
+        src = self.model_config.get_model_id_or_path()
+        if not src:
+            return None
+        if os.path.isdir(src):
+            return src
+        try:
+            from huggingface_hub import snapshot_download
+
+            return snapshot_download(src, local_files_only=True)
+        except Exception as exc:  # pylint: disable=broad-except
+            self.logger.warning("Could not resolve source model dir for %s: %s", src, exc)
+            return None
+
+    # File patterns excluded from the auxiliary-config copy in
+    # ``save_quantized_model``.  Weight tensors are written by HF
+    # ``save_pretrained`` directly, so copying the originals would either
+    # collide with the quantized weights or balloon the save directory.
+    _AUX_COPY_EXCLUDE_FILES = frozenset(
+        {
+            "config.json",
+            "generation_config.json",
+            "model.safetensors.index.json",
+            "pytorch_model.bin.index.json",
+        }
+    )
+    _AUX_COPY_WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth")
+    _AUX_COPY_INCLUDE_SUFFIXES = (".json", ".jinja")
+
+    def _copy_auxiliary_files(self, src_dir: str, save_directory: str) -> int:
+        """Copy auxiliary ``*.json`` / ``*.jinja`` files from ``src_dir``.
+
+        Files already present in ``save_directory`` are left untouched so that
+        the artifacts written by ``model.save_pretrained`` /
+        ``tokenizer.save_pretrained`` (and the Gemma BOS post-processing) are
+        never overwritten.  Weight tensors and weight index files are skipped.
+
+        Args:
+            src_dir: Resolved original model directory.
+            save_directory: Destination directory.
+
+        Returns:
+            Number of files actually copied.
+        """
+        import shutil
+
+        copied = 0
+        try:
+            entries = os.listdir(src_dir)
+        except OSError as exc:
+            self.logger.warning(
+                "Failed to list source model dir %s for aux copy: %s", src_dir, exc
+            )
+            return 0
+
+        for name in entries:
+            src = os.path.join(src_dir, name)
+            if not os.path.isfile(src):
+                continue
+            if name in self._AUX_COPY_EXCLUDE_FILES:
+                continue
+            lower = name.lower()
+            if lower.endswith(self._AUX_COPY_WEIGHT_SUFFIXES):
+                continue
+            if not lower.endswith(self._AUX_COPY_INCLUDE_SUFFIXES):
+                continue
+            dst = os.path.join(save_directory, name)
+            if os.path.exists(dst):
+                # Don't clobber files already in the save directory.
+                # Typically these were just written by
+                # ``model.save_pretrained`` / ``tokenizer.save_pretrained``
+                # (and possibly post-edited, e.g. the Gemma 4
+                # ``add_bos_token`` patch on ``tokenizer_config.json``);
+                # we deliberately keep that fresh copy instead of
+                # overwriting it with the original-model file.  Logging
+                # the skip simply makes the auxiliary-copy step easier
+                # to follow alongside the ``Copied %s`` entries below.
+                self.logger.info("Using existing %s in save directory", name)
+                continue
+            shutil.copy2(src, dst)
+            copied += 1
+            self.logger.info("Copied %s to save directory", name)
+        return copied
 
     def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
         """Save the quantized model to the specified directory
@@ -1940,20 +2061,16 @@ class Runner:
                 tc_path.write_text(json.dumps(tc, indent=2, ensure_ascii=False) + "\n")
                 logger.info("Set add_bos_token=true in tokenizer_config.json")
 
-        # Copy processor config from original model (for VLMs with image/audio support)
-        import shutil
-
-        src_dir = self.model_config.get_model_id_or_path()
-        if src_dir and not os.path.isdir(src_dir):
-            # when the model_id is specified, the path is modifed to the local directory
-            from huggingface_hub import snapshot_download
-            src_dir = snapshot_download(src_dir, local_files_only=True)
+        # Copy auxiliary config / template files from the original model so the
+        # save directory is self-contained for VLM (image/audio) inference and
+        # for runtimes that expect e.g. ``preprocessor_config.json``,
+        # ``processor_config.json``, ``special_tokens_map.json``,
+        # ``chat_template.jinja`` to live next to the weights.
+        src_dir = self._resolve_source_model_dir()
         if src_dir and os.path.isdir(src_dir):
-            for fname in ("processor_config.json", "preprocessor_config.json"):
-                src = os.path.join(src_dir, fname)
-                if os.path.isfile(src):
-                    shutil.copy2(src, save_directory)
-                    logger.info("Copied %s to save directory", fname)
+            self._copy_auxiliary_files(src_dir, save_directory)
+        else:
+            logger.warning("Source model dir not resolvable; skipping auxiliary file copy.")
 
         # LoRA sidecar (only if self.quantized_model contains LoRAGPTQLinear).
         wrote_adapter = self._save_lora_adapter_sidecar(save_directory)
