@@ -4,12 +4,12 @@ Copyright 2025-2026 Fujitsu Ltd.
 """
 
 import math
+from logging import getLogger
 
 import torch
 from torch import nn
-from .._metric import ClosedFormSolverArgument
 
-from logging import getLogger
+from .._metric import ClosedFormSolverArgument
 
 logger = getLogger(__name__)
 

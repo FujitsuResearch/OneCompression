@@ -14,9 +14,7 @@ Usage::
 import pytest
 
 from onecomp.calibration import CalibrationConfig
-from onecomp.pre_process.prepare_rotated_model import (
-    _validate_prepare_rotated_model_params,
-)
+from onecomp.pre_process.prepare_rotated_model import _validate_prepare_rotated_model_params
 
 
 class TestPrepareRotatedModelValidation:

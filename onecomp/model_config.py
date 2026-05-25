@@ -8,8 +8,8 @@ Author: Keiji Kimura
 
 from logging import getLogger
 
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 import torch
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from .utils.dtype import needs_bfloat16
 

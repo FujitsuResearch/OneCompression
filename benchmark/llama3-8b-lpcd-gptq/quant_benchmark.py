@@ -27,12 +27,12 @@ import itertools
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from onecomp import GPTQ, ModelConfig, QEPConfig, LPCDConfig, Runner
+from onecomp import GPTQ, LPCDConfig, ModelConfig, QEPConfig, Runner
 
 
 def create_quantizer(cfg: DictConfig, task_id: int):
     """Create a single GPTQ quantizer for the given task_id."""
-    combinations = list(itertools.product(cfg.gptq.bits, ['none', 'res', 'qk', 'vo', 'ud', 'all']))
+    combinations = list(itertools.product(cfg.gptq.bits, ["none", "res", "qk", "vo", "ud", "all"]))
 
     if task_id < 0 or task_id >= len(combinations):
         raise ValueError(
@@ -43,7 +43,7 @@ def create_quantizer(cfg: DictConfig, task_id: int):
     bits, submodule = combinations[task_id]
 
     return GPTQ(
-        wbits=bits, 
+        wbits=bits,
         groupsize=128,
         name=f"lpcd_{submodule}_{bits}bit",
     )
@@ -57,11 +57,7 @@ def main(cfg: DictConfig):
 
     print(f"task_id={cfg.task_id} -> {quantizer.name}")
 
-    model_config = ModelConfig(
-        path=cfg.model_path, 
-        dtype="bfloat16",
-        device=cfg.model_device
-    )
+    model_config = ModelConfig(path=cfg.model_path, dtype="bfloat16", device=cfg.model_device)
 
     qep_config = QEPConfig(
         percdamp=cfg.qep.percdamp,
@@ -103,9 +99,7 @@ def main(cfg: DictConfig):
 
     runner.run()
 
-    runner.save_quantization_statistics(
-        f"quantization_statistics_{quantizer.name}.json"
-    )
+    runner.save_quantization_statistics(f"quantization_statistics_{quantizer.name}.json")
 
     # Perplexity evaluation
     if cfg.calc_ppl:

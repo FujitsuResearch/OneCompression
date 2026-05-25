@@ -6,7 +6,7 @@ Author: Keiji Kimura
 
 """
 
-from logging import getLogger, basicConfig
+from logging import basicConfig, getLogger
 
 
 def setup_logger(level: str = "INFO", basic: str = "WARNING", filemode: str = "w", **kwargs):

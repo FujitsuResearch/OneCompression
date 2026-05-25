@@ -20,12 +20,12 @@ pytestmark = pytest.mark.skipif(
 if _HAS_GEMLITE:
     from vllm_plugins.dbf.modules.gemlite_linear import (
         GROUP_SIZE,
-        pad_to_multiple,
-        pad_cols_to_multiple,
-        unpack_sign_bits,
-        get_gemlite_linear,
         DBFLinear_GEMLITE,
         gemlitelinear_post_init,
+        get_gemlite_linear,
+        pad_cols_to_multiple,
+        pad_to_multiple,
+        unpack_sign_bits,
     )
 
 # Global device configuration

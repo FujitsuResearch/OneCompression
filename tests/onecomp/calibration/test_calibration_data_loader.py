@@ -7,18 +7,18 @@ Copyright 2025-2026 Fujitsu Ltd.
 """
 
 import logging
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
 
 from onecomp.calibration import CalibrationConfig
 from onecomp.calibration.calibration_data_loader import (
-    prepare_calibration_dataset,
     _KNOWN_DATASET_NAMES,
+    prepare_calibration_dataset,
 )
-from onecomp.utils import add_model_specific_inputs
 from onecomp.calibration.chunking import _VALID_CALIBRATION_STRATEGIES
+from onecomp.utils import add_model_specific_inputs
 
 
 class TestRouting:
