@@ -10,10 +10,11 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
+import gc
+
 import torch
 import torch.nn as nn
 import transformers
-import gc
 
 from .quantizer import pseudo_quantize_tensor
 

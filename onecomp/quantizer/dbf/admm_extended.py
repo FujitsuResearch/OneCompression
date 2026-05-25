@@ -16,9 +16,8 @@ Author: Yuma Ichikawa
 """
 
 import gc  # ! Free memory
-from typing import Optional, Tuple
-
 import logging
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 import torch
@@ -31,9 +30,9 @@ from .dbf_original import find_other2
 from .middle import _compose_lowrank_bal  # Low-rank composition (currently used only)
 from .middle import dense_M_closed_form_given_d_stable  # Dense M closed-form solution
 from .middle import update_d_hadamard  # Diagonal d update
+from .middle import update_Da_Db_closed_form_factored  # Efficient version without building Mprime
 from .middle import update_Da_Db_closed_form_lowrank  # Low-rank efficient implementation
 from .middle import uv_closed_form_given_d  # Low-rank U, V closed-form solution
-from .middle import update_Da_Db_closed_form_factored  # Efficient version without building Mprime
 
 
 @torch.no_grad()

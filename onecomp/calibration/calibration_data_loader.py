@@ -12,12 +12,10 @@ from logging import getLogger
 import torch
 
 from ..utils import add_model_specific_inputs
+from . import c4, custom, wikitext
+from ._cache import load_or_prepare
 from .calibration_config import CalibrationConfig
 from .chunking import _VALID_CALIBRATION_STRATEGIES, prepare_from_texts
-from ._cache import load_or_prepare
-from . import c4
-from . import wikitext
-from . import custom
 
 _KNOWN_DATASET_NAMES = frozenset(
     {

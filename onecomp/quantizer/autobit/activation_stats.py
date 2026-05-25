@@ -12,8 +12,8 @@ from torch import nn
 
 from onecomp.utils.blockwise import (
     backward_input,
-    get_blocks_and_inputs,
     forward_input,
+    get_blocks_and_inputs,
     move_kwargs_to_device,
 )
 
@@ -87,6 +87,7 @@ def collect_activation_stats_blockwise(
         tuple[dict, dict]: (a_diag, b_diag)
     """
     from transformers import AutoTokenizer
+
     from onecomp.calibration import prepare_calibration_dataset
 
     if device is None:

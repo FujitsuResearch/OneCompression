@@ -14,16 +14,14 @@ from typing import Any, Optional, Union
 import torch
 
 from onecomp.calibration import CalibrationConfig
-from onecomp.utils import (
-    effective_bits_per_param,
-    effective_bits_for_quantizer,
-)
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.quantizer.dbf import DBF
 from onecomp.quantizer.gptq import GPTQ
-from .ilp import assign_by_ilp, _find_candidates
-from .manual import assign_manually
+from onecomp.utils import effective_bits_for_quantizer, effective_bits_per_param
+
 from .dbf_fallback import inject_dbf
+from .ilp import _find_candidates, assign_by_ilp
+from .manual import assign_manually
 
 
 class AssignmentStrategy(StrEnum):

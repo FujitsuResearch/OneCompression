@@ -18,13 +18,14 @@ Copyright 2025-2026 Fujitsu Ltd.
 """
 
 import torch
+
 from onecomp import (
+    GPTQ,
     CalibrationConfig,
     ModelConfig,
     Runner,
-    GPTQ,
-    prepare_rotated_model,
     load_quantized_model,
+    prepare_rotated_model,
     setup_logger,
 )
 from onecomp.utils.perplexity import calculate_perplexity

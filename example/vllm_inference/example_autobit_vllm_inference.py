@@ -19,8 +19,9 @@ Author: Keiji Kimura
 import gc
 
 import torch
-from onecomp import Runner
 from vllm import LLM, SamplingParams
+
+from onecomp import Runner
 
 
 def main():

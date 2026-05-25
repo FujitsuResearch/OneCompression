@@ -36,25 +36,19 @@ Kernel dispatch per module (automatic, Marlin preferred):
 from typing import Any, List
 
 import torch
-
 from vllm.logger import init_logger
-from vllm.model_executor.layers.linear import (
-    LinearBase,
-    UnquantizedLinearMethod,
-)
+from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
 from vllm.model_executor.layers.quantization import register_quantization_config
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig,
     QuantizeMethodBase,
 )
-from vllm.model_executor.layers.quantization.gptq import (
-    GPTQConfig,
-    GPTQLinearMethod,
-)
+from vllm.model_executor.layers.quantization.gptq import GPTQConfig, GPTQLinearMethod
 from vllm.model_executor.layers.quantization.gptq_marlin import (
     GPTQMarlinConfig,
     GPTQMarlinLinearMethod,
 )
+
 from vllm_plugins.utils.module import (
     _lookup_module_config,
     _parse_layer_and_module,

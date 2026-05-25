@@ -2,6 +2,9 @@
 
 ## [v1.2.0] 2026-06-04 (WIP)
 
+### for Developer: pre-commit
+
+- Added `.pre-commit-config.yaml` with `black`, `isort`, and local hooks (`no-japanese`, `copyright-header`, `no-email-address`); install with `uv sync --extra dev` then `pre-commit install` (see README)
 
 ## [v1.1.1] 2026-05-21
 

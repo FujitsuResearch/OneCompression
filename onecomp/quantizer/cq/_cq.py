@@ -16,7 +16,7 @@ from typing import Optional
 
 import torch
 
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.quantizer.cq.cq_impl import run_cq
 
 
