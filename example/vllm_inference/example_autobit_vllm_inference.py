@@ -38,12 +38,17 @@ def main():
     gc.collect()
     torch.cuda.empty_cache()
 
-    # Step 2: Load the quantized model with vLLM and generate text
+    # Step 2: Load the quantized model with vLLM and generate text.
+    # gpu_memory_utilization=0.78 leaves headroom for the residual
+    # quantizer process (~16 GiB) on a UMA 121.7 GiB device (e.g. DGX
+    # Spark / GB200). The vLLM default 0.92 cgroup-OOMs on shared-memory
+    # GPUs.
     llm = LLM(
         model=save_dir,
         max_model_len=512,
         dtype="float16",
         enforce_eager=True,
+        gpu_memory_utilization=0.78,
     )
 
     prompts = [

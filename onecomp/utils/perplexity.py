@@ -138,7 +138,7 @@ def calculate_perplexity(
         target_ids[:, :-trg_len] = -100
         with torch.no_grad():
             inputs = add_model_specific_inputs(
-                inputs={"input_ids": input_ids, "labels": target_ids}, 
+                inputs={"input_ids": input_ids, "labels": target_ids},
                 model=model,
             )
             outputs = model(**inputs)

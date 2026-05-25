@@ -393,6 +393,9 @@ class AutoBitQuantizer(Quantizer):
             self.flag_calibration = any(q.flag_calibration for q in self.quantizers)
             self.flag_hessian = any(q.flag_hessian for q in self.quantizers)
             self.flag_xtx = any(q.flag_xtx for q in self.quantizers)
+            # AutoBit supports QEP only when *all* candidate quantizers support it
+            # (the per-layer assignment may dispatch to any child quantizer).
+            self.flag_qep_supported = all(q.flag_qep_supported for q in self.quantizers)
 
     def _validate_manual_fused_consistency(self):
         """Check that manual keyword rules don't split fused groups."""

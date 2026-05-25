@@ -67,8 +67,7 @@ def _map_candidates_to_blocks(blocks, candidates):
 
 
 def _is_kv_shared_block(block):
-    """Return True if the block reuses KV states from an earlier layer.
-    """
+    """Return True if the block reuses KV states from an earlier layer."""
     attn = getattr(block, "self_attn", None)
     return getattr(attn, "is_kv_shared_layer", False)
 
@@ -112,9 +111,7 @@ def collect_activation_stats_blockwise(
 
     num_samples = calibration_config.num_calibration_samples
     actual_samples = min(num_samples, calib_data["input_ids"].shape[0])
-    model_inputs = {
-        k: v[:actual_samples] for k, v in calib_data.items()
-    }
+    model_inputs = {k: v[:actual_samples] for k, v in calib_data.items()}
 
     blocks, inps, kwargs = get_blocks_and_inputs(model, model_inputs, batch_size)
     kwargs = move_kwargs_to_device(kwargs, device)
