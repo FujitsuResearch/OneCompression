@@ -9,6 +9,7 @@ Author: Keiji Kimura
 import torch
 
 from onecomp.quantizer.jointq.core.quantize import quantize
+
 from .test_quantizer import make_sample_data
 
 

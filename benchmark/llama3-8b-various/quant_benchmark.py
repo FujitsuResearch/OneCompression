@@ -12,7 +12,20 @@ Usage:
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from onecomp import GPTQ, JointQ, CalibrationConfig, ModelConfig, Runner, ARB, CQ, DBF, QBB, QUIP, RTN, Onebit
+from onecomp import (
+    ARB,
+    CQ,
+    DBF,
+    GPTQ,
+    QBB,
+    QUIP,
+    RTN,
+    CalibrationConfig,
+    JointQ,
+    ModelConfig,
+    Onebit,
+    Runner,
+)
 
 
 def create_quantizers():
@@ -57,9 +70,7 @@ def main(cfg: DictConfig):
     runner.run()
 
     for q in quantizers:
-        runner.save_quantization_statistics(
-            f"quantization_statistics_{q.name}.json", quantizer=q
-        )
+        runner.save_quantization_statistics(f"quantization_statistics_{q.name}.json", quantizer=q)
 
     if cfg.calc_ppl:
         runner.benchmark_perplexity(
