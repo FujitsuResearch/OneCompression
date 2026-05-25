@@ -10,11 +10,12 @@ Author: Yuma Ichikawa
 
 """
 
+from logging import getLogger
+from typing import Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Union, Tuple
-from logging import getLogger
 
 logger = getLogger(__name__)
 

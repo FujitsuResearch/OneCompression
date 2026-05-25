@@ -10,10 +10,10 @@ import os
 
 import pytest
 
+from onecomp import CalibrationConfig, ModelConfig, Runner
 from onecomp.quantizer.autobit._autobit import AutoBitQuantizer
 from onecomp.quantizer.gptq import GPTQ
 from onecomp.utils import estimate_wbits_from_vram
-from onecomp import CalibrationConfig, Runner, ModelConfig
 
 pytestmark = pytest.mark.slow
 

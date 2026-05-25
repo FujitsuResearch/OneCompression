@@ -6,8 +6,8 @@ Author: Akihiro Yoshida
 
 """
 
-from onecomp.utils import effective_bits_for_quantizer
 from onecomp.quantizer.dbf import DBF
+from onecomp.utils import effective_bits_for_quantizer
 
 
 def inject_dbf(assignments, quantizers, threshold, logger, dbf_iters=None):

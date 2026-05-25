@@ -12,10 +12,7 @@ Usage::
 import pytest
 import torch
 
-from onecomp.pre_process.prepare_rotated_model import (
-    _VALID_SCALING_MODES,
-    prepare_rotated_model,
-)
+from onecomp.pre_process.prepare_rotated_model import _VALID_SCALING_MODES, prepare_rotated_model
 
 from .conftest import E2E_CALIB, PROMPT, TINYLLAMA_ID
 
