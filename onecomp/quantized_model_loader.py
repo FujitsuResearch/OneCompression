@@ -703,6 +703,12 @@ class QuantizedModelLoader:
             QuantizedModelLoader._set_module_by_name(model, layer_path, wrapper)
             wrapped += 1
  
+        if wrapped < len(per_layer):
+            raise ValueError(
+                "Failed to apply all LoRA adapter layers from sidecar: "
+                f"wrapped={wrapped}, expected={len(per_layer)}"
+            )
+        
         logger.info(
             "Re-wrapped %d GPTQLinear layers with LoRAGPTQLinear from adapter sidecar",
             wrapped,
