@@ -16,8 +16,7 @@ class _ExpertMLP(nn.Module):
 
     __slots__ = ("act_fn",)
 
-    def __init__(self, gate_proj: nn.Linear, up_proj: nn.Linear,
-                 down_proj: nn.Linear, act_fn):
+    def __init__(self, gate_proj: nn.Linear, up_proj: nn.Linear, down_proj: nn.Linear, act_fn):
         super().__init__()
         self.gate_proj = gate_proj
         self.up_proj = up_proj
@@ -26,9 +25,7 @@ class _ExpertMLP(nn.Module):
 
 
 class _UnfusedExperts(nn.Module):
-    """Drop-in replacement for fused 3D expert modules.
-
-    """
+    """Drop-in replacement for fused 3D expert modules."""
 
     def __init__(self, num_experts: int, experts: list, act_fn):
         super().__init__()
@@ -52,11 +49,13 @@ class _UnfusedExperts(nn.Module):
         final_hidden_states = torch.zeros_like(hidden_states)
         with torch.no_grad():
             expert_mask = torch.nn.functional.one_hot(
-                top_k_index, num_classes=self._num_experts,
+                top_k_index,
+                num_classes=self._num_experts,
             )
             expert_mask = expert_mask.permute(2, 1, 0)
             expert_hit = torch.greater(
-                expert_mask.sum(dim=(-1, -2)), 0,
+                expert_mask.sum(dim=(-1, -2)),
+                0,
             ).nonzero()
 
         for expert_idx in expert_hit:
@@ -76,7 +75,8 @@ class _UnfusedExperts(nn.Module):
                 current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
             )
             final_hidden_states.index_add_(
-                0, token_idx,
+                0,
+                token_idx,
                 current_hidden_states.to(final_hidden_states.dtype),
             )
 
@@ -97,8 +97,8 @@ def _is_fused_experts(module: nn.Module) -> bool:
 
 def _unfuse_one(module: nn.Module) -> _UnfusedExperts:
     """Convert a single fused-experts module to per-expert nn.Linear."""
-    gate_up_3d = module.gate_up_proj.data   # [E, 2*inter, hidden]
-    down_3d = module.down_proj.data         # [E, hidden, inter]
+    gate_up_3d = module.gate_up_proj.data  # [E, 2*inter, hidden]
+    down_3d = module.down_proj.data  # [E, hidden, inter]
     num_experts = gate_up_3d.shape[0]
     inter = gate_up_3d.shape[1] // 2
     hidden = gate_up_3d.shape[2]
@@ -152,7 +152,9 @@ def unfuse_moe_experts(model: nn.Module, logger: logging.Logger) -> bool:
         num = len(unfused)
         logger.info(
             "Unfused %s: %d experts -> %d nn.Linear layers",
-            name, num, num * 3,
+            name,
+            num,
+            num * 3,
         )
 
     return True

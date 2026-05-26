@@ -175,6 +175,7 @@ class Quantizer(metaclass=ABCMeta):
     flag_hessian: bool = False
     flag_xtx: bool = False  # Whether X^T X is needed (e.g., JointQ)
     flag_nsamples: bool = False  # Whether nsamples (used in Hessian) is needed (e.g., MDBF)
+    flag_qep_supported: bool = True
 
     def __post_init__(self):
         """__post_init__ method"""
@@ -203,7 +204,10 @@ class Quantizer(metaclass=ABCMeta):
 
         name = self.module_to_name[module]
 
-        self.logger.info("Quantizing layer: %s", name)
+        # Emitted at DEBUG because Runner emits a `[progress]` INFO line per
+        # completed layer (see ``onecomp.utils.quantization_progress``); keep
+        # the per-layer "start" signal available under DEBUG for deep dives.
+        self.logger.debug("Quantizing layer: %s", name)
         start_time = time.time()
         if hessian is None and self.flag_hessian:
             hessian, nsamples = self.calculate_hessian(module, input)
@@ -265,7 +269,7 @@ class Quantizer(metaclass=ABCMeta):
 
         # Adjust the weights to be quantized
         if delta_hatX is not None or original_input_activation is not None:
-            self.logger.info("Adjusting the weight of the layer: %s", name)
+            self.logger.debug("Adjusting the weight of the layer: %s", name)
             self.adjust_weight(
                 module,
                 quant_input_activation,
@@ -470,7 +474,7 @@ class Quantizer(metaclass=ABCMeta):
         layers are considered for quantization.  Vision / audio encoder
         layers are automatically excluded.
 
-        For MoE models with fused 3D expert parameters (e.g. Gemma4,), 
+        For MoE models with fused 3D expert parameters (e.g. Gemma4,),
         expert tensors are automatically unfused into
         per-expert nn.Linear layers before the module scan.
 

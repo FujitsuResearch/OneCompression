@@ -45,7 +45,7 @@ def run_quantize_with_lpcd(
     lpcd_config: LPCDConfig,
     calibration_config: CalibrationConfig,
 ):
-    """ Run quantization with LPCD.
+    """Run quantization with LPCD.
 
     Args:
         model_config (ModelConfig): Model configuration
@@ -55,8 +55,9 @@ def run_quantize_with_lpcd(
         calibration_config (CalibrationConfig): Calibration configuration
     """
 
-    assert not (qep_config is not None and qep_config.general), \
-        "qep_config.general must be False when qep is enabled."
+    assert not (
+        qep_config is not None and qep_config.general
+    ), "qep_config.general must be False when qep is enabled."
 
     # TODO: Parameterize when necessary
     batch_size = 16
@@ -69,7 +70,7 @@ def run_quantize_with_lpcd(
 
     model_inputs = prepare_calibration_dataset(
         tokenizer=tokenizer,
-        device=torch.device('cpu'),
+        device=torch.device("cpu"),
         calibration_config=calibration_config,
         model=model,
         logger=logger,
@@ -99,7 +100,7 @@ def run_quantize_with_lpcd(
         block_f = copy.deepcopy(block_q)
 
         groups_q = make_grouped_module(block_q, inps_q, kwargs, device)
-        
+
         # Build name→module map for block_f, then align groups_f to
         # groups_q by module name.  Using make_grouped_module on
         # block_f independently can produce a different group ordering
@@ -112,12 +113,17 @@ def run_quantize_with_lpcd(
             name: mod for name, mod in block_q.named_modules() if isinstance(mod, nn.Linear)
         }
         groups_f = [
-            [name_to_module_f[next(n for n, m2 in name_to_module_q.items() if m2 is m)] for m in gq]
+            [
+                name_to_module_f[next(n for n, m2 in name_to_module_q.items() if m2 is m)]
+                for m in gq
+            ]
             for gq in groups_q
         ]
 
         lpcd_metrics = make_lpcd_metrics(lpcd_config, block_q, block_f)
-        lpcd_modules_q = [module for metric, _ in lpcd_metrics.metrics for _, module in metric.named_targets()]
+        lpcd_modules_q = [
+            module for metric, _ in lpcd_metrics.metrics for _, module in metric.named_targets()
+        ]
 
         # 3. For each group of layers, perform the following sequentially
         for group_q, group_f in zip(groups_q, groups_f):
@@ -149,12 +155,9 @@ def run_quantize_with_lpcd(
                 # Skip layers not registered for quantization
                 if module not in quantizer.module_to_name:
                     skipped_name = module_q_to_name.get(module, "<unknown>")
-                    logger.info(
-                        "Skipping layer (not in quantization targets): %s", skipped_name
-                    )
+                    logger.info("Skipping layer (not in quantization targets): %s", skipped_name)
                     continue
                 name = quantizer.module_to_name[module]
-
 
                 # Fall back to standard quantization if the module is not LPCD targets
                 if not module in lpcd_modules_q:
@@ -192,10 +195,7 @@ def run_quantize_with_lpcd(
                     # Update the weights of the target layer
                     dtype = module.weight.data.dtype
                     module.weight.data = (
-                        quantizer.results[name]
-                        .compute_dequantized_weight()
-                        .to(device)
-                        .to(dtype)
+                        quantizer.results[name].compute_dequantized_weight().to(device).to(dtype)
                     )
 
                 lpcd_metrics.mark_as_ready(module)
@@ -220,15 +220,7 @@ def run_quantize_with_lpcd(
         inps_f = forward_input(inps_f, block_f, kwargs, batch_size, device)
 
         # DEBUG:Compute MSE between quantized and full-precision outputs
-        mse = compute_mse(
-            block_q,
-            block_f,
-            inps_q,
-            inps_f,
-            batch_size,
-            device,
-            kwargs
-        )
+        mse = compute_mse(block_q, block_f, inps_q, inps_f, batch_size, device, kwargs)
         logger.info(f"[INFO] Layer {block_idx + 1} MSE: {mse:.6e}")
 
         # free memory
