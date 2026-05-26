@@ -48,6 +48,12 @@ def test_rotation_metadata_from_quant_config_falls_back_on_non_dict():
     assert meta.rotated is False and meta.fp32_had is False
 
 
+def test_rotation_metadata_from_quant_config_falls_back_on_missing_keys():
+    meta = rotation.RotationMetadata.from_quant_config({})
+
+    assert meta.rotated is False and meta.fp32_had is False
+
+
 @pytest.mark.parametrize(
     ("rotated", "prefix", "expected_wrapped"),
     [
@@ -109,6 +115,14 @@ def test_make_hadamard_forward_pre_hook_transforms_first_input_only(monkeypatch)
     assert len(calls) == 1
     assert calls[0][1] is True
     assert calls[0][2] is layer
+
+
+def test_make_hadamard_forward_pre_hook_passes_through_empty_inputs():
+    hook = rotation.make_hadamard_forward_pre_hook(fp32_had=False)
+
+    result = hook(MagicMock(), ())
+
+    assert result == ()
 
 
 def test_create_weights_installs_prehook_once_for_tp1_path():
@@ -212,6 +226,7 @@ def test_apply_tp_path_uses_fake_collectives_and_local_shard(monkeypatch):
         (_DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=None), "requires tp_rank and tp_size"),
         (_DummyLayer(input_is_parallel=True, tp_size=None, tp_rank=0), "requires tp_rank and tp_size"),
         (_DummyLayer(input_is_parallel=True, tp_size=1, tp_rank=0), "requires tp_size > 1"),
+        (_DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=-1), "Invalid tensor-parallel metadata"),
         (_DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=2), "Invalid tensor-parallel metadata"),
     ],
 )
