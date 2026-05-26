@@ -640,13 +640,13 @@ def optimize_MDBF_admm(
     E_final = W_float - W_recon
     if H_float is not None:
         final_error = compute_hessian_error(E_final, H_float, nsamples)
-        improvement = (init_error - final_error) / init_error * 100
+        improvement = (init_error - final_error) / (init_error + 1e-12) * 100
         logger.debug(f"[MDBF-ADMM] Final output_error: {final_error:.4e} "
                      f"(rel: {final_error/orig_output_err:.4f})")
         logger.debug(f"[MDBF-ADMM] Improvement: {improvement:+.2f}%")
     else:
         final_error = torch.norm(E_final, p='fro').item()
-        improvement = (init_error - final_error) / init_error * 100
+        improvement = (init_error - final_error) / (init_error + 1e-12) * 100
         logger.debug(f"[MDBF-ADMM] Final weight_error: {final_error:.4e} "
                      f"(rel: {final_error/orig_norm:.4f})")
         logger.debug(f"[MDBF-ADMM] Improvement: {improvement:+.2f}%")
