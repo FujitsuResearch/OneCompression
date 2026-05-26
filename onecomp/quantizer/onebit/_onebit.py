@@ -184,13 +184,13 @@ class Onebit(Quantizer):
         _LAYER_RE = re.compile(r"\.layers\.(\d+)\.(.*)")
 
         params: dict[str, Any] = {
-            "iters":                  get_quant_param(quant_config, "iters", default=10),
+            "iters": get_quant_param(quant_config, "iters", default=10),
             "use_importance_scaling": get_quant_param(
                 quant_config, "use_importance_scaling", default=True
             ),
-            "use_balancing":          get_quant_param(quant_config, "use_balancing", default=True),
-            "balance_iters":          get_quant_param(quant_config, "balance_iters", default=40),
-            "balance_alpha":          get_quant_param(quant_config, "balance_alpha", default=1.0),
+            "use_balancing": get_quant_param(quant_config, "use_balancing", default=True),
+            "balance_iters": get_quant_param(quant_config, "balance_iters", default=40),
+            "balance_alpha": get_quant_param(quant_config, "balance_alpha", default=1.0),
         }
 
         layer_modules: dict[int, dict[str, Any]] = {}
