@@ -1,6 +1,21 @@
 # Change log
 
-## [v1.1.1+feature/lora-save-load-vllm-infer_jointq] 2026-05-25
+## [v1.1.1+feature/lora-save-load-vllm-infer_jointq] 2026-05-26
+
+### Fixes
+
+- Updated `QuantizedModelLoader.load_quantized_model()` to resolve LoRA adapter layers by exact match or `layers.{idx}.*` suffix when module prefixes differ, with INFO logs for resolved mappings (`onecomp/quantized_model_loader.py`)
+- Updated LoRA sidecar apply validation to raise `ValueError` when not all adapter layers are applied, including applied/expected/skipped counts and guidance to WARNING logs (`onecomp/quantized_model_loader.py`)
+
+### Examples: renamed files
+
+- Renamed `example/post_process/example_lora_sft.py` -> `example/post_process/example_lora_sft_legacy.py`
+- Renamed `example/post_process/example_lora_sft_knowledge.py` -> `example/post_process/example_lora_sft_knowledge_legacy.py`
+- Renamed `example/post_process/example_lora_sft_save_load_hf_format.py` -> `example/post_process/example_lora_sft.py`
+- Renamed `example/post_process/example_lora_sft_knowledge_save_load_hf_format.py` -> `example/post_process/example_lora_sft_knowledge.py`
+- Renamed `example/post_process/example_lora_sft_knowledge_save_load_hf_format_jointq.py` -> `example/post_process/example_lora_sft_knowledge_jointq.py`
+
+## [v1.1.0+feature/lora-save-load-vllm-infer_jointq] 2026-05-14
 
 ### LoRA Adapter Sidecar Save/Load
 
