@@ -728,9 +728,12 @@ class QuantizedModelLoader:
             wrapped += 1
  
         if wrapped < len(per_layer):
+            expected = len(per_layer)
+            skipped = expected - wrapped
             raise ValueError(
-                "Failed to apply all LoRA adapter layers from sidecar: "
-                f"wrapped={wrapped}, expected={len(per_layer)}"
+                "Failed to apply LoRA adapter sidecar fully: "
+                f"applied {wrapped}/{expected} layer(s), skipped {skipped}. "
+                "See preceding WARNING logs for skipped layer names and reasons."
             )
         
         logger.info(
