@@ -1,6 +1,12 @@
 # Change log
 
-## [v1.1.1+feature/dev_save_load] 2026/05/22
+## [v1.1.1+feature/dev_save_load] 2026-05-26
+
+### Bug Fix
+
+- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now skips `OneBitLinear` in addition to `GPTQLinear` and `DoubleBinaryLinear`, so OneBit's fp16 scaling buffers (`a`, `b`, `bias`) are preserved when loading a OneBit-quantized model that requires `bfloat16` (e.g. Gemma 3 / Gemma 4 detected via `needs_bfloat16`). Without this, the post-load safety-net cast rewrote OneBit's stored fp16 metadata to `bfloat16`, breaking the dtype contract that `OneBitLinear.forward` relies on (`self.a.to(x.dtype)` / `self.b.to(x.dtype)` casts to the activation dtype at compute time). Updated the function's docstring to list `OneBitLinear` alongside the other quantized layer types whose fp16 metadata is intentionally retained (`onecomp/quantized_model_loader.py`).
+
+## [v1.1.0+feature/dev_save_load] 2026-05-22
 
 ### Save/Load Support for JointQ, RTN, and OneBit Quantizers
 
