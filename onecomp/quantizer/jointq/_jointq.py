@@ -709,7 +709,6 @@ class JointQ(Quantizer):
             perm=perm.cpu() if perm is not None else None,
         )
 
-
     def get_quant_config(self) -> dict:
         """Return GPTQ-compatible quantization config.
 
@@ -818,6 +817,7 @@ class JointQ(Quantizer):
             pack_weights=pack_weights,
             use_gemlite=kwargs.get("use_gemlite"),
         )
+
     # ------------------------------------------------------------------
     # Incremental lambda mode
     # ------------------------------------------------------------------

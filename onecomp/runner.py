@@ -1794,7 +1794,7 @@ class Runner:
         """Write a PEFT-compatible LoRA adapter sidecar if ``self.quantized_model``
         contains ``LoRAGPTQLinear`` modules (typically produced by
         ``PostProcessLoraSFT``).
- 
+
         The sidecar is placed in a ``lora_adapter/`` subdirectory rather than
         directly in ``save_directory``. Reason: vLLM's base-model safetensors
         loader globs ``*.safetensors`` at the top level of the model directory
@@ -1803,31 +1803,31 @@ class Runner:
         'base_model' in LlamaForCausalLM"``. Keeping the adapter under a
         subdirectory avoids that collision while still keeping the whole model
         self-contained under one directory tree.
- 
+
         The subdirectory contains:
           - ``adapter_model.safetensors``
           - ``adapter_config.json``
- 
+
         The format matches what vLLM's native PEFT LoRA loader expects, so::
- 
+
             LLM(model=save_dir, enable_lora=True)
             LoRARequest(..., lora_path=os.path.join(save_dir, "lora_adapter"))
- 
+
         will load and apply the adapter without any OneComp-specific changes
         to the vLLM plugin.
- 
+
         Returns:
             bool: True iff an adapter was written. False if there is no
             in-memory LoRA state to save (e.g. no post-process ran).
         """
         if self.quantized_model is None:
             return False
- 
+
         # Inline imports keep runner.py import-time cheap and avoid any
         # circular-import risk with the post_process package.
         from .post_process.post_process_lora_sft import LoRAGPTQLinear
         from safetensors.torch import save_file as _st_save_file
- 
+
         lora_modules = [
             (name, mod)
             for name, mod in self.quantized_model.named_modules()
@@ -1835,7 +1835,7 @@ class Runner:
         ]
         if not lora_modules:
             return False
- 
+
         # PEFT convention: keys are prefixed with "base_model.model." and the
         # module path matches what we will see on the loaded HF model.
         state_dict = {}
@@ -1846,7 +1846,7 @@ class Runner:
             state_dict[f"base_model.model.{name}.lora_B.weight"] = (
                 mod.lora_B.weight.detach().to("cpu", torch.float16).contiguous()
             )
- 
+
         first = lora_modules[0][1]
         lora_r = int(first.lora_r)
         # scaling = alpha / r is stored as float; round-trip back to int alpha.
@@ -1855,7 +1855,7 @@ class Runner:
             float(first.dropout.p) if isinstance(first.dropout, torch.nn.Dropout) else 0.0
         )
         target_modules = sorted({name.rsplit(".", 1)[-1] for name, _ in lora_modules})
- 
+
         adapter_config = {
             "peft_type": "LORA",
             "auto_mapping": None,
@@ -1874,7 +1874,7 @@ class Runner:
             "layers_pattern": None,
             "revision": None,
         }
- 
+
         adapter_dir = Path(save_directory) / self.LORA_ADAPTER_SUBDIR
         adapter_dir.mkdir(parents=True, exist_ok=True)
         _st_save_file(
@@ -1884,7 +1884,7 @@ class Runner:
         )
         with open(adapter_dir / "adapter_config.json", "w", encoding="utf-8") as f:
             json.dump(adapter_config, f, indent=2, ensure_ascii=True)
- 
+
         self.logger.info(
             "Saved LoRA adapter sidecar (%d layers) to %s",
             len(lora_modules),
