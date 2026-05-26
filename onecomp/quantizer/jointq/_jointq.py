@@ -21,6 +21,7 @@ from onecomp.quantizer.gptq._gptq import GPTQ
 
 _DEFAULT_LAMBDA_LIST = [0.001, 0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5]
 
+
 @dataclass
 class JointQResult(QuantizationResult):
     """JointQ quantization result class
@@ -706,7 +707,6 @@ class JointQ(Quantizer):
             assignment=assignment.cpu(),
             perm=perm.cpu() if perm is not None else None,
         )
-
 
     def get_quant_config(self) -> dict:
         """Return GPTQ-compatible quantization config.
