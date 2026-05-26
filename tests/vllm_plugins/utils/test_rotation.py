@@ -30,6 +30,24 @@ class _DummyLayer:
         return MagicMock(name="hook_handle")
 
 
+def test_rotation_metadata_from_quant_config_parses_normal():
+    meta = rotation.RotationMetadata.from_quant_config({"rotated": True, "fp32_had": True})
+
+    assert meta.rotated is True and meta.fp32_had is True
+
+
+def test_rotation_metadata_from_quant_config_falls_back_on_none():
+    meta = rotation.RotationMetadata.from_quant_config(None)
+
+    assert meta.rotated is False and meta.fp32_had is False
+
+
+def test_rotation_metadata_from_quant_config_falls_back_on_non_dict():
+    meta = rotation.RotationMetadata.from_quant_config("invalid")
+
+    assert meta.rotated is False and meta.fp32_had is False
+
+
 @pytest.mark.parametrize(
     ("rotated", "prefix", "expected_wrapped"),
     [
@@ -68,6 +86,29 @@ def test_maybe_wrap_rotation_method_keeps_plain_path_when_rotation_disabled():
 
     assert metadata.requires_hadamard("model.layers.0.mlp.down_proj") is False
     assert result is base_method
+
+
+def test_make_hadamard_forward_pre_hook_transforms_first_input_only(monkeypatch):
+    calls = []
+
+    def fake_apply_online_hadamard(x, *, fp32_had, cache_owner):
+        calls.append((x.clone(), fp32_had, cache_owner))
+        return x + 7
+
+    hook = rotation.make_hadamard_forward_pre_hook(fp32_had=True)
+    layer = MagicMock()
+    x = torch.ones(2, 4)
+    aux = torch.tensor([3.0])
+
+    monkeypatch.setattr(rotation, "apply_online_hadamard", fake_apply_online_hadamard)
+
+    result = hook(layer, (x, aux))
+
+    assert torch.equal(result[0], x + 7)
+    assert result[1] is aux
+    assert len(calls) == 1
+    assert calls[0][1] is True
+    assert calls[0][2] is layer
 
 
 def test_create_weights_installs_prehook_once_for_tp1_path():
@@ -163,6 +204,22 @@ def test_apply_tp_path_uses_fake_collectives_and_local_shard(monkeypatch):
     assert called_layer is layer
     assert torch.equal(called_x, torch.tensor([[13.0, 14.0]]))
     assert torch.equal(called_bias, bias)
+
+
+@pytest.mark.parametrize(
+    ("layer", "message"),
+    [
+        (_DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=None), "requires tp_rank and tp_size"),
+        (_DummyLayer(input_is_parallel=True, tp_size=None, tp_rank=0), "requires tp_rank and tp_size"),
+        (_DummyLayer(input_is_parallel=True, tp_size=1, tp_rank=0), "requires tp_size > 1"),
+        (_DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=2), "Invalid tensor-parallel metadata"),
+    ],
+)
+def test_get_tp_metadata_error_paths(layer, message):
+    method = rotation.RotatedLinearMethod(MagicMock(), fp32_had=False)
+
+    with pytest.raises(RuntimeError, match=message):
+        method._get_tp_metadata(layer)
 
 
 def test_apply_online_hadamard_caches_had_params_by_input_width(monkeypatch):

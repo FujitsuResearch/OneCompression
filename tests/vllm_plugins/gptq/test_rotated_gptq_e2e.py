@@ -181,25 +181,6 @@ class TestRotatedGPTQVllmInference:
         gc.collect()
         torch.cuda.empty_cache()
 
-    def test_saved_rotation_metadata_matches_vllm_load_path(self, rotated_quantized_model_dir):
-        qcfg = _load_quantization_config(rotated_quantized_model_dir)
-
-        assert qcfg.get("quant_method") == "mixed_gptq"
-        assert qcfg.get("rotated") is True
-        assert qcfg.get("fp32_had") is True
-
-        llm = _build_vllm_llm(rotated_quantized_model_dir)
-        outputs = llm.generate(
-            ["Kyoto is"],
-            SamplingParams(max_tokens=12, temperature=0.0),
-        )
-
-        _assert_non_empty_outputs(outputs, expected_count=1)
-
-        del llm
-        gc.collect()
-        torch.cuda.empty_cache()
-
 
 @pytest.mark.skipif(not _HAS_VLLM, reason="vLLM not installed")
 class TestRotatedVsPlainGPTQVllmInference:
