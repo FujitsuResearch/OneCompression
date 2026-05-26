@@ -451,6 +451,30 @@ class QuantizedModelLoader:
         return state_dict
 
     @staticmethod
+    def _resolve_name_by_layer_suffix(
+        name: str,
+        candidates: Dict[str, Any],
+    ) -> Optional[str]:
+        """Resolve *name* against *candidates* by exact or layer-suffix match."""
+        if name in candidates:
+            return name
+
+        # For VLMs with tied/shared submodules, only the prefix may differ.
+        match = re.search(r"(layers\.\d+\..+)$", name)
+        if not match:
+            return None
+        suffix = match.group(1)
+        hits = [candidate for candidate in candidates if candidate.endswith(suffix)]
+        if len(hits) > 1:
+            logger.warning(
+                "Ambiguous suffix %s for %s: %s",
+                suffix,
+                name,
+                hits,
+            )
+        return hits[0] if hits else None
+
+    @staticmethod
     def _replace_quantized_layers(model, state_dict: dict, quant_config: dict):
         """Replace ``nn.Linear`` with empty quantized modules for layers in config.
 
@@ -523,24 +547,14 @@ class QuantizedModelLoader:
             if result:
                 return result
             # Fallback: match by layer suffix (e.g. "layers.0.self_attn.q_proj")
-            m = re.search(r"(layers\.\d+\..+)$", name)
-            if m:
-                suffix = m.group(1)
-                hits = [s for s in sd_prefix_map if s.endswith(suffix)]
-                if len(hits) > 1:
-                    logger.warning(
-                        "Ambiguous suffix %s for %s: %s",
-                        suffix,
-                        name,
-                        hits,
-                    )
-                if hits:
-                    alt_prefix = hits[0] + "."
-                    return {
-                        k[len(alt_prefix) :]: v
-                        for k, v in state_dict.items()
-                        if k.startswith(alt_prefix)
-                    }
+            alt_name = QuantizedModelLoader._resolve_name_by_layer_suffix(name, sd_prefix_map)
+            if alt_name:
+                alt_prefix = alt_name + "."
+                return {
+                    k[len(alt_prefix) :]: v
+                    for k, v in state_dict.items()
+                    if k.startswith(alt_prefix)
+                }
             return {}
 
         for name in quantized_names:
@@ -669,17 +683,27 @@ class QuantizedModelLoader:
                     layer_path,
                 )
                 continue
-            if layer_path not in name_to_module:
+            resolved_layer_path = QuantizedModelLoader._resolve_name_by_layer_suffix(
+                layer_path,
+                name_to_module,
+            )
+            if resolved_layer_path is None:
                 logger.warning(
                     "Adapter references layer %s not found in model; skipping",
                     layer_path,
                 )
                 continue
-            base_layer = name_to_module[layer_path]
+            if resolved_layer_path != layer_path:
+                logger.info(
+                    "Resolved adapter layer %s -> %s by suffix match",
+                    layer_path,
+                    resolved_layer_path,
+                )
+            base_layer = name_to_module[resolved_layer_path]
             if not isinstance(base_layer, GPTQLinear):
                 logger.warning(
                     "Adapter layer %s is %s, expected GPTQLinear; skipping",
-                    layer_path,
+                    resolved_layer_path,
                     type(base_layer).__name__,
                 )
                 continue
@@ -700,7 +724,7 @@ class QuantizedModelLoader:
             # Match the base layer's device so the wrapper and base share placement.
             base_device = base_layer.qweight.device
             wrapper.to(base_device)
-            QuantizedModelLoader._set_module_by_name(model, layer_path, wrapper)
+            QuantizedModelLoader._set_module_by_name(model, resolved_layer_path, wrapper)
             wrapped += 1
  
         if wrapped < len(per_layer):
