@@ -121,20 +121,34 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 git clone https://github.com/FujitsuResearch/OneCompression.git
 cd OneCompression
-uv sync --extra cu128 --extra dev --extra visualize
 ```
 
 The `uv sync` command creates a Python virtual environment and installs all dependent libraries.
+
+#### Linux (CUDA quantization / vLLM)
+
+```bash
+uv sync --extra cu128 --extra dev --extra visualize
+```
 
 The `--extra cu128` option installs the CUDA-enabled version of PyTorch (along with `torchvision` from the same CUDA index).
 Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
 PyTorch will be automatically downloaded by `uv`, so you do not need to install it beforehand.
 
+#### macOS (development / MPS inference)
+
+```bash
+uv sync --extra cpu --extra dev --extra visualize
+```
+
+On macOS, use `--extra cpu` only. CUDA extras (`cu118`–`cu130`) and `--extra vllm` are Linux-only.
+After `uv sync`, you can run GPTQ quantization and Hugging Face `generate()` inference on MPS; vLLM serving still requires Linux with an NVIDIA GPU.
+
 Adding `--extra dev` installs development tools (black, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
 Adding `--extra hydra` installs `hydra-core` for the example scripts and `model_validation/` runners that use Hydra-based configuration.
 
-To use vLLM for serving quantized models, add `--extra vllm` together with `--extra cu130`:
+To use vLLM for serving quantized models on Linux, add `--extra vllm` together with `--extra cu130`:
 
 ```bash
 uv sync --extra cu130 --extra dev --extra visualize --extra vllm
@@ -183,7 +197,10 @@ Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118
 ### Building Documentation Locally
 
 ```bash
+# Linux
 uv sync --extra cu128 --extra dev --extra docs
+# macOS
+uv sync --extra cpu --extra dev --extra docs
 uv run mkdocs serve
 ```
 

@@ -47,12 +47,12 @@ onecomp = "onecomp.cli:main"
 
 [project.optional-dependencies]
 cpu = ["torch", "torchvision"]
-cu118 = ["torch", "torchvision"]
-cu121 = ["torch", "torchvision"]
-cu124 = ["torch", "torchvision"]
-cu126 = ["torch", "torchvision"]
-cu128 = ["torch", "torchvision"]
-cu130 = ["torch", "torchvision"]
+cu118 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
+cu121 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
+cu124 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
+cu126 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
+cu128 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
+cu130 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
 dev = [
     "black",
     "hydra-core",
@@ -94,6 +94,7 @@ conflicts = [
 ]
 environments = [
     "sys_platform == 'linux' and python_full_version >= '3.12' and python_full_version < '3.14'",
+    "sys_platform == 'darwin' and python_full_version >= '3.12' and python_full_version < '3.14'",
 ]
 
 [tool.uv.sources]
