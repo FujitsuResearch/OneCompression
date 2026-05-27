@@ -10,8 +10,35 @@ Create the GPTQ 4-bit model first.
 
 Example:
 
-```bash
-uv run example/example_gptq.py
+```python
+from onecomp import Runner, ModelConfig, CalibrationConfig, GPTQ, setup_logger
+
+def main():
+    setup_logger()
+
+    save_dir = "./TinyLlama-1.1B-Chat-gptq-4bit"
+
+    model_config = ModelConfig(
+        model_id="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    )
+    quantizer = GPTQ(wbits=4, groupsize=128)
+    calibration_config = CalibrationConfig(
+        num_calibration_samples=128,
+        max_length=512,
+    )
+    
+    runner = Runner(
+        model_config=model_config,
+        quantizer=quantizer,
+        calibration_config=calibration_config,
+        qep=False,
+    )
+    runner.run()
+
+    runner.save_quantized_model(save_dir)
+
+if __name__ == "__main__":
+    main()
 ```
 
 ## 2. Update the Model Path in the Export Script
