@@ -83,10 +83,10 @@ class MDBFResult(QuantizationResult):
     # Weight reconstruction data
     # =========================================
     is_mdbf_quantized: Optional[bool] = None
-    mdbf_A_sign: list = field(default_factory=list)   # [(n, r)] × P
-    mdbf_B_sign: list = field(default_factory=list)   # [(r, m)] × P
-    mdbf_A_amp:  list = field(default_factory=list)   # [(n, l)] × P
-    mdbf_B_amp:  list = field(default_factory=list)   # [(m, l)] × P
+    mdbf_A_sign: list = field(default_factory=list)  # [(n, r)] × P
+    mdbf_B_sign: list = field(default_factory=list)  # [(r, m)] × P
+    mdbf_A_amp: list = field(default_factory=list)  # [(n, l)] × P
+    mdbf_B_amp: list = field(default_factory=list)  # [(m, l)] × P
     mdbf_Q_U_amp: list = field(default_factory=list)  # [(r, l)] × P
     mdbf_Q_V_amp: list = field(default_factory=list)  # [(r, l)] × P
 
@@ -107,19 +107,14 @@ class MDBFResult(QuantizationResult):
         empty_fields = [name for name, values in components if len(values) == 0]
         if empty_fields:
             raise ValueError(
-                "MDBFResult is missing required per-path data: "
-                + ", ".join(empty_fields)
+                "MDBFResult is missing required per-path data: " + ", ".join(empty_fields)
             )
 
         component_lengths = {name: len(values) for name, values in components}
         unique_lengths = set(component_lengths.values())
         if len(unique_lengths) != 1:
-            details = ", ".join(
-                f"{name}={length}" for name, length in component_lengths.items()
-            )
-            raise ValueError(
-                "MDBFResult has inconsistent per-path data lengths: " + details
-            )
+            details = ", ".join(f"{name}={length}" for name, length in component_lengths.items())
+            raise ValueError("MDBFResult has inconsistent per-path data lengths: " + details)
 
         num_paths = next(iter(unique_lengths))
         if self.P != num_paths:
@@ -270,7 +265,9 @@ class MDBF(Quantizer):
             bad.append(f"Invalid MDBF parameter 'P': {self.P!r} (expected 1 or 2).")
 
         if not (isinstance(self.admm_reg, (int, float)) and self.admm_reg >= 0):
-            bad.append(f"Invalid MDBF parameter 'admm_reg': {self.admm_reg!r} (expected numeric >= 0).")
+            bad.append(
+                f"Invalid MDBF parameter 'admm_reg': {self.admm_reg!r} (expected numeric >= 0)."
+            )
 
         if self.use_admm:
             if not (isinstance(self.admm_iters, int) and self.admm_iters >= 1):
@@ -301,7 +298,7 @@ class MDBF(Quantizer):
                 f"Invalid MDBF parameter 'svd_mode': {self.svd_mode!r} "
                 f"(expected 'svd' or 'svd_llm')."
             )
-        
+
         if self.act_init not in {"none", "osvd", "svd_llm"}:
             bad.append(
                 f"Invalid MDBF parameter 'act_init': {self.act_init!r} "
@@ -464,7 +461,9 @@ class MDBF(Quantizer):
             "admm_iters": get_quant_param(quant_config, "admm_iters", default=260),
             "admm_inner_iters": get_quant_param(quant_config, "admm_inner_iters", default=3),
             "admm_reg": get_quant_param(quant_config, "admm_reg", default=0.03),
-            "use_gradient_refine": get_quant_param(quant_config, "use_gradient_refine", default=False),
+            "use_gradient_refine": get_quant_param(
+                quant_config, "use_gradient_refine", default=False
+            ),
             "gradient_iters": get_quant_param(quant_config, "gradient_iters", default=1000),
             "gradient_lr": get_quant_param(quant_config, "gradient_lr", default=0.01),
             "activation_aware": get_quant_param(quant_config, "activation_aware", default=False),

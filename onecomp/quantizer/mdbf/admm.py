@@ -34,7 +34,6 @@ from .utils import (
     to_binary_sign,
 )
 
-
 # =============================================================================
 # Helper functions
 # =============================================================================
@@ -79,13 +78,13 @@ def _tsvd_block_power(
 
     # Subspace iteration
     for _ in range(max(0, n_iter)):
-        U = M @ V                              # (n, k0)
+        U = M @ V  # (n, k0)
         U, _ = torch.linalg.qr(U, mode="reduced")
-        V = M.T @ U                            # (m, k0)
+        V = M.T @ U  # (m, k0)
         V, _ = torch.linalg.qr(V, mode="reduced")
 
     # Finally, QR decomposition of M@V to form the small matrix R
-    Y = M @ V                                  # (n, k0)
+    Y = M @ V  # (n, k0)
     U, R = torch.linalg.qr(Y, mode="reduced")  # U:(n,k0), R:(k0,k0)
     del Y
 
@@ -93,8 +92,8 @@ def _tsvd_block_power(
     Ur, S, Vhr = torch.linalg.svd(R, full_matrices=False)
     del R
 
-    U = U @ Ur[:, :k_eff]                      # (n, k)
-    V = V @ Vhr[:k_eff, :].T                   # (m, k)
+    U = U @ Ur[:, :k_eff]  # (n, k)
+    V = V @ Vhr[:k_eff, :].T  # (m, k)
     S = S[:k_eff]
 
     return U, S, V
@@ -450,7 +449,7 @@ def _admm_refine_single_path(
     Ug = torch.zeros_like(Zg)
 
     W_float = ensure_float32(W_target)
-    orig_norm = torch.norm(W_float, p='fro').item() + 1e-12
+    orig_norm = torch.norm(W_float, p="fro").item() + 1e-12
     W_float_T = W_float.T
 
     # For output error display (H is assumed to be symmetrized by the caller)
@@ -508,21 +507,25 @@ def _admm_refine_single_path(
         )
 
         # Log output
-        if (itt % max(10, iters // 5) == 0 or itt == iters - 1):
+        if itt % max(10, iters // 5) == 0 or itt == iters - 1:
             mid_norm_final = torch.norm(Zf_T, dim=1) + 1e-12
             W_recon = (Zf_T.T / mid_norm_final[None, :]) @ Zg
             E = W_float - W_recon
 
             if H_float is not None:
                 output_err = compute_hessian_error(E, H_float, nsamples)
-                logger.debug(f"[MDBF-ADMM] Path {path_idx+1}, Outer Step {itt:3d}: "
-                             f"output_error = {output_err:.4e} (rel: {output_err/orig_output_err:.4f}), "
-                             f"rho_start={rho_start:.3f}")
+                logger.debug(
+                    f"[MDBF-ADMM] Path {path_idx+1}, Outer Step {itt:3d}: "
+                    f"output_error = {output_err:.4e} (rel: {output_err/orig_output_err:.4f}), "
+                    f"rho_start={rho_start:.3f}"
+                )
             else:
-                err = torch.norm(E, p='fro').item()
-                logger.debug(f"[MDBF-ADMM] Path {path_idx+1}, Outer Step {itt:3d}: "
-                             f"weight_error = {err:.4e} (rel: {err/orig_norm:.4f}), "
-                             f"rho_start={rho_start:.3f}")
+                err = torch.norm(E, p="fro").item()
+                logger.debug(
+                    f"[MDBF-ADMM] Path {path_idx+1}, Outer Step {itt:3d}: "
+                    f"weight_error = {err:.4e} (rel: {err/orig_norm:.4f}), "
+                    f"rho_start={rho_start:.3f}"
+                )
             del W_recon, E
 
     del W_float, W_float_T, Uf_T, Ug
@@ -563,11 +566,12 @@ def optimize_MDBF_admm(
     n, m = W_original.shape
     P = len(params_list)
 
-    logger.debug(f"[MDBF-ADMM] outer_iters={iters}, inner_iters={inner_iters}, "
-                 f"l={l}, P={P}, reg={reg}")
+    logger.debug(
+        f"[MDBF-ADMM] outer_iters={iters}, inner_iters={inner_iters}, " f"l={l}, P={P}, reg={reg}"
+    )
 
     W_float = ensure_float32(W_original)
-    orig_norm = torch.norm(W_float, p='fro').item() + 1e-12
+    orig_norm = torch.norm(W_float, p="fro").item() + 1e-12
 
     # Hessian preprocessing
     H_float = None
@@ -581,9 +585,12 @@ def optimize_MDBF_admm(
     W_init_recon = torch.zeros(n, m, device=device, dtype=torch.float32)
     for p in params_list:
         W_p = reconstruct_weight(
-            p.A_sign.to(device), p.B_sign.to(device),
-            p.A_amp.to(device), p.B_amp.to(device),
-            p.Q_U_amp.to(device), p.Q_V_amp.to(device),
+            p.A_sign.to(device),
+            p.B_sign.to(device),
+            p.A_amp.to(device),
+            p.B_amp.to(device),
+            p.Q_U_amp.to(device),
+            p.Q_V_amp.to(device),
         )
         W_init_recon += W_p
         del W_p
@@ -591,12 +598,16 @@ def optimize_MDBF_admm(
     E_init = W_float - W_init_recon
     if H_float is not None:
         init_error = compute_hessian_error(E_init, H_float, nsamples)
-        logger.debug(f"[MDBF-ADMM] Initial output_error: {init_error:.4e} "
-                     f"(rel: {init_error/orig_output_err:.4f})")
+        logger.debug(
+            f"[MDBF-ADMM] Initial output_error: {init_error:.4e} "
+            f"(rel: {init_error/orig_output_err:.4f})"
+        )
     else:
-        init_error = torch.norm(E_init, p='fro').item()
-        logger.debug(f"[MDBF-ADMM] Initial weight_error: {init_error:.4e} "
-                     f"(rel: {init_error/orig_norm:.4f})")
+        init_error = torch.norm(E_init, p="fro").item()
+        logger.debug(
+            f"[MDBF-ADMM] Initial weight_error: {init_error:.4e} "
+            f"(rel: {init_error/orig_norm:.4f})"
+        )
     del W_init_recon, E_init
 
     # Initialize factor matrices
@@ -611,9 +622,11 @@ def optimize_MDBF_admm(
         W_target = W_float.clone()
         for other_idx in range(P):
             if other_idx != p_idx:
-                F_other, G_other = (optimized_factors[other_idx]
-                                    if other_idx < len(optimized_factors)
-                                    else factor_list[other_idx])
+                F_other, G_other = (
+                    optimized_factors[other_idx]
+                    if other_idx < len(optimized_factors)
+                    else factor_list[other_idx]
+                )
                 W_target -= F_other @ G_other
 
         F_init, G_init = factor_list[p_idx]
@@ -641,41 +654,51 @@ def optimize_MDBF_admm(
     if H_float is not None:
         final_error = compute_hessian_error(E_final, H_float, nsamples)
         improvement = (init_error - final_error) / (init_error + 1e-12) * 100
-        logger.debug(f"[MDBF-ADMM] Final output_error: {final_error:.4e} "
-                     f"(rel: {final_error/orig_output_err:.4f})")
+        logger.debug(
+            f"[MDBF-ADMM] Final output_error: {final_error:.4e} "
+            f"(rel: {final_error/orig_output_err:.4f})"
+        )
         logger.debug(f"[MDBF-ADMM] Improvement: {improvement:+.2f}%")
     else:
-        final_error = torch.norm(E_final, p='fro').item()
+        final_error = torch.norm(E_final, p="fro").item()
         improvement = (init_error - final_error) / (init_error + 1e-12) * 100
-        logger.debug(f"[MDBF-ADMM] Final weight_error: {final_error:.4e} "
-                     f"(rel: {final_error/orig_norm:.4f})")
+        logger.debug(
+            f"[MDBF-ADMM] Final weight_error: {final_error:.4e} "
+            f"(rel: {final_error/orig_norm:.4f})"
+        )
         logger.debug(f"[MDBF-ADMM] Improvement: {improvement:+.2f}%")
     del E_final
 
     # Convert to MDBFParams
     optimized_params = [
-        _factor_matrices_to_params(F_opt, G_opt, l, dtype)
-        for F_opt, G_opt in optimized_factors
+        _factor_matrices_to_params(F_opt, G_opt, l, dtype) for F_opt, G_opt in optimized_factors
     ]
 
     W_recon_params = torch.zeros(n, m, device=device, dtype=torch.float32)
     for p in optimized_params:
         W_p = reconstruct_weight(
-            p.A_sign.to(device), p.B_sign.to(device),
-            p.A_amp.to(device), p.B_amp.to(device),
-            p.Q_U_amp.to(device), p.Q_V_amp.to(device),
+            p.A_sign.to(device),
+            p.B_sign.to(device),
+            p.A_amp.to(device),
+            p.B_amp.to(device),
+            p.Q_U_amp.to(device),
+            p.Q_V_amp.to(device),
         )
         W_recon_params += W_p
         del W_p
     E_params = W_float - W_recon_params
     if H_float is not None:
         params_error = compute_hessian_error(E_params, H_float, nsamples)
-        logger.debug(f"[MDBF-ADMM] Error (via params): {params_error:.4e} "
-                     f"(rel: {params_error/orig_output_err:.4f})")
+        logger.debug(
+            f"[MDBF-ADMM] Error (via params): {params_error:.4e} "
+            f"(rel: {params_error/orig_output_err:.4f})"
+        )
     else:
-        params_error = torch.norm(E_params, p='fro').item()
-        logger.debug(f"[MDBF-ADMM] Error (via params): {params_error:.4e} "
-                     f"(rel: {params_error/orig_norm:.4f})")
+        params_error = torch.norm(E_params, p="fro").item()
+        logger.debug(
+            f"[MDBF-ADMM] Error (via params): {params_error:.4e} "
+            f"(rel: {params_error/orig_norm:.4f})"
+        )
     del W_recon_params, E_params
 
     del W_float
@@ -730,7 +753,7 @@ def _admm_refine_single_path_hessian(
     # Track the best result (Problem 3 & 5)
     best_V = V.clone()
     best_U = U.clone()
-    best_err = float('inf')
+    best_err = float("inf")
     check_interval = max(10, iters // 10)  # Check every 10 iterations or 1/10 of total
 
     LamU = torch.zeros_like(U)
@@ -752,7 +775,7 @@ def _admm_refine_single_path_hessian(
     H_eig_vals, H_eig_vecs = torch.linalg.eigh(H_use)
     H_eig_vals = H_eig_vals.clamp(min=1e-12)
 
-    W_norm = torch.norm(W_float, p='fro').item() + 1e-12
+    W_norm = torch.norm(W_float, p="fro").item() + 1e-12
     rho_scale = N * H_diag_mean
 
     for itt in range(iters):
@@ -798,8 +821,10 @@ def _admm_refine_single_path_hessian(
         if not torch.isfinite(V).all() or not torch.isfinite(U).all():
             bad_v = (~torch.isfinite(V)).sum().item()
             bad_u = (~torch.isfinite(U)).sum().item()
-            logger.warning(f"[MDBF-ADMM] WARNING: Diverged at step {itt} "
-                           f"(V: {bad_v}, U: {bad_u} NaN/Inf). Using best result.")
+            logger.warning(
+                f"[MDBF-ADMM] WARNING: Diverged at step {itt} "
+                f"(V: {bad_v}, U: {bad_u} NaN/Inf). Using best result."
+            )
             V = best_V
             U = best_U
             break
@@ -844,7 +869,7 @@ def _admm_refine_single_path_hessian(
                 if k_eff < r_dim:
                     Q_rest = torch.randn(r_dim, r_dim - k_eff, device=V.device, dtype=V.dtype)
                     Q_rest = Q_rest - Q_k @ (Q_k.T @ Q_rest)
-                    Q_rest, _ = torch.linalg.qr(Q_rest, mode='reduced')
+                    Q_rest, _ = torch.linalg.qr(Q_rest, mode="reduced")
                     Q = torch.cat([Q_k, Q_rest], dim=1)
                     del Q_rest
                 else:
@@ -886,8 +911,10 @@ def _admm_refine_single_path_hessian(
         # NaN/Inf check: If detected, use the best result and exit the loop (Problem 3)
         if not torch.isfinite(U).all():
             bad_u = (~torch.isfinite(U)).sum().item()
-            logger.warning(f"[MDBF-ADMM] WARNING: U diverged at step {itt} "
-                           f"({bad_u} NaN/Inf). Using best result.")
+            logger.warning(
+                f"[MDBF-ADMM] WARNING: U diverged at step {itt} "
+                f"({bad_u} NaN/Inf). Using best result."
+            )
             V = best_V
             U = best_U
             break
@@ -919,11 +946,13 @@ def _admm_refine_single_path_hessian(
                     best_V = V.clone()
                     best_U = U.clone()
 
-                weight_err = torch.norm(E, p='fro').item()
-                logger.debug(f"[MDBF-ADMM] Path {path_idx+1}, Step {itt:3d}: "
-                             f"output_err={current_err:.4e}, weight_err={weight_err:.4e} "
-                             f"(rel: {weight_err/W_norm:.4f}), rho_base={rho_base:.4f}"
-                             f"{' *' if current_err <= best_err else ''}")
+                weight_err = torch.norm(E, p="fro").item()
+                logger.debug(
+                    f"[MDBF-ADMM] Path {path_idx+1}, Step {itt:3d}: "
+                    f"output_err={current_err:.4e}, weight_err={weight_err:.4e} "
+                    f"(rel: {weight_err/W_norm:.4f}), rho_base={rho_base:.4f}"
+                    f"{' *' if current_err <= best_err else ''}"
+                )
 
     # Final result: use the best result
     F_opt = best_V
@@ -966,7 +995,7 @@ def optimize_MDBF_admm_hessian(
     logger.debug(f"[MDBF-ADMM] iters={iters}, inner={inner_iters}, l={l}, N={nsamples}")
 
     W_float = ensure_float32(W_original)
-    orig_norm = torch.norm(W_float, p='fro').item() + 1e-12
+    orig_norm = torch.norm(W_float, p="fro").item() + 1e-12
 
     def compute_hess_err(W_hat):
         return compute_hessian_error(W_float - W_hat, H, nsamples)
@@ -974,16 +1003,21 @@ def optimize_MDBF_admm_hessian(
     # Initial reconstruction and error
     p = params_list[0]
     W_init = reconstruct_weight(
-        p.A_sign.to(device), p.B_sign.to(device),
-        p.A_amp.to(device), p.B_amp.to(device),
-        p.Q_U_amp.to(device), p.Q_V_amp.to(device),
+        p.A_sign.to(device),
+        p.B_sign.to(device),
+        p.A_amp.to(device),
+        p.B_amp.to(device),
+        p.Q_U_amp.to(device),
+        p.Q_V_amp.to(device),
     )
 
-    init_weight_err = torch.norm(W_float - W_init, p='fro').item()
+    init_weight_err = torch.norm(W_float - W_init, p="fro").item()
     init_hess_err = compute_hess_err(W_init)
 
-    logger.debug(f"[MDBF-ADMM] Initial: output_err={init_hess_err:.4e}, "
-                 f"weight_err={init_weight_err:.4e} (rel={init_weight_err/orig_norm:.4f})")
+    logger.debug(
+        f"[MDBF-ADMM] Initial: output_err={init_hess_err:.4e}, "
+        f"weight_err={init_weight_err:.4e} (rel={init_weight_err/orig_norm:.4f})"
+    )
     del W_init
 
     # ADMM optimization
@@ -1002,13 +1036,17 @@ def optimize_MDBF_admm_hessian(
     )
 
     W_recon = F_opt @ G_opt
-    final_weight_err = torch.norm(W_float - W_recon, p='fro').item()
+    final_weight_err = torch.norm(W_float - W_recon, p="fro").item()
     final_hess_err = compute_hess_err(W_recon)
 
     weight_impr = (init_weight_err - final_weight_err) / init_weight_err * 100
     output_impr = (init_hess_err - final_hess_err) / (init_hess_err + 1e-12) * 100
-    logger.debug(f"[MDBF-ADMM] Final: output_err={final_hess_err:.4e}, weight_err={final_weight_err:.4e}")
-    logger.debug(f"[MDBF-ADMM] Output improvement: {output_impr:+.2f}%, Weight improvement: {weight_impr:+.2f}%")
+    logger.debug(
+        f"[MDBF-ADMM] Final: output_err={final_hess_err:.4e}, weight_err={final_weight_err:.4e}"
+    )
+    logger.debug(
+        f"[MDBF-ADMM] Output improvement: {output_impr:+.2f}%, Weight improvement: {weight_impr:+.2f}%"
+    )
 
     del W_float, H, F_init, G_init
 

@@ -316,9 +316,7 @@ def quantize_group(quantizer, group, xtx_dict, nsamples):
             extra_kwargs = {}
             if quantizer.flag_nsamples:
                 extra_kwargs["nsamples"] = nsamples
-            result = quantizer.quantize_layer(
-                module, input=None, hessian=hessian, **extra_kwargs
-            )
+            result = quantizer.quantize_layer(module, input=None, hessian=hessian, **extra_kwargs)
             del hessian
         else:
             # Hessian/X^T X not required (RTN, etc.)

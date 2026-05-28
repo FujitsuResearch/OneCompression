@@ -250,7 +250,7 @@ class Quantizer(metaclass=ABCMeta):
             module (torch.nn.Module): The layer module
             quant_input_activation (torch.Tensor): The input activations of the quantized layer
             original_input_activation (torch.Tensor): The input activations of the original layer
-            hessian (torch.Tensor): The Hessian matrix. When provided by the 
+            hessian (torch.Tensor): The Hessian matrix. When provided by the
                 caller (e.g. QEP-arch), ``nsamples`` must also be supplied.
             delta_hatX (torch.Tensor): The cross-term matrix
             nsamples (int, optional): Number of samples used to compute

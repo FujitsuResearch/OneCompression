@@ -29,7 +29,6 @@ import torch.nn.functional as F
 
 from .initialize import MDBFParams
 
-
 # =============================================================================
 # Bit-packing/Unpacking
 # =============================================================================
@@ -53,7 +52,7 @@ def pack_binary(x: torch.Tensor) -> Tuple[torch.Tensor, Tuple[int, ...]]:
 
     out = torch.zeros((flat.numel() // 8,), device=flat.device, dtype=torch.uint8)
     for i in range(8):
-        out += (flat[i::8] << (7 - i))
+        out += flat[i::8] << (7 - i)
     return out, original_shape
 
 
@@ -75,7 +74,7 @@ def unpack_binary(packed: torch.Tensor, original_shape: Tuple[int, ...]) -> torc
     out = torch.zeros((packed.shape[0], 8), device=packed.device, dtype=torch.int8)
     for i in range(8):
         out[:, i] = (packed >> (7 - i)) & 1
-    return (out.flatten()[:numel].reshape(original_shape) * 2 - 1)
+    return out.flatten()[:numel].reshape(original_shape) * 2 - 1
 
 
 # =============================================================================
@@ -121,19 +120,21 @@ class MDBFLinear(nn.Module):
         self.register_buffer("Q_U_amp", params.Q_U_amp.half())
         self.register_buffer("Q_V_amp", params.Q_V_amp.half())
 
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
-                               missing_keys, unexpected_keys, error_msgs):
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+    ):
         """Reconstruct dimensions from shape buffers during loading"""
-        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
-                                       missing_keys, unexpected_keys, error_msgs)
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+        )
 
-        if hasattr(self, '_A_sign_shape') and self._A_sign_shape is not None:
+        if hasattr(self, "_A_sign_shape") and self._A_sign_shape is not None:
             A_shape = tuple(self._A_sign_shape.tolist())
             B_shape = tuple(self._B_sign_shape.tolist())
 
             self.n, self.r = A_shape
             _, self.m = B_shape
-            self.l = self.A_amp.shape[1] if hasattr(self, 'A_amp') else 1
+            self.l = self.A_amp.shape[1] if hasattr(self, "A_amp") else 1
 
     def _get_factor_matrices(self, dtype: torch.dtype) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute factor matrices F, G (always on-the-fly unpack)"""
@@ -183,10 +184,7 @@ class MultipathMDBFLinear(nn.Module):
         self.n = params_list[0].A_sign.shape[0]
         self.m = params_list[0].B_sign.shape[1]
 
-        self.paths = nn.ModuleList([
-            MDBFLinear(params)
-            for params in params_list
-        ])
+        self.paths = nn.ModuleList([MDBFLinear(params) for params in params_list])
 
         if bias is not None:
             self.register_buffer("bias", bias.clone().to(torch.float16))
@@ -307,10 +305,8 @@ class MultipathMDBFLinear(nn.Module):
 
             path_layer.register_buffer("A_sign_packed", _t(f"{path_prefix}A_sign_packed"))
             path_layer.register_buffer("B_sign_packed", _t(f"{path_prefix}B_sign_packed"))
-            path_layer.register_buffer("_A_sign_shape",
-                                        torch.tensor(shape_A, dtype=torch.int64))
-            path_layer.register_buffer("_B_sign_shape",
-                                        torch.tensor(shape_B, dtype=torch.int64))
+            path_layer.register_buffer("_A_sign_shape", torch.tensor(shape_A, dtype=torch.int64))
+            path_layer.register_buffer("_B_sign_shape", torch.tensor(shape_B, dtype=torch.int64))
             path_layer.register_buffer("A_amp", _t(f"{path_prefix}A_amp"))
             path_layer.register_buffer("B_amp", _t(f"{path_prefix}B_amp"))
             path_layer.register_buffer("Q_U_amp", _t(f"{path_prefix}Q_U_amp"))

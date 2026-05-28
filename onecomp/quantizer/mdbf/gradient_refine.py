@@ -90,14 +90,16 @@ def refine_amplitude_gradient(
     if activation_aware:
         H_float = _prepare_hessian(H, m, device)
         if H_float is None:
-            logger.warning("[Gradient Refine] activation_aware=True but H is None; fallback to non-aware.")
+            logger.warning(
+                "[Gradient Refine] activation_aware=True but H is None; fallback to non-aware."
+            )
             activation_aware = False
 
     if not activation_aware:
         H_for_display = _prepare_hessian(H, m, device)
 
     W_float = ensure_float32(W_original)
-    orig_norm = torch.norm(W_float, p='fro').item() + 1e-12
+    orig_norm = torch.norm(W_float, p="fro").item() + 1e-12
 
     # Normalization constant for output error
     H_for_err = H_float if H_float is not None else H_for_display
@@ -110,14 +112,17 @@ def refine_amplitude_gradient(
     W_init_recon = torch.zeros(n, m, device=device, dtype=torch.float32)
     for p in params_list:
         W_p = reconstruct_weight(
-            p.A_sign.to(device), p.B_sign.to(device),
-            p.A_amp.to(device), p.B_amp.to(device),
-            p.Q_U_amp.to(device), p.Q_V_amp.to(device),
+            p.A_sign.to(device),
+            p.B_sign.to(device),
+            p.A_amp.to(device),
+            p.B_amp.to(device),
+            p.Q_U_amp.to(device),
+            p.Q_V_amp.to(device),
         )
         W_init_recon += W_p
         del W_p
 
-    init_weight_error = torch.norm(W_float - W_init_recon, p='fro').item()
+    init_weight_error = torch.norm(W_float - W_init_recon, p="fro").item()
     E_init = W_float - W_init_recon
 
     if H_for_err is not None:
@@ -127,16 +132,22 @@ def refine_amplitude_gradient(
 
     if activation_aware:
         init_error = init_output_error
-        logger.debug(f"[Gradient Refine] Initial output_error: {init_output_error:.4e} "
-                     f"(rel: {init_output_error/orig_output_err:.4f})")
+        logger.debug(
+            f"[Gradient Refine] Initial output_error: {init_output_error:.4e} "
+            f"(rel: {init_output_error/orig_output_err:.4f})"
+        )
     else:
-        init_error = init_weight_error ** 2
+        init_error = init_weight_error**2
         if init_output_error is not None:
-            logger.debug(f"[Gradient Refine] Initial output_error: {init_output_error:.4e} "
-                         f"(rel: {init_output_error/orig_output_err:.4f})")
+            logger.debug(
+                f"[Gradient Refine] Initial output_error: {init_output_error:.4e} "
+                f"(rel: {init_output_error/orig_output_err:.4f})"
+            )
         else:
-            logger.debug(f"[Gradient Refine] Initial weight_error: {init_weight_error:.4e} "
-                         f"(rel: {init_weight_error/orig_norm:.4f})")
+            logger.debug(
+                f"[Gradient Refine] Initial weight_error: {init_weight_error:.4e} "
+                f"(rel: {init_weight_error/orig_norm:.4f})"
+            )
 
     del W_init_recon, E_init
 
@@ -190,15 +201,19 @@ def refine_amplitude_gradient(
                 EH = E @ H_float
                 loss = float(nsamples) * (EH * E).sum()
             else:
-                loss = (E ** 2).sum()
+                loss = (E**2).sum()
 
             current_error = loss.item()
 
             if current_error < best_error:
                 best_error = current_error
                 best_amp_params = [
-                    (A.detach().clone(), B.detach().clone(),
-                     QU.detach().clone(), QV.detach().clone())
+                    (
+                        A.detach().clone(),
+                        B.detach().clone(),
+                        QU.detach().clone(),
+                        QV.detach().clone(),
+                    )
                     for A, B, QU, QV in amp_params
                 ]
 
@@ -207,20 +222,26 @@ def refine_amplitude_gradient(
             optimizer.step()
             scheduler.step()
 
-            if (itt % max(10, iters // 5) == 0 or itt == iters - 1):
+            if itt % max(10, iters // 5) == 0 or itt == iters - 1:
                 current_lr = scheduler.get_last_lr()[0]
                 if activation_aware:
-                    logger.debug(f"[Gradient Refine] Step {itt:3d}: output_error = {current_error:.4e} "
-                                 f"(rel: {current_error/orig_output_err:.4f}), lr={current_lr:.2e}")
+                    logger.debug(
+                        f"[Gradient Refine] Step {itt:3d}: output_error = {current_error:.4e} "
+                        f"(rel: {current_error/orig_output_err:.4f}), lr={current_lr:.2e}"
+                    )
                 elif H_for_display is not None:
                     with torch.no_grad():
                         E_step = W_float - W_recon
                         output_err_step = compute_hessian_error(E_step, H_for_display, nsamples)
-                    logger.debug(f"[Gradient Refine] Step {itt:3d}: output_error = {output_err_step:.4e} "
-                                 f"(rel: {output_err_step/orig_output_err:.4f}), lr={current_lr:.2e}")
+                    logger.debug(
+                        f"[Gradient Refine] Step {itt:3d}: output_error = {output_err_step:.4e} "
+                        f"(rel: {output_err_step/orig_output_err:.4f}), lr={current_lr:.2e}"
+                    )
                 else:
-                    logger.debug(f"[Gradient Refine] Step {itt:3d}: weight_error = {current_error**.5:.4e} "
-                                 f"(rel: {current_error**.5/orig_norm:.4f}), lr={current_lr:.2e}")
+                    logger.debug(
+                        f"[Gradient Refine] Step {itt:3d}: weight_error = {current_error**.5:.4e} "
+                        f"(rel: {current_error**.5/orig_norm:.4f}), lr={current_lr:.2e}"
+                    )
 
     # Restore best parameters
     if best_amp_params is not None:
@@ -246,14 +267,17 @@ def refine_amplitude_gradient(
     W_recon_final = torch.zeros(n, m, device=device, dtype=torch.float32)
     for p in optimized_params:
         W_p = reconstruct_weight(
-            p.A_sign.to(device), p.B_sign.to(device),
-            p.A_amp.to(device), p.B_amp.to(device),
-            p.Q_U_amp.to(device), p.Q_V_amp.to(device),
+            p.A_sign.to(device),
+            p.B_sign.to(device),
+            p.A_amp.to(device),
+            p.B_amp.to(device),
+            p.Q_U_amp.to(device),
+            p.Q_V_amp.to(device),
         )
         W_recon_final += W_p
         del W_p
 
-    final_weight_error = torch.norm(W_float - W_recon_final, p='fro').item()
+    final_weight_error = torch.norm(W_float - W_recon_final, p="fro").item()
     E_final = W_float - W_recon_final
 
     H_for_final = H_float if H_float is not None else H_for_display
@@ -264,20 +288,26 @@ def refine_amplitude_gradient(
 
     if activation_aware:
         improvement = (init_error - final_output_error) / (init_error + 1e-12) * 100
-        logger.debug(f"[Gradient Refine] Final output_error: {final_output_error:.4e} "
-                     f"(rel: {final_output_error/orig_output_err:.4f})")
+        logger.debug(
+            f"[Gradient Refine] Final output_error: {final_output_error:.4e} "
+            f"(rel: {final_output_error/orig_output_err:.4f})"
+        )
         logger.debug(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
     elif final_output_error is not None:
         improvement = (init_output_error - final_output_error) / (init_output_error + 1e-12) * 100
-        logger.debug(f"[Gradient Refine] Final output_error: {final_output_error:.4e} "
-                     f"(rel: {final_output_error/orig_output_err:.4f})")
+        logger.debug(
+            f"[Gradient Refine] Final output_error: {final_output_error:.4e} "
+            f"(rel: {final_output_error/orig_output_err:.4f})"
+        )
         logger.debug(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
     else:
         # init_error is weight_error^2, so compare against final_weight_error^2
-        final_error_sq = final_weight_error ** 2
+        final_error_sq = final_weight_error**2
         improvement = (init_error - final_error_sq) / (init_error + 1e-12) * 100
-        logger.debug(f"[Gradient Refine] Final weight_error: {final_weight_error:.4e} "
-                     f"(rel: {final_weight_error/orig_norm:.4f})")
+        logger.debug(
+            f"[Gradient Refine] Final weight_error: {final_weight_error:.4e} "
+            f"(rel: {final_weight_error/orig_norm:.4f})"
+        )
         logger.debug(f"[Gradient Refine] Improvement: {improvement:+.2f}%")
 
     # Cleanup

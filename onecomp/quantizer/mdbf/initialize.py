@@ -38,12 +38,13 @@ from .utils import (
 @dataclass
 class MDBFParams:
     """MDBF parameters for a single path"""
-    A_sign: torch.Tensor      # Sign matrix S_A (n, r) - {-1, +1}
-    B_sign: torch.Tensor      # Sign matrix S_B (r, m) - {-1, +1}
-    A_amp: torch.Tensor       # Row scale (n, l)
-    B_amp: torch.Tensor       # Column scale (m, l)
-    Q_U_amp: torch.Tensor     # Latent scale row side (r, l)
-    Q_V_amp: torch.Tensor     # Latent scale column side (r, l)
+
+    A_sign: torch.Tensor  # Sign matrix S_A (n, r) - {-1, +1}
+    B_sign: torch.Tensor  # Sign matrix S_B (r, m) - {-1, +1}
+    A_amp: torch.Tensor  # Row scale (n, l)
+    B_amp: torch.Tensor  # Column scale (m, l)
+    Q_U_amp: torch.Tensor  # Latent scale row side (r, l)
+    Q_V_amp: torch.Tensor  # Latent scale column side (r, l)
 
 
 # =============================================================================
@@ -55,7 +56,7 @@ def lowrank_svd(
     W: torch.Tensor,
     r: int,
     H: Optional[torch.Tensor] = None,
-    mode: Literal["svd", "svd_llm"] = "svd"
+    mode: Literal["svd", "svd_llm"] = "svd",
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Perform low-rank decomposition (SVD or SVD-LLM)
@@ -186,7 +187,7 @@ def lowrank_osvd(
     Output-SVD (OSVD) based low-rank decomposition (Hessian-based)
 
     Objective: min tr((W - VU^T) H (W - VU^T)^T)
-    
+
     Compute a low-rank approximation that minimizes the output error using the Hessian H = X^T X / N
 
     Args:
@@ -208,42 +209,42 @@ def lowrank_osvd(
     diag_mean = H_fp32.diag().mean().clamp(min=1e-12)
     eps = ridge * diag_mean
     H_reg = H_fp32 + eps * torch.eye(m, device=H_fp32.device, dtype=H_fp32.dtype)
-    
+
     try:
         eig_vals, eig_vecs = torch.linalg.eigh(H_reg)
     except RuntimeError:
         # If eigen decomposition fails: fallback to standard SVD
         del H_reg, H_fp32
         return _lowrank_svd_standard(W, r, W.dtype)
-    
+
     eig_vals = eig_vals.clamp(min=1e-12)
     sqrt_eig = torch.sqrt(eig_vals)
-    
+
     # W_tilde = W @ H^{1/2} = W @ Q @ diag(sqrt(λ))
     W_tilde = W_fp32 @ eig_vecs @ torch.diag(sqrt_eig)
     del H_reg
-    
+
     # Rank-r SVD of W_tilde
     eps_svd = 1e-6 * W_tilde.abs().max().clamp(min=1e-12)
     W_tilde_reg = W_tilde + eps_svd * torch.randn_like(W_tilde)
     U_w, S_w, Vh_w = torch.linalg.svd(W_tilde_reg, full_matrices=False)
     del W_tilde, W_tilde_reg
-    
+
     r_eff = min(r, S_w.numel())
     U_r = U_w[:, :r_eff]
     S_r = S_w[:r_eff]
     V_r = Vh_w[:r_eff, :].T  # (m, r_eff)
     del U_w, S_w, Vh_w
-    
+
     # U' = U_r @ diag(sqrt(S_r))
     sqrt_S = torch.sqrt(S_r.clamp(min=1e-12))
     U_prime = U_r * sqrt_S[None, :]
-    
+
     # V' = H^{-1/2} @ V_r @ diag(sqrt(S_r))
     # H^{-1/2} = Q @ diag(1/sqrt(λ)) @ Q^T
     inv_sqrt_eig = 1.0 / sqrt_eig
     V_prime = eig_vecs @ torch.diag(inv_sqrt_eig) @ eig_vecs.T @ V_r @ torch.diag(sqrt_S)
-    
+
     del eig_vals, eig_vecs, sqrt_eig, inv_sqrt_eig, U_r, S_r, V_r, sqrt_S
     del H_fp32, W_fp32
     cleanup_gpu_memory()
@@ -256,10 +257,7 @@ def lowrank_osvd(
 # =============================================================================
 
 
-def amplitude_rank_l_approx(
-    U_abs: torch.Tensor,
-    l: int
-) -> Tuple[torch.Tensor, torch.Tensor]:
+def amplitude_rank_l_approx(U_abs: torch.Tensor, l: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Rank-l approximation of the amplitude matrix: |U'| ≈ A @ Q_U^T
 
@@ -380,7 +378,7 @@ def initialize_MDBF(
     """
     n, m = W.shape
     W_float = ensure_float32(W)
-    orig_norm = torch.norm(W_float, p='fro').item()
+    orig_norm = torch.norm(W_float, p="fro").item()
 
     # Display OSVD initialization
     if act_init == "osvd" and H is not None:
@@ -392,30 +390,35 @@ def initialize_MDBF(
 
     for p in range(P):
         if act_init == "osvd" and H is not None:
-            params = init_single_path(
-                W_residual, r, l, H, mode, act_init=act_init
-            )
+            params = init_single_path(W_residual, r, l, H, mode, act_init=act_init)
         else:
             params = init_single_path(W_residual, r, l, H, mode)
         all_params.append(params)
 
         W_p = reconstruct_weight(
-            params.A_sign, params.B_sign,
-            params.A_amp, params.B_amp,
-            params.Q_U_amp, params.Q_V_amp,
+            params.A_sign,
+            params.B_sign,
+            params.A_amp,
+            params.B_amp,
+            params.Q_U_amp,
+            params.Q_V_amp,
         )
 
         if p == 0:
-            error_p = torch.norm(W_float - W_p, p='fro').item()
-            logger.debug(f"[MDBF Init] Primary path error: {error_p:.4e} (rel: {error_p/orig_norm:.4f})")
+            error_p = torch.norm(W_float - W_p, p="fro").item()
+            logger.debug(
+                f"[MDBF Init] Primary path error: {error_p:.4e} (rel: {error_p/orig_norm:.4f})"
+            )
 
         W_residual -= W_p
         W_recon += W_p
         del W_p
         cleanup_gpu_memory()
 
-    final_error = torch.norm(W_float - W_recon, p='fro').item()
-    logger.debug(f"[MDBF Init] Final weight error: {final_error:.4e} (rel: {final_error/orig_norm:.4f})")
+    final_error = torch.norm(W_float - W_recon, p="fro").item()
+    logger.debug(
+        f"[MDBF Init] Final weight error: {final_error:.4e} (rel: {final_error/orig_norm:.4f})"
+    )
 
     del W_float, W_residual
     cleanup_gpu_memory()

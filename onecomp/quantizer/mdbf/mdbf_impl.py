@@ -133,7 +133,9 @@ def run_mdbf(
                 use_hessian_mode = True
                 logger.debug(f"[MDBF] Activation-aware mode (Hessian-based): nsamples={_nsamples}")
             else:
-                logger.warning("[MDBF] activation_aware=True but H not found; fallback to non-aware.")
+                logger.warning(
+                    "[MDBF] activation_aware=True but H not found; fallback to non-aware."
+                )
                 activation_aware = False
 
     # Prepare act_X (not used in Hessian-based mode)
@@ -160,9 +162,7 @@ def run_mdbf(
     else:
         init_H = None
 
-    all_params, W_recon = initialize_MDBF(
-        W, r, l, P, init_H, svd_mode, act_init=init_act_init
-    )
+    all_params, W_recon = initialize_MDBF(W, r, l, P, init_H, svd_mode, act_init=init_act_init)
 
     if H_svd is not None:
         del H_svd
@@ -173,8 +173,10 @@ def run_mdbf(
         if activation_aware and use_hessian_mode and H_act is not None:
             from .admm import optimize_MDBF_admm_hessian
 
-            logger.debug(f"[MDBF] ADMM (Activation-Aware, Hessian-based): "
-                         f"outer={admm_iters}, inner={admm_inner_iters}, reg={admm_reg}")
+            logger.debug(
+                f"[MDBF] ADMM (Activation-Aware, Hessian-based): "
+                f"outer={admm_iters}, inner={admm_inner_iters}, reg={admm_reg}"
+            )
 
             all_params, W_recon = optimize_MDBF_admm_hessian(
                 W_original=W,
@@ -191,8 +193,9 @@ def run_mdbf(
 
             H_for_display = hessian.clone().to(device) if hessian is not None else None
 
-            logger.debug(f"[MDBF] ADMM: outer={admm_iters}, inner={admm_inner_iters}, "
-                         f"reg={admm_reg}")
+            logger.debug(
+                f"[MDBF] ADMM: outer={admm_iters}, inner={admm_inner_iters}, " f"reg={admm_reg}"
+            )
 
             all_params, W_recon = optimize_MDBF_admm(
                 W_original=W,

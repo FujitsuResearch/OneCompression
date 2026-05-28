@@ -22,7 +22,6 @@ from logging import getLogger
 from typing import Literal
 import torch
 
-
 logger = getLogger(__name__)
 
 
@@ -80,7 +79,7 @@ def rank_from_bpw(
     l: int = 1,
     P: int = 2,
     min_rank: int = 1,
-    rounding: Literal["floor", "ceil", "round"] = "floor"
+    rounding: Literal["floor", "ceil", "round"] = "floor",
 ) -> int:
     """
     Calculate rank r from target BPW
@@ -137,13 +136,7 @@ def rank_from_bpw(
     return max(r, min_rank)
 
 
-def bpw_from_rank(
-    n: int,
-    m: int,
-    r: int,
-    l: int = 1,
-    P: int = 2
-) -> float:
+def bpw_from_rank(n: int, m: int, r: int, l: int = 1, P: int = 2) -> float:
     """
     # Calculate effective BPW from rank r
 
@@ -180,11 +173,7 @@ def symmetrize_matrix(H: torch.Tensor) -> torch.Tensor:
     return (H + H.T) * 0.5
 
 
-def compute_hessian_error(
-    E: torch.Tensor,
-    H: torch.Tensor,
-    nsamples: int
-) -> float:
+def compute_hessian_error(E: torch.Tensor, H: torch.Tensor, nsamples: int) -> float:
     """
     Calculate Hessian-weighted error: N * tr(E @ H @ E^T)
 
