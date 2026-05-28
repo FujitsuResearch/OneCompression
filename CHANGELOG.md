@@ -1,5 +1,51 @@
 # Change log
 
+## [v1.1.1+feature/mdbf] 2026-05-28
+
+### New Feature: MDBF (Matrix-extended Double Binary Factorization) Quantizer
+
+- Added `onecomp/quantizer/mdbf/` sub-package implementing the MDBF quantizer that approximates weight matrices as a sum of multi-path double binary factorizations: W ≈ Σ_{p=1}^{P} F^(p) @ G^(p) where each path decomposes into sign matrices and multi-scale amplitude factors
+  - `_mdbf.py`: `MDBF` quantizer dataclass with configurable `target_bits`, `l` (multi-scale rank), `P` (number of passes, 1 or 2), `svd_mode`, `act_init`, ADMM options (`use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`), gradient refinement options, and activation-aware mode; `MDBFResult` dataclass with per-path tensor storage and `compute_dequantized_weight()` reconstruction
+  - `mdbf_impl.py`: `run_mdbf()` orchestrating initialization, ADMM, and gradient refinement
+  - `initialize.py`: SVD-based initialization (`svd`, `svd_llm` modes) with `MDBFParams` dataclass
+  - `admm.py`: ADMM optimization loop for binary sign and amplitude matrices
+  - `gradient_refine.py`: Optional gradient-based refinement of amplitude parameters
+  - `mdbf_layer.py`: `MDBFLinear` (single-path) and `MultipathMDBFLinear` (multi-path) inference layers with bit-packed sign matrices and `forward()` implementation
+  - `utils.py`: `reconstruct_weight()` helper for weight reconstruction from MDBF parameters
+  - `config.py`: `resolve_mdbf_layer_bits()` for per-layer bit-width resolution from `quantization_config` (priority: `quantization_bits` table > `module_target_bits` > `mlp_target_bits` > default)
+- Supports per-layer and per-MLP bit-width overrides via `mlp_target_bits` and `module_target_bits` parameters
+- Supports activation-aware quantization mode (`activation_aware=True`, P=1 only) that uses Hessian information for initialization
+- Registered `MDBF` in `onecomp/quantizer/__init__.py`
+
+### Save/Load Support for MDBF
+
+- Added `MultipathMDBFLinear.from_saved_state()` to reconstruct an MDBF inference layer from a saved state_dict (`onecomp/quantizer/mdbf/mdbf_layer.py`)
+- Wired MDBF into `QuantizedModelLoader`: layer-class detection (`MultipathMDBFLinear`) and `from_saved_state` loading path, aligned with the existing DBF/GPTQ branches (`onecomp/quantized_model_loader.py`)
+- Added `MDBF.get_quant_config()` returning `quant_method: "mdbf"` with all quantization parameters for `save_quantized_model()` (`onecomp/quantizer/mdbf/_mdbf.py`)
+- Added `MDBF.finalize_quant_config_for_save()` to build per-layer `quantization_bits` list in the saved config (`onecomp/quantizer/mdbf/_mdbf.py`)
+- Added `MDBF.create_inference_layer()` to build `MultipathMDBFLinear` from `MDBFResult` (`onecomp/quantizer/mdbf/_mdbf.py`)
+
+### Bug Fixes
+
+- Fixed `Quantizer.calculate_hessian()` to return `(hessian, nsamples)` tuple; propagated `nsamples` through QEP-arch, chunked quantization, multi-GPU, and AutoBit flows so that quantizers with `flag_nsamples=True` (e.g. MDBF) receive the correct sample count, and updated direct Hessian callers such as QUIP to unpack the tuple consistently (`onecomp/quantizer/_quantizer.py`, `onecomp/qep/_quantize_with_qep_arch.py`, `onecomp/runner_methods/chunked_quantization.py`, `onecomp/runner_methods/multi_gpu_quantization.py`, `onecomp/quantizer/autobit/_autobit.py`, `onecomp/quantizer/quip/_quip.py`)
+- Fixed `Quantizer.quantize()` to accept precomputed `hessian` and `nsamples` arguments, skipping redundant Hessian computation when the caller (e.g. LPCD) already provides them (`onecomp/quantizer/_quantizer.py`)
+- Propagated `nsamples` through LPCD quantization: captured `nsamples` from `compute_hessian_and_crossterm()` in LPCD runner and refiner, forwarded to quantizers during LPCD projection and QEP quantization, and forwarded through `AutoBitQuantizer` to the selected child quantizer (`onecomp/lpcd/_lpcd_runner.py`, `onecomp/lpcd/_refiner.py`, `onecomp/quantizer/autobit/_autobit.py`)
+- Added shared MDBFResult per-path validation for dequantization and inference-layer creation so missing or inconsistent path tensors fail with clear `ValueError`s (`onecomp/quantizer/mdbf/_mdbf.py`, `onecomp/quantizer/mdbf/mdbf_layer.py`)
+- Fixed `ZeroDivisionError` in MDBF ADMM improvement logging when `init_error` is zero (e.g. when target_bits forces full-rank decomposition); applied `+ 1e-12` guard consistent with other relative-error metrics in the same function (`onecomp/quantizer/mdbf/admm.py`)
+
+### Refactoring
+
+- Renamed internal identifiers from `MSVID` to `MDBF` across the entire `onecomp/quantizer/mdbf/` package and tests
+- Normalized MDBF internal logging output and removed an unused warning argument from MDBF utilities
+- Removed QEP-DEV compatibility shims from `mdbf_layer.py`: `PackedMDBFParams`, `pack/unpack_MDBF_params`, `PackedBinaryLinear`, `create_mdbf_layer_from_linear`, `replace_linear_with_mdbf`, `replace_all_MDBF_layers`, `save/load_MDBF_weights`, `verify_binary_values`, `verify_all_params`, and their associated imports
+- Removed `preunpack` option from `MDBFLinear` / `MultipathMDBFLinear`; sign matrices are always unpacked on-the-fly (consistent with DBF)
+- Translated MDBF comments and docstrings to English (`onecomp/quantizer/mdbf/`)
+
+### Tests
+
+- Added `tests/onecomp/quantizer/mdbf/test_mdbf.py`: MDBF quantizer unit tests covering `quantize_layer` result validation (type, shape, device, dtype), reproducibility, boundary parameters (`target_bits`, `l`, `P`, `svd_mode`, `use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`, `use_gradient_refine`, `gradient_iters`, `gradient_lr`, `activation_aware`, `act_init`, `mlp_target_bits`, `module_target_bits`), abnormal parameter validation (negative/zero/invalid values raise `ValueError`), CPU/GPU output match, quantization error tolerance, and forward error of the inference layer
+- Updated shared quantizer test helpers to unpack `calculate_hessian()` return tuples and forward `nsamples` when required; updated affected JointQ tests to use the shared helper (`tests/onecomp/quantizer/test_module.py`, `tests/onecomp/quantizer/jointq/test_jointq.py`)
+
 ## [v1.1.1] 2026-05-21
 
 ### New Feature: Quantization progress logging
