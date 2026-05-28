@@ -272,7 +272,8 @@ class QuantizedModelLoader:
     def _cast_fp16_to_target_dtype(model: torch.nn.Module, target_dtype: torch.dtype) -> List[str]:
         """Cast fp16 params/buffers of non-quantized modules to ``target_dtype``.
 
-        Quantized layers (``GPTQLinear``, ``DoubleBinaryLinear``) are
+        Quantized layers (``GPTQLinear``, ``DoubleBinaryLinear``,
+        ``MultipathMDBFLinear``) are
         skipped so their fp16 metadata (e.g. GPTQ ``scales``) is preserved.
         Only fp16 tensors are cast: fp32 params (e.g. fp32 LayerNorm in
         mixed-precision models) and other dtypes are left untouched.
@@ -293,7 +294,7 @@ class QuantizedModelLoader:
         converted: List[str] = []
         if target_dtype == torch.float16:
             return converted
-        skip_types = (GPTQLinear, DoubleBinaryLinear)
+        skip_types = (GPTQLinear, DoubleBinaryLinear, MultipathMDBFLinear)
         for mod_name, mod in model.named_modules():
             if isinstance(mod, skip_types):
                 continue
