@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.1.1+feature/legacy-vllm] 2026-05-28
+
+### Environment updates
+
+- Added `envs/vllm/` with versioned vLLM environment definitions (`0.12.0`, `0.15.1`).
+
 ## [v1.1.1] 2026-05-21
 
 ### New Feature: Quantization progress logging
