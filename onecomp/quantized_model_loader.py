@@ -442,8 +442,8 @@ class QuantizedModelLoader:
     def _replace_quantized_layers(model, state_dict: dict, quant_config: dict):
         """Replace ``nn.Linear`` with empty quantized modules for layers in config.
 
-        *quant_config* must contain ``modules_in_block_to_quantize`` (list of layer-name
-        lists). Modules are created with zero buffers of the right shape; *state_dict*
+        *quant_config* must contain ``modules_in_block_to_quantize`` (list of layer
+        names). Modules are created with zero buffers of the right shape; *state_dict*
         is left unchanged so the caller can ``load_state_dict(state_dict)`` once to
         fill all weights.
         """
@@ -475,10 +475,7 @@ class QuantizedModelLoader:
                 "modules_in_block_to_quantize is required in quantization_config "
                 "but was not found."
             )
-        module_lists = quant_config["modules_in_block_to_quantize"]
-        if not module_lists:
-            return  # nothing to replace
-        module_list = [name for modules_in_block in module_lists for name in modules_in_block]
+        module_list = quant_config["modules_in_block_to_quantize"]
         if not module_list:
             return  # nothing to replace
 

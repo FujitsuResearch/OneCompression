@@ -1680,7 +1680,7 @@ class Runner:
         # Build modules_in_block_to_quantize from actually-quantized layer names.
         quantized_names = sorted(quantizer.results.keys())
         modules_in_block = list(quantized_names)
-        quant_config["modules_in_block_to_quantize"] = [modules_in_block]
+        quant_config["modules_in_block_to_quantize"] = modules_in_block
         quant_config["quantized_layer_names"] = modules_in_block
         quant_config = quantizer.finalize_quant_config_for_save(
             quant_config=quant_config,
