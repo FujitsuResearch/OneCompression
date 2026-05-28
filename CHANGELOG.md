@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.1.1+feature/mdbf] 2026-05-29
+
+### Bug Fixes
+
+- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now also skips `MultipathMDBFLinear` so fp16 metadata in MDBF quantized layers is preserved during post-load dtype normalization (`onecomp/quantized_model_loader.py`).
+
 ## [v1.1.1+feature/mdbf] 2026-05-28
 
 ### New Feature: MDBF (Matrix-extended Double Binary Factorization) Quantizer
