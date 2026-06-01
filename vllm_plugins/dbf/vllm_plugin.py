@@ -1,7 +1,7 @@
 """Copyright 2025-2026 Fujitsu Ltd."""
 
 import os
-from typing import Any, List
+from typing import Any, List, Optional
 
 import torch
 from torch.nn import Parameter
@@ -21,6 +21,7 @@ from vllm_plugins.utils.module import (
     _parse_layer_and_module,
     _validate_quant_config_within_shard,
 )
+from vllm_plugins.utils.rotation import RotationMetadata, maybe_wrap_rotation_method
 from vllm_plugins.dbf.modules.naive import unpack_sign_bits
 
 logger = init_logger(__name__)
@@ -377,9 +378,16 @@ class DBFLinearMethod(LinearMethodBase):
 
 @register_quantization_config("dbf")
 class DbfConfig(QuantizationConfig):
-    def __init__(self, quantization_bits: List[dict[str, Any]]):
+    def __init__(
+        self,
+        quantization_bits: List[dict[str, Any]],
+        rotation_metadata: Optional[RotationMetadata] = None,
+    ):
         super().__init__()
         self.quantization_bits = quantization_bits
+        self.rotation_metadata = (
+            rotation_metadata if rotation_metadata is not None else RotationMetadata()
+        )
         self._method = DBFLinearMethod(self)
 
     @classmethod
@@ -401,7 +409,10 @@ class DbfConfig(QuantizationConfig):
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "DbfConfig":
         quantization_bits = config.get("quantization_bits", [])
-        return cls(quantization_bits=quantization_bits)
+        return cls(
+            quantization_bits=quantization_bits,
+            rotation_metadata=RotationMetadata.from_quant_config(config),
+        )
 
     def get_quant_method(self, layer: torch.nn.Module, prefix: str) -> LinearMethodBase | None:
         if not isinstance(layer, LinearBase):
@@ -409,12 +420,20 @@ class DbfConfig(QuantizationConfig):
 
         layer_idx, module_suffix = _parse_layer_and_module(prefix)
         if layer_idx is None:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         mod_cfg = _lookup_module_config(self.quantization_bits, layer_idx, module_suffix)
         if mod_cfg is None:
             logger.debug("No module config found for %s, using UnquantizedLinearMethod.", prefix)
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         if not _validate_quant_config_within_shard(
             self.quantization_bits, layer_idx, module_suffix
@@ -433,7 +452,11 @@ class DbfConfig(QuantizationConfig):
                 "DBF config for %s has bits=0, using UnquantizedLinearMethod.",
                 prefix,
             )
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         if method != "dbf":
             logger.warning(
@@ -441,13 +464,21 @@ class DbfConfig(QuantizationConfig):
                 prefix,
                 method,
             )
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         # create_weights() has no prefix argument, so carry per-module config on layer.
         layer._dbf_prefix = prefix
         layer._dbf_mod_cfg = mod_cfg
 
-        return self._method
+        return maybe_wrap_rotation_method(
+            self._method,
+            prefix=prefix,
+            metadata=self.rotation_metadata,
+        )
 
 
 def register_vllm_plugin():

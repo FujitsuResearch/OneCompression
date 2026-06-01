@@ -124,6 +124,9 @@ class DoubleBinaryLinear(nn.Module):
         use_gemlite: Optional[bool] = None,
     ):
         super().__init__()
+        # dbf_B: (mid_dim, in_features), dbf_A: (out_features, mid_dim)
+        self.in_features = dbf_B.shape[1]
+        self.out_features = dbf_A.shape[0]
         # Stage 0: Input scaling
         self.scaling0 = nn.Parameter(dbf_Db.detach().to(torch.float16), requires_grad=False)
         # Stage 2: Middle scaling
@@ -236,6 +239,8 @@ class DoubleBinaryLinear(nn.Module):
         self = cls.__new__(cls)
         nn.Module.__init__(self)
         self.target_bits = target_bits
+        self.in_features = in_features
+        self.out_features = out_features
 
         def _p(k):
             t = layer_state_dict[k]
