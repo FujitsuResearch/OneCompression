@@ -1,14 +1,25 @@
 # vLLM Inference
 
-OneComp provides vLLM plugins for serving quantized models.
-The plugins are automatically registered via Python entry points when `onecomp` is installed — no extra configuration is needed.
+OneComp-quantized models can be served with vLLM.
+Each quantizer writes a `quant_method` field into the saved `config.json`; vLLM reads it
+and dispatches to the matching plugin automatically — no extra configuration is needed.
+Some methods are served by vLLM's **built-in** GPTQ plugin, while others use the
+**OneComp** plugins that are registered via Python entry points when `onecomp` is installed.
 
 ## Supported Quantization Methods
 
-| Plugin | `quant_method` | Description |
-|--------|---------------|-------------|
-| DBF | `dbf` | 1-bit Double Binary Factorization. Uses GemLite kernels by default; set `ONECOMP_DBF_NAIVE_LINEAR=1` to use the naive fallback. |
-| Mixed-GPTQ | `mixed_gptq` | Per-layer mixed-bitwidth GPTQ. Automatically dispatches to Marlin or Exllama kernels based on bit-width and symmetry. |
+| OneComp Quantizer | `quant_method` | Served by | Notes |
+|-------------------|----------------|-----------|-------|
+| `GPTQ` (uniform bit-width), `RTN` | `gptq` | vLLM built-in GPTQ plugin | Uses GPTQ tensor layout (`qweight`/`scales`/`qzeros`). Use `wbits` in {2, 3, 4, 8} for vLLM serving. |
+| `JointQ` | `gptq` | vLLM built-in GPTQ plugin | Reuses GPTQ's tensor layout. Use `bits` in {2, 3, 4} for vLLM serving; `bits=1` is OneComp load-only with `pack_weights=False`. |
+| `GPTQ` (mixed bit-width), `AutoBitQuantizer` | `mixed_gptq` | OneComp Mixed-GPTQ plugin | Per-layer mixed-bitwidth GPTQ. Automatically dispatches to Marlin or Exllama kernels based on bit-width and symmetry. |
+| `DBF` | `dbf` | OneComp DBF plugin | 1-bit Double Binary Factorization. Uses GemLite kernels by default; set `ONECOMP_DBF_NAIVE_LINEAR=1` to use the naive fallback. |
+
+!!! note "`Onebit` is not vLLM-servable"
+    The `Onebit` quantizer saves with `quant_method="onebit"`, for which no vLLM plugin
+    exists. OneBit-quantized models can still be loaded and run with OneComp's own
+    [`load_quantized_model()`](examples.md#load-a-saved-quantized-model),
+    but not served through vLLM.
 
 !!! warning "Rotation-preprocessed models are not supported"
     Models quantized after rotation preprocessing (`prepare_rotated_model`) cannot be served with vLLM. vLLM kernels do not apply the online Hadamard transform on `down_proj` inputs that rotation-preprocessed models require for correct inference.
@@ -138,13 +149,20 @@ print(outputs[0].outputs[0].text)
 ```
 
 !!! tip
-    You do not need to pass `quantization=` explicitly. vLLM reads the `quant_method` from the model's `config.json` and automatically selects the correct OneComp plugin.
+    You do not need to pass `quantization=` explicitly. vLLM reads the `quant_method` from the model's `config.json` and automatically selects the correct plugin (vLLM's built-in GPTQ plugin for `gptq`, or the OneComp plugin for `mixed_gptq` / `dbf`).
 
 !!! warning
     When combining quantization and vLLM inference in a single script, you **must** wrap your code in `if __name__ == "__main__":`. vLLM spawns worker processes that re-import the script, so without this guard the quantization step will run again in each child process.
 
-A complete working example (quantization + vLLM inference) is available at
-[`example/vllm_inference/example_gptq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_gptq_vllm_inference.py).
+Complete working examples (quantization + vLLM inference) are available:
+
+- GPTQ: [`example/vllm_inference/example_gptq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_gptq_vllm_inference.py)
+- JointQ: [`example/vllm_inference/example_jointq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_jointq_vllm_inference.py)
+- AutoBit (mixed-precision): [`example/vllm_inference/example_autobit_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_autobit_vllm_inference.py)
+
+`JointQ` and `RTN` follow exactly the same flow as the GPTQ example above —
+substitute `JointQ(bits=4, group_size=128)` or `RTN(wbits=4, groupsize=128)` for the
+quantizer (JointQ additionally requires `qep=False`).
 
 ### 3. Chat with Open WebUI (optional)
 

@@ -189,12 +189,37 @@ jointq = JointQ(
 )
 ```
 
+## Save and Load
+
+JointQ reuses GPTQ's scale/zero/assignment structure, so it emits
+`quant_method="gptq"` and can be saved with the standard OneComp save API,
+reloaded with `load_quantized_model()`, and served with vLLM's built-in GPTQ
+plugin:
+
+```python
+runner.save_quantized_model("./output/jointq_model")
+
+# Load later with OneComp
+from onecomp import load_quantized_model
+model, tokenizer = load_quantized_model("./output/jointq_model")
+```
+
+!!! note "Bit-width and vLLM"
+    Use `bits` in {2, 3, 4} for JointQ models served with vLLM. `bits=1`
+    cannot be bit-packed by `GPTQLinear`; if you need to save/load a 1-bit
+    JointQ model with OneComp, call `runner.save_quantized_model(..., pack_weights=False)`.
+    Such 1-bit models are not vLLM-servable.
+
+See [vLLM Inference](../user-guide/vllm-inference.md) for serving details, and the
+[`example/vllm_inference/example_jointq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_jointq_vllm_inference.py)
+script for an end-to-end quantize → save → serve example.
+
 ## Notes
 
 - JointQ requires GPU for computation (CUDA-based local search).
 - Group-wise quantization (`group_size > 0`) is recommended for accuracy.
   Set `group_size=None` for per-channel quantization.
-- JointQ currently supports dequantized-model evaluation only (not packed quantized inference).
+- JointQ does not support QEP; create the `Runner` with `qep=False`.
 - Incremental lambda mode runs `quantize()` multiple times per layer (once per
   lambda value until rejection), so quantization time increases compared to
   fixed lambda mode.
