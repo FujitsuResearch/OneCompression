@@ -1,12 +1,6 @@
 # Change log
 
-## [v1.1.1+feature/dev_save_load] 2026-05-26
-
-### Bug Fix
-
-- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now skips `OneBitLinear` in addition to `GPTQLinear` and `DoubleBinaryLinear`, so OneBit's fp16 scaling buffers (`a`, `b`, `bias`) are preserved when loading a OneBit-quantized model that requires `bfloat16` (e.g. Gemma 3 / Gemma 4 detected via `needs_bfloat16`). Without this, the post-load safety-net cast rewrote OneBit's stored fp16 metadata to `bfloat16`, breaking the dtype contract that `OneBitLinear.forward` relies on (`self.a.to(x.dtype)` / `self.b.to(x.dtype)` casts to the activation dtype at compute time). Updated the function's docstring to list `OneBitLinear` alongside the other quantized layer types whose fp16 metadata is intentionally retained (`onecomp/quantized_model_loader.py`).
-
-## [v1.1.0+feature/dev_save_load] 2026-05-22
+## [v1.1.1+feature/dev_save_load] 2026-06-03
 
 ### Save/Load Support for JointQ, RTN, and OneBit Quantizers
 
@@ -59,6 +53,7 @@
 - Fixed redundant symmetric shift in RTN inference layer (`onecomp/quantizer/rtn/_rtn.py`)
 - Fixed `run_onebit()` returning `False` on NaN/Inf detection; now raises `ValueError` with proper GPU tensor cleanup to prevent OOM cascading (`onecomp/quantizer/onebit/onebit_impl.py`)
 - Removed pre-computed `dequantized_weight` from `run_onebit()` return dict and `OnebitResult`; dequantized weight is now computed on demand via `compute_dequantized_weight()` (`onecomp/quantizer/onebit/onebit_impl.py`, `onecomp/quantizer/onebit/_onebit.py`)
+- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now skips `OneBitLinear` in addition to `GPTQLinear` and `DoubleBinaryLinear`, so OneBit's fp16 scaling buffers (`a`, `b`, `bias`) are preserved when loading a OneBit-quantized model that requires `bfloat16` (e.g. Gemma 3 / Gemma 4 detected via `needs_bfloat16`). Without this, the post-load safety-net cast rewrote OneBit's stored fp16 metadata to `bfloat16`, breaking the dtype contract that `OneBitLinear.forward` relies on (`self.a.to(x.dtype)` / `self.b.to(x.dtype)` casts to the activation dtype at compute time). Updated the function's docstring to list `OneBitLinear` alongside the other quantized layer types whose fp16 metadata is intentionally retained (`onecomp/quantized_model_loader.py`).
 
 ### Tests
 
@@ -67,6 +62,20 @@
 - Changed JointQ test default `bits` from `1` to `2` to match GPTQLinear packing constraints (`tests/onecomp/quantizer/jointq/test_jointq.py`)
 - Updated `check_equal_results` in RTN and OneBit tests to use `compute_dequantized_weight()` instead of direct `dequantized_weight` attribute access
 - Updated `apply_quantized_weights` in RTN and OneBit tests to use `compute_dequantized_weight()` with proper dtype preservation
+
+### Documentation
+
+- Documented save/load and vLLM compatibility for the newly-supported **JointQ**, **RTN**, and **OneBit** quantizers across the docs:
+  - `docs/api/quantizers/base.md`: moved `JointQ`, `RTN`, and `Onebit` into the supported rows of the "Quantizer Feature Support" table (`get_quant_config` / `create_inference_layer` / Save / Quantized PPL/ACC all Yes), and added a new "Saved `quant_method` and vLLM compatibility" table mapping each quantizer to its emitted `quant_method` (`gptq` / `mixed_gptq` / `dbf` / `onebit`) and serving path
+  - `docs/user-guide/basic-usage.md`: updated the quantized-model evaluation note and the "Quantizer feature support" table to include JointQ/RTN/OneBit, added a `quant_method` column, and clarified which saved models are vLLM-servable
+  - `docs/user-guide/vllm-inference.md`: rewrote the "Supported Quantization Methods" table to distinguish vLLM's **built-in** GPTQ plugin (used for `gptq`: GPTQ uniform bits, JointQ, RTN) from the **OneComp** plugins (`mixed_gptq`, `dbf`), added a note that `Onebit` is not vLLM-servable, and listed the GPTQ/JointQ/AutoBit end-to-end examples; split the `gptq` row so GPTQ/RTN (`wbits` in {2, 3, 4, 8}) and JointQ (`bits` in {2, 3, 4}; `bits=1` is OneComp load-only with `pack_weights=False`) document their distinct supported bit-widths
+  - `docs/algorithms/jointq.md`: added a "Save and Load" section (emits `quant_method="gptq"`, served by vLLM's built-in GPTQ plugin), a note that JointQ `bits` is limited to {2, 3, 4} for vLLM (the JointQ core quantizer rejects `bits > 4`) while `bits=1` requires an explicit `runner.save_quantized_model(..., pack_weights=False)` and is OneComp load-only / not vLLM-servable, and clarified that JointQ does not support QEP (`qep=False`)
+  - `docs/algorithms/rtn.md`: added a "Save and Load" section, a note that vLLM serving uses `wbits` in {2, 3, 4, 8} (RTN itself accepts a wider range, but GPTQ-compatible bit packing and vLLM serving are limited to these), and a warning that rotation-preprocessed RTN models cannot be served with vLLM (no online Hadamard transform), though they remain loadable with `load_quantized_model()`
+  - `docs/getting-started/quickstart.md`, `docs/index.md`, `README.md`: updated quantized-model evaluation and vLLM integration descriptions to include JointQ/RTN/OneBit and reference the GPTQ built-in plugin path
+
+### Examples
+
+- Added `example/vllm_inference/example_jointq_vllm_inference.py`: end-to-end JointQ quantization (4-bit, `group_size=128`) → save → vLLM offline inference. Mirrors the GPTQ vLLM example, uses `qep=False` (JointQ does not support QEP), and documents the `bits >= 2` requirement for vLLM bit-packing. Registered in the README example table.
 
 ## [v1.1.1] 2026-05-21
 
