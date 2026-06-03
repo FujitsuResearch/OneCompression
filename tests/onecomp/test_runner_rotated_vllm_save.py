@@ -174,3 +174,58 @@ def test_create_quantized_model_keeps_existing_mixed_gptq_without_extra_switch(m
     assert model.config.quantization_config["rotated"] is True
     assert model.config.quantization_config["fp32_had"] is True
     assert len(register_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# DBF-specific Runner tests
+# ---------------------------------------------------------------------------
+
+
+def test_create_quantized_model_keeps_dbf_quant_method_when_rotated(monkeypatch):
+    register_calls = []
+    fake_model = _FakeModel(num_hidden_layers=4)
+    runner = Runner(
+        model_config=_FakeModelConfig(rotated=True, fp32_had=True, model=fake_model),
+        quantizer=_FakeQuantizer("dbf"),
+    )
+
+    monkeypatch.setattr(unfuse_moe_module, "unfuse_moe_experts", lambda model, logger: False)
+    monkeypatch.setattr(
+        rotation_utils,
+        "register_online_hadamard_hooks",
+        lambda model, fp32_had=False, layers_cls=None: register_calls.append(
+            (model, fp32_had, layers_cls)
+        ) or [object()],
+    )
+    monkeypatch.setattr(Runner, "_patch_k_eq_v_for_vllm", lambda self, model, quant_config: None)
+
+    model, tokenizer = runner.create_quantized_model()
+    qcfg = model.config.quantization_config
+
+    # DBF plugin handles rotation natively; quant_method must NOT be switched.
+    assert qcfg["quant_method"] == "dbf"
+    assert qcfg["rotated"] is True
+    assert qcfg["fp32_had"] is True
+    # Hadamard hooks are still registered on the model for rotation preprocessing.
+    assert len(register_calls) == 1
+    assert register_calls[0][0] is fake_model
+    assert register_calls[0][1] is True  # fp32_had
+
+
+def test_create_quantized_model_keeps_plain_dbf_rotated_false(monkeypatch):
+    runner = Runner(
+        model_config=_FakeModelConfig(rotated=False, fp32_had=False),
+        quantizer=_FakeQuantizer("dbf"),
+    )
+    register_hook = MagicMock()
+
+    monkeypatch.setattr(unfuse_moe_module, "unfuse_moe_experts", lambda model, logger: False)
+    monkeypatch.setattr(rotation_utils, "register_online_hadamard_hooks", register_hook)
+    monkeypatch.setattr(Runner, "_patch_k_eq_v_for_vllm", lambda self, model, quant_config: None)
+
+    model, _tokenizer = runner.create_quantized_model()
+
+    assert model.config.quantization_config["quant_method"] == "dbf"
+    assert model.config.quantization_config["rotated"] is False
+    assert model.config.quantization_config["fp32_had"] is False
+    register_hook.assert_not_called()
