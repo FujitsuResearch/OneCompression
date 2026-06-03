@@ -31,8 +31,9 @@ Author: Keiji Kimura
 import gc
 
 import torch
-from onecomp import Runner, ModelConfig, CalibrationConfig, JointQ, setup_logger
 from vllm import LLM, SamplingParams
+
+from onecomp import CalibrationConfig, JointQ, ModelConfig, Runner, setup_logger
 
 
 def main():
