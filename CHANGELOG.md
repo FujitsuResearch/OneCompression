@@ -82,6 +82,18 @@
 
 - Added `example/vllm_inference/example_jointq_vllm_inference.py`: end-to-end JointQ quantization (4-bit, `group_size=128`) → save → vLLM offline inference. Mirrors the GPTQ vLLM example, uses `qep=False` (JointQ does not support QEP), and documents the `bits >= 2` requirement for vLLM bit-packing. Registered in the README example table.
 
+### Quantizer module forward test fix
+
+- Fixed `tests/onecomp/quantizer/test_module.py` to feed `y_replaced` consistently into `q_proj` / `k_proj` / `v_proj` after quantized weights are applied, aligning the replacement-path forward test with the intended residual update flow
+
+### GPTQ quantization test thresholds
+
+- Tightened GPTQ unit test tolerances in `tests/onecomp/quantizer/gptq/test_gptq.py` so regressions in dequantized-weight error are detected earlier (`error < 0.4`, `max_error < 1.71`; previously `0.6` / `2.5`)
+
+### Test infrastructure
+
+- Extracted the duplicated attention+MLP forward loop in `test_quantize_error` into `TestModel.forward()` (`tests/onecomp/quantizer/test_module.py`); both the pre-quantization and post-quantization inference paths now call `model(inp)` directly, eliminating 34 duplicate lines
+
 ## [v1.1.1] 2026-05-21
 
 ### New Feature: Quantization progress logging
