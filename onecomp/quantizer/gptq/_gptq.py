@@ -44,6 +44,12 @@ class GPTQResult(QuantizationResult):
         qzeros: Zero points (FP16, CPU).
         perm: Column permutation order (used when actorder=True).
 
+        [Packed state metadata]
+        qweight_is_packed: Whether qweight is stored in packed AutoGPTQ format.
+        qzeros_is_packed: Whether qzeros is stored in packed AutoGPTQ format.
+        qweight_original_shape: Original unpacked qweight shape
+            (out_features, in_features). Used to recover out_features for qzeros.
+
     Note:
         - g_idx (group index) is not stored since it can be computed from groupsize and perm.
           Computation: g_idx[perm[i]] = i // groupsize (when actorder=True)
@@ -67,6 +73,9 @@ class GPTQResult(QuantizationResult):
     scales: Optional[torch.Tensor] = None  # Scale coefficients
     qzeros: Optional[torch.Tensor] = None  # Zero points
     perm: Optional[torch.Tensor] = None  # Column permutation order (actorder=True)
+    qweight_is_packed: bool = False  # Whether qweight is bitpacked
+    qzeros_is_packed: bool = False  # Whether qzeros is bitpacked
+    qweight_original_shape: Optional[tuple[int, int]] = None  # Unpacked qweight shape
 
     def compute_dequantized_weight(self, device=None) -> torch.Tensor:
         """Compute dequantized weight from quantized data and quantization parameters.
@@ -85,10 +94,34 @@ class GPTQResult(QuantizationResult):
         compute_device = torch.device(device) if device is not None else torch.device("cpu")
 
         qweight = self.qweight.to(torch.int32).to(compute_device)
+        qweight_is_packed = bool(getattr(self, "qweight_is_packed", False))
+        qzeros_is_packed = bool(getattr(self, "qzeros_is_packed", False))
+        qweight_original_shape = getattr(self, "qweight_original_shape", None)
+
+        if qweight_is_packed:
+            if qweight_original_shape is None:
+                raise ValueError(
+                    "qweight_original_shape is required to unpack packed GPTQ qweight."
+                )
+            from onecomp.quantizer.gptq.gptq_layer import unpack_int_weights
+
+            qweight = unpack_int_weights(qweight, self.wbits, qweight_original_shape).to(
+                compute_device
+            )
+
         out_features, in_features = qweight.shape
 
         scales = self.scales.to(compute_device)
         qzeros = self.qzeros.to(compute_device)
+        if qzeros_is_packed:
+            from onecomp.quantizer.gptq.gptq_layer import unpack_zeros
+
+            qzeros = unpack_zeros(qzeros.to(torch.int32), self.wbits, out_features).to(
+                compute_device
+            )
+            # GPTQ quantization stores packed result qzeros with the same v1 offset
+            # as GPTQLinear: stored = raw_zero - 1.
+            qzeros = (qzeros + 1) & ((1 << self.wbits) - 1)
 
         if self.groupsize == -1:
             # Per-channel path (broadcast along in_features)
@@ -96,6 +129,8 @@ class GPTQResult(QuantizationResult):
                 scales = scales.unsqueeze(1)
             if qzeros.ndim == 1:
                 qzeros = qzeros.unsqueeze(1)
+            elif qzeros.ndim == 2 and qzeros.shape == (1, out_features):
+                qzeros = qzeros.T
             dequantized = dequantize(qweight, scales, qzeros.float(), maxq=2**self.wbits - 1)
             return dequantized.to(torch.float16).cpu()
 
@@ -158,6 +193,8 @@ class GPTQ(Quantizer):
             (used when mse=True). Default is 600.
         q_norm (float): Norm exponent for MSE grid search error metric
             (used when mse=True). Default is 2.4.
+        bitpack_on_quantize (bool): If True, store qweight/qzeros in bitpacked
+            form immediately after quantization. Default is True.
 
     Example:
         >>> from onecomp.quantizer.gptq import GPTQ
@@ -182,6 +219,7 @@ class GPTQ(Quantizer):
     mlp_wbits: Optional[int] = None
     mlp_groupsize: Optional[int] = None
     module_wbits: Optional[dict[str, int]] = None
+    bitpack_on_quantize: bool = True
 
     @staticmethod
     def resolve_bits(
@@ -233,6 +271,7 @@ class GPTQ(Quantizer):
             groupsize: int, -1 or >= 1
             q_grid: int >= 1 (when mse=True)
             q_norm: float > 0 (when mse=True)
+            bitpack_on_quantize: bool
         """
         bad = []
 
@@ -300,6 +339,12 @@ class GPTQ(Quantizer):
                             f"Invalid GPTQ parameter 'module_wbits[{layer_name!r}]': {bits!r} (expected int in 1..64)"
                         )
 
+        if not isinstance(self.bitpack_on_quantize, bool):
+            bad.append(
+                f"Invalid GPTQ parameter 'bitpack_on_quantize': {self.bitpack_on_quantize!r} "
+                f"(expected bool)."
+            )
+
         if bad:
             raise ValueError("; ".join(bad))
 
@@ -344,15 +389,45 @@ class GPTQ(Quantizer):
             q_norm=self.q_norm,
         )
 
+        qweight = result_dict["qweight"]
+        qzeros = result_dict["qzeros"]
+        qweight_original_shape = tuple(qweight.shape)
+        qweight_is_packed = False
+        qzeros_is_packed = False
+
+        if self.bitpack_on_quantize:
+            from onecomp.quantizer.gptq.gptq_layer import (
+                GPTQLinear,
+                pack_int_weights,
+                pack_zeros,
+            )
+
+            out_features = qweight_original_shape[0]
+            qzeros_for_pack = GPTQLinear._normalize_scale_zero(qzeros, out_features)
+
+            packed_qweight = pack_int_weights(qweight.to(torch.int32), resolved_wbits).cpu()
+
+            # Match GPTQLinear.__init__: normalize zeros, apply GPTQ v1 offset, then pack.
+            qzeros_v1 = qzeros_for_pack.to(torch.float32).round().to(torch.int32) - 1
+            packed_qzeros = pack_zeros(qzeros_v1, resolved_wbits).cpu()
+
+            qweight = packed_qweight
+            qzeros = packed_qzeros
+            qweight_is_packed = True
+            qzeros_is_packed = True
+
         return GPTQResult(
             wbits=resolved_wbits,
             groupsize=resolved_groupsize,
             actorder=self.actorder,
             sym=self.sym,
-            qweight=result_dict["qweight"],
+            qweight=qweight,
             scales=result_dict["scales"],
-            qzeros=result_dict["qzeros"],
+            qzeros=qzeros,
             perm=result_dict["perm"],
+            qweight_is_packed=qweight_is_packed,
+            qzeros_is_packed=qzeros_is_packed,
+            qweight_original_shape=qweight_original_shape,
         )
 
     def get_quant_config(self) -> dict:
