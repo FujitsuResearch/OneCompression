@@ -124,7 +124,7 @@ class GPTQResult(QuantizationResult):
         zero_expanded = qzeros[g_idx, :].T.to(torch.float16)  # (out_features, in_features)
         dequantized = dequantize(qweight, scale_expanded, zero_expanded, maxq=2**self.wbits - 1)
 
-        return dequantized.to(torch.float16).cpu()
+        return dequantized.to(torch.float16).cpu().contiguous()
 
 
 @dataclass

@@ -223,6 +223,7 @@ def collect_activation_stats_blockwise(
         if logger:
             logger.info("Restoring model to %s", original_device)
         model.to(original_device)
+        empty_cache(original_device)
 
     return a_diag, b_diag
 

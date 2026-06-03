@@ -99,7 +99,7 @@ environments = [
 
 [tool.uv.sources]
 torch = [
-    {index = "pytorch-cpu", extra = "cpu"},
+    {index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'"},
     {index = "pytorch-cu118", extra = "cu118"},
     {index = "pytorch-cu121", extra = "cu121"},
     {index = "pytorch-cu124", extra = "cu124"},
@@ -108,7 +108,7 @@ torch = [
     {index = "pytorch-cu130", extra = "cu130"},
 ]
 torchvision = [
-    {index = "pytorch-cpu", extra = "cpu"},
+    {index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'"},
     {index = "pytorch-cu118", extra = "cu118"},
     {index = "pytorch-cu121", extra = "cu121"},
     {index = "pytorch-cu124", extra = "cu124"},
