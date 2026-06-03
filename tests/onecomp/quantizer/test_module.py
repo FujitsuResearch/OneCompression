@@ -137,6 +137,9 @@ class BaseQuantizeSpec:
     # Subclasses specify boundary and abnormal parameter cases.
     boundary_parameters = []
     abnormal_parameters = []
+    # Layer size used by test_forward_error. Override when the quantizer
+    # requires a specific in_features (e.g. divisible by pack_factor).
+    _forward_error_features: int = 8
 
     @pytest.fixture
     def helper(self):
@@ -340,13 +343,14 @@ class BaseQuantizeSpec:
     def test_forward_error(self, helper):
         """Validate forward error."""
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        n = self._forward_error_features
 
         helper.set_deterministic()
         helper.seed_everything(123)
 
         # Prepare a linear layer and input
-        layer = helper.make_linear(8, 8, device=device, dtype=torch.float32)
-        inp = helper.make_input(device=device, dtype=torch.float32)
+        layer = helper.make_linear(n, n, device=device, dtype=torch.float32)
+        inp = helper.make_input(device=device, dtype=torch.float32, hidden=n)
 
         # original output
         with torch.no_grad():
@@ -357,7 +361,7 @@ class BaseQuantizeSpec:
         hessian = q.calculate_hessian(layer, inp)
         result = q.quantize_layer(layer, inp, hessian=hessian)
 
-        dequantized_layer = helper.make_linear(8, 8, device=device, dtype=torch.float32)
+        dequantized_layer = helper.make_linear(n, n, device=device, dtype=torch.float32)
         dequantized_layer.weight.data.copy_(result.compute_dequantized_weight().to(device))
         with torch.no_grad():
             y_dequantized = dequantized_layer(inp)
