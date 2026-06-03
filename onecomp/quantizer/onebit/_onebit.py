@@ -12,12 +12,14 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 """
 
+import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 
 from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
+from onecomp.utils.quant_config import get_quant_param
 
 from .onebit_impl import run_onebit
 
@@ -27,7 +29,6 @@ class OnebitResult(QuantizationResult):
     """OneBit quantization result.
 
     Attributes:
-        dequantized_weight (torch.Tensor): Dequantized weight (FP16, CPU).
         iters (int): Optimization iterations.
         use_importance_scaling (bool): Whether to use importance scaling.
         use_balancing (bool): Whether to apply weight balancing.
@@ -53,6 +54,27 @@ class OnebitResult(QuantizationResult):
     a: Optional[torch.Tensor] = None
     b: Optional[torch.Tensor] = None
     sign: Optional[torch.Tensor] = None
+
+    def compute_dequantized_weight(self, device=None) -> torch.Tensor:
+        """Compute dequantized weight from a, b, and sign.
+
+        W ≈ a[:, None] * sign * b[None, :]
+
+        Args:
+            device (str or torch.device, optional): Device to compute on.
+
+        Returns:
+            Dequantized weight tensor (FP16, CPU).
+        """
+        if self.a is None or self.b is None or self.sign is None:
+            raise ValueError("OnebitResult is missing required data for dequantization")
+
+        compute_device = torch.device(device) if device is not None else torch.device("cpu")
+        a = self.a.to(torch.float32).to(compute_device)
+        b = self.b.to(torch.float32).to(compute_device)
+        sign = self.sign.to(torch.float32).to(compute_device)
+        weight = a[:, None] * sign * b[None, :]
+        return weight.to(torch.float16).cpu()
 
 
 @dataclass
@@ -137,8 +159,83 @@ class Onebit(Quantizer):
             use_balancing=self.use_balancing,
             balance_iters=self.balance_iters,
             balance_alpha=self.balance_alpha,
-            dequantized_weight=weight_results["dequantized_weight"],
             a=weight_results["a"],
             b=weight_results["b"],
             sign=weight_results["sign"],
+        )
+
+    def get_quant_config(self) -> dict:
+        """Return OneBit quantization config for saving."""
+        return {
+            "quant_method": "onebit",
+            "bits": 1,
+            "iters": self.iters,
+            "use_importance_scaling": self.use_importance_scaling,
+            "use_balancing": self.use_balancing,
+            "balance_iters": self.balance_iters,
+            "balance_alpha": self.balance_alpha,
+        }
+
+    @staticmethod
+    def _build_quantization_bits(
+        quantized_names: list[str],
+        quant_config: dict[str, Any],
+        num_layers: int,
+    ) -> list[dict[str, Any]]:
+        _LAYER_RE = re.compile(r"\.layers\.(\d+)\.(.*)")
+
+        params: dict[str, Any] = {
+            "iters": get_quant_param(quant_config, "iters", default=10),
+            "use_importance_scaling": get_quant_param(
+                quant_config, "use_importance_scaling", default=True
+            ),
+            "use_balancing": get_quant_param(quant_config, "use_balancing", default=True),
+            "balance_iters": get_quant_param(quant_config, "balance_iters", default=40),
+            "balance_alpha": get_quant_param(quant_config, "balance_alpha", default=1.0),
+        }
+
+        layer_modules: dict[int, dict[str, Any]] = {}
+        for name in quantized_names:
+            m = _LAYER_RE.search(name)
+            if m is None:
+                continue
+            layer_idx = int(m.group(1))
+            suffix = m.group(2)
+            layer_modules.setdefault(layer_idx, {})[suffix] = {
+                "bits": 1,
+                "method": "onebit",
+                "params": params,
+            }
+        if not layer_modules:
+            return []
+        return [layer_modules.get(i, {}) for i in range(num_layers)]
+
+    def finalize_quant_config_for_save(
+        self,
+        quant_config: dict[str, Any],
+        quantized_layer_names: list[str],
+        num_hidden_layers: Optional[int] = None,
+    ) -> dict[str, Any]:
+        if num_hidden_layers is None:
+            raise ValueError("num_hidden_layers is required")
+        quant_config["quantization_bits"] = Onebit._build_quantization_bits(
+            quantized_layer_names, quant_config, num_hidden_layers
+        )
+        return quant_config
+
+    def create_inference_layer(self, result, linear_module, **kwargs):
+        """Build OneBitLinear from OnebitResult."""
+        from .onebit_layer import OneBitLinear
+
+        bias = (
+            linear_module.bias
+            if hasattr(linear_module, "bias") and linear_module.bias is not None
+            else None
+        )
+        device = linear_module.weight.device
+
+        return OneBitLinear.from_quantization_result(
+            result,
+            bias=bias,
+            device=device,
         )

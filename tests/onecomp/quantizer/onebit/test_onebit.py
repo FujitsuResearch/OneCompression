@@ -121,7 +121,7 @@ class TestOnebit(BaseQuantizeSpec):
 
     def check_equal_results(self, r1, r2):
         """Validate equality of quantization result objects."""
-        assert torch.equal(r1.dequantized_weight, r2.dequantized_weight)
+        assert torch.equal(r1.compute_dequantized_weight(), r2.compute_dequantized_weight())
         assert torch.equal(r1.a, r2.a)
         assert torch.equal(r1.b, r2.b)
         assert torch.equal(r1.sign, r2.sign)
@@ -152,10 +152,5 @@ class TestOnebit(BaseQuantizeSpec):
 
     def apply_quantized_weights(self, module, result, device):
         """Apply quantized weights to a module."""
-        module.weight.data = result.dequantized_weight.to(device)
-
-    def test_forward_error(self, helper):
-        """Skip forward error test (no inference layer support)."""
-        import pytest
-
-        pytest.skip("OneBit does not support create_inference_layer")
+        dtype = module.weight.data.dtype
+        module.weight.data = result.compute_dequantized_weight().to(device).to(dtype)

@@ -6,13 +6,15 @@ Author: Keiji Kimura
 
 """
 
+import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import torch
 
 from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.quantizer.gptq._gptq import GPTQ
+from onecomp.utils.quant_config import get_quant_param
 
 from .core import compute_matrix_XX, quantize
 from .core.solution import Solution
@@ -128,7 +130,7 @@ class JointQResult(QuantizationResult):
 
 @dataclass
 class JointQ(Quantizer):
-    """JointQ quantizer class.
+    """JointQ quantizer class
 
     JointQ is a post-training quantization method that combines multiple
     initialization strategies (Clip-Optimize, Clip-Optimize-EP, GPTQ) with
@@ -324,11 +326,20 @@ class JointQ(Quantizer):
 
         Also delegates to ``self.gptq.validate_params()`` for GPTQ's own
         parameter validation (blocksize, percdamp, etc.).
+
+        Warnings:
+            bits == 1: valid, but GPTQLinear weight packing does not support
+                1-bit; the inference layer must be built with pack_weights=False.
         """
         bad = []
 
         if not (isinstance(self.bits, int) and self.bits >= 1):
             bad.append(f"Invalid JointQ parameter 'bits': {self.bits!r} (expected int >= 1).")
+        elif self.bits == 1:
+            self.logger.warning(
+                "JointQ with bits=1 is not supported by GPTQLinear weight packing; "
+                "build the inference layer with pack_weights=False."
+            )
 
         if self.group_size is not None and not (
             isinstance(self.group_size, int) and self.group_size >= 1
@@ -695,6 +706,115 @@ class JointQ(Quantizer):
             zero_point=zero_point.cpu(),
             assignment=assignment.cpu(),
             perm=perm.cpu() if perm is not None else None,
+        )
+
+    def get_quant_config(self) -> dict:
+        """Return GPTQ-compatible quantization config.
+
+        JointQ uses the same scale/zero/assignment structure as GPTQ,
+        so we emit quant_method="gptq" to reuse GPTQLinear and vLLM GPTQ plugin.
+        """
+        return {
+            "quant_method": "gptq",
+            "bits": self.bits,
+            "groupsize": self.group_size if self.group_size is not None else -1,
+            "group_size": self.group_size if self.group_size is not None else -1,
+            "actorder": self.actorder,
+            "desc_act": self.actorder,
+            "sym": self.symmetric,
+            "checkpoint_format": "gptq",
+        }
+
+    @staticmethod
+    def _build_quantization_bits(
+        quantized_names: list[str],
+        quant_config: dict[str, Any],
+        num_layers: int,
+    ) -> list[dict[str, Any]]:
+        _LAYER_RE = re.compile(r"\.layers\.(\d+)\.(.*)")
+        default_bits = quant_config.get("bits", 4)
+        default_gs = get_quant_param(quant_config, "group_size", "groupsize", default=-1)
+
+        layer_modules: dict[int, dict[str, Any]] = {}
+        for name in quantized_names:
+            m = _LAYER_RE.search(name)
+            if m is None:
+                continue
+            layer_idx = int(m.group(1))
+            suffix = m.group(2)
+
+            layer_modules.setdefault(layer_idx, {})[suffix] = {
+                "bits": default_bits,
+                "method": "gptq",
+                "params": {"group_size": default_gs},
+            }
+        if not layer_modules:
+            return []
+
+        return [layer_modules.get(i, {}) for i in range(num_layers)]
+
+    def finalize_quant_config_for_save(
+        self,
+        quant_config: dict[str, Any],
+        quantized_layer_names: list[str],
+        num_hidden_layers: Optional[int] = None,
+    ) -> dict[str, Any]:
+        if num_hidden_layers is None:
+            raise ValueError("num_hidden_layers is required")
+        quant_config["quantization_bits"] = JointQ._build_quantization_bits(
+            quantized_layer_names, quant_config, num_hidden_layers
+        )
+        return quant_config
+
+    def create_inference_layer(self, result, linear_module, **kwargs):
+        """Build GPTQLinear from JointQResult.
+
+        Converts JointQ's 3D assignment (out_features, num_groups, group_size)
+        to 2D qweight (out_features, in_features), matching GPTQ format.
+        JointQ scale/zero_point shape is (out_features, num_groups);
+        GPTQLinear expects (num_groups, out_features), so we transpose.
+        """
+        from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
+
+        qweight = result.assignment.reshape(result.assignment.shape[0], -1)
+
+        # When `actorder` is enabled, `assignment` is stored in the permuted column order.
+        # Restore the original column order before passing to GPTQLinear.
+        # GPTQLinear constructs `g_idx` assuming `qweight` uses the original column ordering.
+        if result.perm is not None:
+            invperm = torch.argsort(result.perm)
+            qweight = qweight[:, invperm]
+
+        pack_weights = kwargs.get("pack_weights", True)
+
+        quantized_weight = qweight.to(torch.int32)
+        zero = result.zero_point.float()
+
+        # Symmetric quantization uses signed integers [-2^(n-1), 2^(n-1)-1];
+        # shift to unsigned [0, 2^n - 1] for GPTQLinear bit packing.
+        if result.symmetric:
+            offset = 2 ** (result.bits - 1)
+            quantized_weight = quantized_weight + offset
+            zero = zero + offset
+
+        return GPTQLinear(
+            in_features=quantized_weight.shape[1],
+            out_features=quantized_weight.shape[0],
+            wbits=result.bits,
+            groupsize=result.group_size if result.group_size is not None else -1,
+            actorder=(result.perm is not None),
+            quantized_weight=quantized_weight,
+            scale=result.scale.T,
+            zero=zero.T,
+            perm=result.perm,
+            bias=(
+                linear_module.bias
+                if hasattr(linear_module, "bias") and linear_module.bias is not None
+                else None
+            ),
+            device=linear_module.weight.device,
+            pack_weights=pack_weights,
+            use_gemlite=kwargs.get("use_gemlite"),
         )
 
     # ------------------------------------------------------------------

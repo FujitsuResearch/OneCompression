@@ -107,7 +107,16 @@ def optimize_onebit_block(
 
     logger.info("[OneBit Block-wise] Initial MSE: %.6f", initial_error)
 
-    from ...quantizer.onebit.onebit_layer import my_pack
+    from ...quantizer.onebit.onebit_layer import my_pack, my_unpack
+
+    def _current_sign_matrix(mod):
+        if mod.sign_matrix is not None:
+            return mod.sign_matrix
+        return (
+            my_unpack(mod.sign_packed)[: mod._sign_numel]
+            .reshape(mod.out_features, mod.in_features)
+            .to(torch.int8)
+        )
 
     # --- Save initial state for rollback (state_dict snapshot) ---
     initial_snap = copy.deepcopy(layer.state_dict())
@@ -130,8 +139,8 @@ def optimize_onebit_block(
         mod.b.requires_grad_(True)
         scaling_params.append(mod.b)
 
-        if optimize_sign and mod.sign_matrix is not None:
-            sign_weight = mod.sign_matrix.float().detach().clone().to(dev)
+        if optimize_sign:
+            sign_weight = _current_sign_matrix(mod).float().detach().clone().to(dev)
             sign_weight.requires_grad_(True)
             sign_params.append((name, mod, sign_weight))
 
@@ -154,7 +163,7 @@ def optimize_onebit_block(
     original_sign_mats = {}
     if optimize_sign:
         for name, mod, _sw in sign_params:
-            original_sign_mats[name] = mod.sign_matrix.clone()
+            original_sign_mats[name] = _current_sign_matrix(mod).clone()
 
     best_eval_mse = initial_error
     best_snap = {}
@@ -167,8 +176,8 @@ def optimize_onebit_block(
                 for _name, mod, sign_weight in sign_params:
                     sq = sign_weight.data.sign()
                     sq[sq == 0] = 1
-                    mod.sign_matrix = sq.to(torch.int8)
                     mod.sign_packed = my_pack(sq)
+                    mod.sign_matrix = None
         layer.eval()
         with torch.no_grad():
             total = 0.0
@@ -245,8 +254,8 @@ def optimize_onebit_block(
                 for _mod_name, mod, sign_weight in sign_params:
                     sq = sign_weight.data.sign()
                     sq[sq == 0] = 1
-                    mod.sign_matrix = sq.to(torch.int8)
                     mod.sign_packed = my_pack(sq)
+                    mod.sign_matrix = None
     finally:
         # --- Cleanup ---
         for _name, mod in onebit_modules:
