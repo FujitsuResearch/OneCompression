@@ -130,7 +130,7 @@ The `--extra cu128` option installs the CUDA-enabled version of PyTorch (along w
 Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
 PyTorch will be automatically downloaded by `uv`, so you do not need to install it beforehand.
 
-Adding `--extra dev` installs development tools (black, pytest, pylint).
+Adding `--extra dev` installs development tools (black, pre-commit, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
 Adding `--extra hydra` installs `hydra-core` for the example scripts and `model_validation/` runners that use Hydra-based configuration.
 
@@ -178,6 +178,40 @@ pip install -e ".[dev]"
 ```
 
 Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
+
+#### Pre-commit
+
+After installing development dependencies (`--extra dev` with uv, or `pip install -e ".[dev]"` with pip), register the Git hooks once:
+
+```bash
+pre-commit install
+```
+
+On every `git commit`, the following checks run automatically:
+
+| Hook | Description |
+|------|-------------|
+| **black** | Code formatting (line length 99) |
+| **isort** | Import sorting |
+| **no-japanese** | Forbid Japanese characters in text files (`.md` and `.gitignore` are excluded) |
+| **copyright-header** | Verify the Fujitsu copyright header in Python files |
+| **no-email-address** | Forbid email addresses in Python files |
+
+Common commands:
+
+```bash
+# Run hooks on staged files only
+pre-commit run
+
+# Run hooks on all files (useful after first install or config changes)
+pre-commit run --all-files
+
+# Run a specific hook
+pre-commit run black --all-files
+
+# With uv (no activation needed)
+uv run pre-commit run --all-files
+```
 
 
 ### Building Documentation Locally

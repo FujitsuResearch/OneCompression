@@ -13,9 +13,9 @@ import torch
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from onecomp.quantizer.rtn._rtn import RTN, RTNResult
-
 from test_module import BaseQuantizeSpec
+
+from onecomp.quantizer.rtn._rtn import RTN, RTNResult
 
 
 class TestRTN(BaseQuantizeSpec):

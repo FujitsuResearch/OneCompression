@@ -1,6 +1,11 @@
 # Change log
 
-## [v1.1.1+feature/dev_save_load] 2026-06-03
+
+## [v1.2.0] 2026-06-04 (WIP)
+
+### for Developer: pre-commit
+
+- Added `.pre-commit-config.yaml` with `black`, `isort`, and local hooks (`no-japanese`, `copyright-header`, `no-email-address`); install with `uv sync --extra dev` then `pre-commit install` (see README)
 
 ### Save/Load Support for JointQ, RTN, and OneBit Quantizers
 

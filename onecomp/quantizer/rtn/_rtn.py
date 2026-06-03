@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import torch
 
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.quantizer.rtn.rtn_impl import run_rtn
 from onecomp.utils.quant_config import get_quant_param
 

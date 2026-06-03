@@ -12,12 +12,12 @@ from typing import Any, List, Optional
 
 import torch
 
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
+from onecomp.quantizer.gptq._gptq import GPTQ
+from onecomp.utils.quant_config import get_quant_param
+
 from .core import compute_matrix_XX, quantize
 from .core.solution import Solution
-
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
-from onecomp.utils.quant_config import get_quant_param
-from onecomp.quantizer.gptq._gptq import GPTQ
 
 _DEFAULT_LAMBDA_LIST = [0.001, 0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5]
 

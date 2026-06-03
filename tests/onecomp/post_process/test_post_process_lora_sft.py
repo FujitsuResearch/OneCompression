@@ -22,10 +22,7 @@ import pytest
 import torch
 
 from onecomp import GPTQ, CalibrationConfig, ModelConfig, Runner, setup_logger
-from onecomp.post_process.post_process_lora_sft import (
-    LoRAGPTQLinear,
-    PostProcessLoraSFT,
-)
+from onecomp.post_process.post_process_lora_sft import LoRAGPTQLinear, PostProcessLoraSFT
 
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"

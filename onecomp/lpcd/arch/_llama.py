@@ -3,20 +3,20 @@ Copyright 2025-2026 Fujitsu Ltd.
 
 """
 
+from typing import Callable
+
 import torch
 from torch import nn
 from transformers.models.llama.modeling_llama import (
-    LlamaDecoderLayer,
     LlamaAttention,
+    LlamaDecoderLayer,
     apply_rotary_pos_emb,
     repeat_kv,
 )
 
-from ._llama_cf import closed_form_solver_o_proj, closed_form_solver_down_proj
-
 from .._lpcd_config import LPCDConfig
 from .._metric import ClosedFormSolverArgument, LpcdMetric, LpcdMetricGroup
-from typing import Callable
+from ._llama_cf import closed_form_solver_down_proj, closed_form_solver_o_proj
 
 
 class LlamaQueryKey(LpcdMetric):

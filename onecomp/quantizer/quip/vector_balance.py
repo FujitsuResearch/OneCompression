@@ -4,9 +4,10 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
-import torch
 import sys
 from logging import getLogger
+
+import torch
 
 logger = getLogger(__name__)
 

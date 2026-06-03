@@ -5,9 +5,8 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
-from typing import Any, Dict, Literal, Tuple
-
 import logging
+from typing import Any, Dict, Literal, Tuple
 
 logger = logging.getLogger(__name__)
 import torch

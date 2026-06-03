@@ -20,7 +20,7 @@ from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
 from .quantizer.dbf.config import resolve_dbf_layer_bits
 from .quantizer.dbf.dbf_layer import DoubleBinaryLinear
-from .quantizer.gptq.config import resolve_gptq_layer_wbits, resolve_gptq_layer_group_size
+from .quantizer.gptq.config import resolve_gptq_layer_group_size, resolve_gptq_layer_wbits
 from .quantizer.gptq.gptq_layer import GPTQLinear
 from .quantizer.onebit.onebit_layer import OneBitLinear
 from .utils.dtype import needs_bfloat16

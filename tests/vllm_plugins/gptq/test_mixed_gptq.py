@@ -17,9 +17,7 @@ import pytest
 try:
     from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
     from vllm.model_executor.layers.quantization.gptq import GPTQLinearMethod
-    from vllm.model_executor.layers.quantization.gptq_marlin import (
-        GPTQMarlinLinearMethod,
-    )
+    from vllm.model_executor.layers.quantization.gptq_marlin import GPTQMarlinLinearMethod
 
     _HAS_VLLM = True
 except ImportError:

@@ -3,10 +3,11 @@
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
-import sys
 import os
-import torch
+import sys
+
 import pytest
+import torch
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -18,8 +19,9 @@ try:
 except ImportError:
     HAS_JOINTQ = False
 
-from onecomp.quantizer._quantizer import QuantizationResult
 from test_module import BaseQuantizeSpec
+
+from onecomp.quantizer._quantizer import QuantizationResult
 
 
 @pytest.mark.skipif(not HAS_JOINTQ, reason="jointq package not installed")

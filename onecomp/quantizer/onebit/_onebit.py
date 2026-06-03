@@ -13,11 +13,12 @@ Author: Keiji Kimura
 """
 
 import re
-import torch
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+import torch
+
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.utils.quant_config import get_quant_param
 
 from .onebit_impl import run_onebit
