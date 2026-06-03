@@ -22,17 +22,10 @@ from onecomp.model_config import ModelConfig
 from onecomp.qep import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
 
-from ._refiner import refiner, compute_mse
+from ..qep._quantize_with_qep_arch import compute_hessian_and_crossterm, make_grouped_module
+from ..utils.blockwise import forward_input, get_blocks_and_inputs, move_kwargs_to_device
 from ._metric import make_lpcd_metrics
-from ..utils.blockwise import (
-    get_blocks_and_inputs,
-    move_kwargs_to_device,
-    forward_input,
-)
-from ..qep._quantize_with_qep_arch import (
-    make_grouped_module,
-    compute_hessian_and_crossterm,
-)
+from ._refiner import compute_mse, refiner
 
 logger = getLogger(__name__)
 

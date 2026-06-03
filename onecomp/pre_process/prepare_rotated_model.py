@@ -222,12 +222,8 @@ def prepare_rotated_model(
     """
     if calibration_config is None:
         calibration_config = CalibrationConfig()
-    from .train_rotation import (
-        PreprocessManager,
-        apply_preprocess_eval,
-        apply_preprocess_train,
-    )
     from ..calibration import prepare_calibration_dataset
+    from .train_rotation import PreprocessManager, apply_preprocess_eval, apply_preprocess_train
 
     _validate_prepare_rotated_model_params(
         rotation=rotation,

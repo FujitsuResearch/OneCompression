@@ -16,10 +16,12 @@ import torch.nn as nn
 import transformers
 from transformers import default_data_collator
 
+from .optimizer import SGDG
+from .preprocess_args import TrainingArguments, get_training_arguments
 from .quant_models import (
     QuantEmbedding,
-    QuantLlamaDecoderLayer,
     QuantLinear,
+    QuantLlamaDecoderLayer,
     QuantQwen3DecoderLayer,
     QuantRMSNorm,
     RotateModule,
@@ -34,8 +36,6 @@ from .rotation_utils import (
     rotate_model,
     untie_word_embeddings,
 )
-from .optimizer import SGDG
-from .preprocess_args import TrainingArguments, get_training_arguments
 
 logger = getLogger(__name__)
 
@@ -307,10 +307,10 @@ def _convert_model_structure(config, model_type, model_path, use_sdpa=False):
         by ``Quant*`` layers, fused-norm-ready embeddings and head, and
         untied embeddings.
     """
+    import copy
+
     from .modeling_llama import LlamaForCausalLM as QLlamaFC
     from .modeling_qwen3 import Qwen3ForCausalLM as QQwen3FC
-
-    import copy
 
     config = copy.deepcopy(config)
     config._attn_implementation = "sdpa" if use_sdpa else "eager"

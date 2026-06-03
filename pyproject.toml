@@ -56,6 +56,7 @@ cu130 = ["torch", "torchvision"]
 dev = [
     "black",
     "hydra-core",
+    "pre-commit",
     "pylint",
     "pytest",
 ]
@@ -161,6 +162,10 @@ markers = [
 
 [tool.black]
 line-length = 99
+
+[tool.isort]
+profile = "black"
+line_length = 99
 
 [tool.setuptools.dynamic]
 version = {attr = "onecomp.__version__.__version__"}

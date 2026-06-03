@@ -30,8 +30,8 @@ References:
 
 """
 
-from datasets import load_dataset
 import torch
+from datasets import load_dataset
 from tqdm import tqdm
 
 from .model_inputs import add_model_specific_inputs

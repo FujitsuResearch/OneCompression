@@ -1,6 +1,10 @@
 # Change log
 
-## [v1.1.1+hotfix/unit_test] 2026/05/22
+## [v1.2.0] 2026-06-04 (WIP)
+
+### for Developer: pre-commit
+
+- Added `.pre-commit-config.yaml` with `black`, `isort`, and local hooks (`no-japanese`, `copyright-header`, `no-email-address`); install with `uv sync --extra dev` then `pre-commit install` (see README)
 
 ### Quantizer module forward test fix
 

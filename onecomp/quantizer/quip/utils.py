@@ -5,9 +5,10 @@ Author: Yuma Ichikawa
 """
 
 import math
-import torch
+
 import primefac
 import scipy.stats
+import torch
 
 
 def butterfly_factors(n):

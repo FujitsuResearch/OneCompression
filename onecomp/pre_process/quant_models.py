@@ -14,24 +14,14 @@ import torch.nn as nn
 from transformers.activations import ACT2FN
 from transformers.modeling_layers import GradientCheckpointingLayer
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+
 from .hadamard_utils import get_hadK, matmul_hadU_cuda
-from .modeling_llama import (
-    LlamaConfig,
-    LlamaAttention,
-    LlamaDecoderLayer,
-    LlamaMLP,
-    eager_attention_forward as llama_eager_attention_forward,
-    apply_rotary_pos_emb as llama_apply_rotary_pos_emb,
-)
-from .modeling_qwen3 import (
-    Qwen3Config,
-    Qwen3Attention,
-    Qwen3DecoderLayer,
-    Qwen3MLP,
-    Qwen3RMSNorm,
-    eager_attention_forward as qwen3_eager_attention_forward,
-    apply_rotary_pos_emb as qwen3_apply_rotary_pos_emb,
-)
+from .modeling_llama import LlamaAttention, LlamaConfig, LlamaDecoderLayer, LlamaMLP
+from .modeling_llama import apply_rotary_pos_emb as llama_apply_rotary_pos_emb
+from .modeling_llama import eager_attention_forward as llama_eager_attention_forward
+from .modeling_qwen3 import Qwen3Attention, Qwen3Config, Qwen3DecoderLayer, Qwen3MLP, Qwen3RMSNorm
+from .modeling_qwen3 import apply_rotary_pos_emb as qwen3_apply_rotary_pos_emb
+from .modeling_qwen3 import eager_attention_forward as qwen3_eager_attention_forward
 
 
 def _get_attention_fn(impl_name, eager_fallback):

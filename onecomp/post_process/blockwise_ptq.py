@@ -154,12 +154,12 @@ class BlockWisePTQ(PostQuantizationProcess):
         # 2. Get transformer blocks
         # ------------------------------------------------------------------
         from ._blockwise.helpers import (
-            get_transformer_layers,
-            collect_layer_inputs,
-            layer_kwargs_to_device,
-            layer_forward_single,
-            deep_clone_layer_kwargs,
             auto_detect_quantization_strategy,
+            collect_layer_inputs,
+            deep_clone_layer_kwargs,
+            get_transformer_layers,
+            layer_forward_single,
+            layer_kwargs_to_device,
         )
 
         layers = get_transformer_layers(quantized_model)
@@ -376,9 +376,7 @@ class BlockWisePTQ(PostQuantizationProcess):
 
                 # CBQ optimisation
                 if method_i == "gptq":
-                    from ._blockwise.gptq_cbq_optimizer import (
-                        optimize_gptq_cross_block,
-                    )
+                    from ._blockwise.gptq_cbq_optimizer import optimize_gptq_cross_block
 
                     init_err, final_err = optimize_gptq_cross_block(
                         layer_i=layer_si,
@@ -394,9 +392,7 @@ class BlockWisePTQ(PostQuantizationProcess):
                         intweight_lr=self.gptq_intweight_lr,
                     )
                 elif method_i == "dbf":
-                    from ._blockwise.dbf_cbq_optimizer import (
-                        optimize_dbf_cross_block,
-                    )
+                    from ._blockwise.dbf_cbq_optimizer import optimize_dbf_cross_block
 
                     init_err, final_err = optimize_dbf_cross_block(
                         layer_i=layer_si,
@@ -412,9 +408,7 @@ class BlockWisePTQ(PostQuantizationProcess):
                         grad_clip=cbq_grad_clip,
                     )
                 elif method_i == "onebit":
-                    from ._blockwise.onebit_cbq_optimizer import (
-                        optimize_onebit_cross_block,
-                    )
+                    from ._blockwise.onebit_cbq_optimizer import optimize_onebit_cross_block
 
                     init_err, final_err = optimize_onebit_cross_block(
                         layer_i=layer_si,

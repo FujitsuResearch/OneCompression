@@ -7,6 +7,7 @@ Author: Keiji Kimura
 """
 
 import time
+
 import torch
 
 from ..quantizer import Quantizer

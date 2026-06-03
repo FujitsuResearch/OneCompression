@@ -12,11 +12,12 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 """
 
-import torch
 from dataclasses import dataclass
 from typing import Optional
 
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+import torch
+
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 
 from .onebit_impl import run_onebit
 
