@@ -29,6 +29,7 @@ from .quantizer.autobit import AutoBitQuantizer
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
 from .utils.quantization_progress import QuantizationProgressTracker
+from .rotated_model_config import RotatedModelConfig
 from .log import setup_logger
 
 
@@ -96,7 +97,10 @@ class Runner:
                 Model configuration.  Required.
             quantizer (Quantizer):
                 The quantizer to use. Specify either ``quantizer`` or
-                ``quantizers``, not both.  At least one must be given.
+                ``quantizers``, not both.  At least one must be given for
+                ``run()``. ``None`` is only supported when assigning
+                ``runner.quantized_model`` directly and calling
+                ``run_post_processes()``.
             quantizers (list[Quantizer]):
                 Specify multiple quantizers. When used with
                 ``calibration_config.batch_size``, the X^T X accumulation
@@ -216,6 +220,7 @@ class Runner:
         self.gpu_ids = gpu_ids
         self.post_processes = post_processes or []
         self.quantized_model = None
+        self._applied_processes = []
         self.qep_config = None
         if qep:
             self.qep_config = qep_config if qep_config is not None else QEPConfig()
@@ -859,33 +864,43 @@ class Runner:
     def run_post_processes(self):
         """Execute post-quantization processes.
 
-        Builds a quantized model on CPU from ``quantizer.results`` and
-        passes it to each :class:`PostQuantizationProcess` in order.
+        Uses ``self.quantized_model`` when one has already been assigned;
+        otherwise builds a quantized model on CPU from ``quantizer.results``.
+        The model is passed to each :class:`PostQuantizationProcess` in order.
 
         Raises:
-            ValueError: If ``self.quantizer`` is ``None``
-                (``quantizers`` mode is not yet supported).
+            ValueError: If neither ``self.quantized_model`` nor
+                ``self.quantizer`` is available (``quantizers`` mode is not
+                yet supported for building post-process inputs).
         """
         logger = self.logger
+        self._applied_processes = []
 
-        if self.quantizer is None:
-            raise ValueError(
-                "post_processes requires a single 'quantizer'. "
-                "'quantizers' (multiple) is not yet supported with post_processes."
+        if self.quantized_model is not None:
+            logger.info("Using existing quantized model for post-quantization processes")
+            quantized_model = self._prepare_preloaded_quantized_model_for_post_process(
+                self.quantized_model
             )
-
-        logger.info("Building quantized model for post-quantization processes...")
-        # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
-        # LoRA SFT runs with bfloat16 autocast.  Plain buffers (qweight/scales) are
-        # needed so training can call base_layer.forward() without dtype mismatch.
-        quantized_model, _ = self.create_quantized_model(
-            pack_weights=False,
-            use_gemlite=False,
-        )
+        elif self.quantizer is not None:
+            logger.info("Building quantized model for post-quantization processes...")
+            # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
+            # LoRA SFT runs with bfloat16 autocast.  Plain buffers (qweight/scales) are
+            # needed so training can call base_layer.forward() without dtype mismatch.
+            quantized_model, _ = self.create_quantized_model(
+                pack_weights=False,
+                use_gemlite=False,
+            )
+        else:
+            raise ValueError(
+                "post_processes requires either 'runner.quantized_model' or a single "
+                "'quantizer'. 'quantizers' (multiple) is not yet supported with "
+                "post_processes."
+            )
 
         for process in self.post_processes:
             logger.info("Start post-quantization process: %s", process.name)
             process.run(quantized_model, self.model_config)
+            self._applied_processes.append(process)
             logger.info("Finished post-quantization process: %s", process.name)
 
         self.quantized_model = quantized_model
@@ -1884,6 +1899,97 @@ class Runner:
             self.logger.info("Copied %s to save directory", name)
         return copied
 
+    def _validate_quantized_model_config(self, model, context: str) -> dict:
+        """Validate and return ``model.config.quantization_config``."""
+        model_config = getattr(model, "config", None)
+        if model_config is None:
+            raise RuntimeError(f"{context}: model.config is required.")
+
+        quant_config = getattr(model_config, "quantization_config", None)
+        if not isinstance(quant_config, dict):
+            raise RuntimeError(
+                f"{context}: model.config.quantization_config must be a dict."
+            )
+        if not quant_config.get("quant_method"):
+            raise RuntimeError(
+                f"{context}: quantization_config must contain 'quant_method'."
+            )
+        if "modules_in_block_to_quantize" not in quant_config:
+            raise RuntimeError(
+                f"{context}: quantization_config must contain "
+                "'modules_in_block_to_quantize'."
+            )
+        return quant_config
+
+    def _prepare_preloaded_quantized_model_for_post_process(self, model):
+        """Validate a pre-loaded quantized model and move it to CPU."""
+        if self.model_config is None:
+            raise RuntimeError(
+                "run_post_processes with runner.quantized_model requires model_config."
+            )
+
+        model = model.cpu()
+        quant_config = self._validate_quantized_model_config(
+            model, "pre-loaded quantized model"
+        )
+        self._validate_rotated_checkpoint_consistency(quant_config)
+        return model
+
+    def _validate_rotated_checkpoint_consistency(self, quant_config: dict) -> None:
+        """Check rotated checkpoint metadata against ``Runner.model_config``."""
+        model_config = self.model_config
+        checkpoint_rotated = bool(quant_config.get("rotated", False))
+        model_config_rotated = isinstance(model_config, RotatedModelConfig)
+
+        if checkpoint_rotated and not model_config_rotated:
+            raise RuntimeError(
+                "Loaded checkpoint is marked as rotated, but model_config is not "
+                "a RotatedModelConfig."
+            )
+        if not checkpoint_rotated and model_config_rotated:
+            raise RuntimeError(
+                "Loaded checkpoint is not marked as rotated, but model_config is "
+                "a RotatedModelConfig."
+            )
+        if checkpoint_rotated:
+            checkpoint_fp32_had = bool(quant_config.get("fp32_had", False))
+            model_config_fp32_had = bool(getattr(model_config, "fp32_had", False))
+            if checkpoint_fp32_had != model_config_fp32_had:
+                raise RuntimeError(
+                    "Loaded checkpoint fp32_had does not match model_config.fp32_had "
+                    f"({checkpoint_fp32_had} != {model_config_fp32_had})."
+                )
+
+    def _attach_post_process_metadata(self, quant_config: dict) -> bool:
+        """Append pending post-process metadata to saved metadata history.
+
+        ``onecomp_post_processes`` accumulates one entry per applied
+        post-process across save/load cycles, so ``config.json`` records the
+        full post-process history of a checkpoint.
+        """
+        pending_metadata = [
+            process.build_metadata() for process in self._applied_processes
+        ]
+        if not pending_metadata:
+            return False
+
+        # This key normally comes from a config.json that OneComp itself wrote
+        # (always a list).  We still tolerate a hand-edited / externally
+        # produced config: if the key was removed (missing or None) start a
+        # fresh history, but if it was set to a non-list value fail loudly
+        # rather than silently discarding whatever the user put there.
+        history_key = "onecomp_post_processes"
+        existing_metadata = quant_config.get(history_key, [])
+        if existing_metadata is None:
+            existing_metadata = []
+        if not isinstance(existing_metadata, list):
+            raise RuntimeError(
+                f"quantization_config['{history_key}'] must be a list."
+            )
+
+        quant_config[history_key] = existing_metadata + pending_metadata
+        return True
+
     def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
         """Save the quantized model to the specified directory
 
@@ -1904,13 +2010,25 @@ class Runner:
 
         if self.quantized_model is not None:
             logger.info("Using existing quantized model (post-process results preserved)")
+            if self.model_config is None:
+                raise RuntimeError(
+                    "save_quantized_model with runner.quantized_model requires model_config."
+                )
             model = self.quantized_model
+            quant_config = self._validate_quantized_model_config(
+                model,
+                "save_quantized_model",
+            )
             tokenizer = self.model_config.load_tokenizer()
         else:
             # Disable GemLite when saving to avoid extra params in safetensors
             model, tokenizer = self.create_quantized_model(
                 pack_weights=pack_weights, use_gemlite=False
             )
+            quant_config = None
+
+        if quant_config is not None:
+            self._attach_post_process_metadata(quant_config)
 
         # Save model and tokenizer
         save_path = Path(save_directory)
@@ -1941,6 +2059,9 @@ class Runner:
             self._copy_auxiliary_files(src_dir, save_directory)
         else:
             logger.warning("Source model dir not resolvable; skipping auxiliary file copy.")
+
+        if quant_config is not None:
+            self._applied_processes = []
 
         logger.info(f"Quantized model saved to {save_directory}")
         return save_directory

@@ -37,7 +37,7 @@ class QuantizedModelLoader:
         save_directory: str,
         *,
         torch_dtype: Optional[torch.dtype] = None,
-        device_map: str = "auto",
+        device_map: Optional[str] = "auto",
         trust_remote_code: bool = True,
         local_files_only: bool = True,
     ) -> Tuple[Any, Any]:
@@ -59,6 +59,7 @@ class QuantizedModelLoader:
             save_directory: Path to the saved model directory.
             torch_dtype: Model dtype (default: torch.float16).
             device_map: Device placement (default: "auto").
+                Set to ``None`` or ``""`` to leave the model on CPU.
             trust_remote_code: Passed to from_pretrained.
             local_files_only: Passed to from_pretrained.
 
@@ -174,6 +175,11 @@ class QuantizedModelLoader:
             local_files_only=local_files_only,
         )
 
+        # _build_empty_model_from_config removes quantization_config before
+        # constructing the HF config.  Reattach it so callers can refine and
+        # re-save a loaded quantized model without separately reading config.json.
+        model.config.quantization_config = quant_config
+
         return model, tokenizer
 
     @classmethod
@@ -181,7 +187,7 @@ class QuantizedModelLoader:
         cls,
         save_directory: str,
         *,
-        device_map: str = "auto",
+        device_map: Optional[str] = "auto",
         local_files_only: bool = True,
     ) -> Tuple[Any, Any]:
         """Load a quantized model and tokenizer saved as a PyTorch .pt file.

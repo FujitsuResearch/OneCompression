@@ -8,7 +8,8 @@ Author: Keiji Kimura
 """
 
 from abc import ABCMeta, abstractmethod
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import json
 from typing import Optional
 
 import torch.nn as nn
@@ -77,3 +78,30 @@ class PostQuantizationProcess(metaclass=ABCMeta):
                 The model configuration (provides access to tokenizer,
                 model id/path, device, etc.).
         """
+
+    def build_metadata(self) -> dict:
+        """Build JSON-serializable audit metadata for this post-process.
+
+        The returned dict is appended to
+        ``quantization_config["onecomp_post_processes"]`` and written to
+        ``config.json`` by model save paths, so users can inspect which
+        post-processes (and with which hyper-parameters) were applied to a
+        saved checkpoint.
+
+        ``asdict(self)`` already yields JSON-serializable primitives for every
+        current post-process (all fields are ``str``/``int``/``float``/``bool``/
+        ``None`` or nested dataclasses/lists/dicts thereof).  The ``json``
+        round-trip with ``default=str`` is a cheap safety net: it normalises
+        tuples to lists and coerces any future non-serializable field to a
+        string here, instead of letting ``model.save_pretrained()`` raise after
+        the (expensive) post-process has already run.
+        """
+        process_config = {
+            key: value for key, value in asdict(self).items() if not key.startswith("_")
+        }
+        process_config.pop("name", None)
+        return {
+            "name": self.name or type(self).__name__,
+            "class": type(self).__name__,
+            "config": json.loads(json.dumps(process_config, default=str)),
+        }
