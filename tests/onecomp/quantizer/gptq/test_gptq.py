@@ -24,7 +24,7 @@ class TestGPTQ(BaseQuantizeSpec):
     __test__ = True
     quantizer_cls = GPTQ
     result_cls = GPTQResult
-    default_parameter_for_test = {}
+    default_parameter_for_test = {"bitpack_on_quantize": False}
     boundary_parameters = [
         # blocksize: int >= 1 (validated by validate_params), no explicit upper
         {"blocksize": 1},  # blocksize lower boundary
@@ -108,6 +108,11 @@ class TestGPTQ(BaseQuantizeSpec):
     ]
     logger = logging.getLogger(__name__)
 
+    def make_quantizer(self, **params):
+        """Instantiate GPTQ with unpacked quantize_layer results by default."""
+        merged = {**self.default_parameter_for_test, **params}
+        return self.quantizer_cls(**merged)
+
     def check_quantize_layer(
         self,
         result,
@@ -138,6 +143,9 @@ class TestGPTQ(BaseQuantizeSpec):
         assert result.qzeros.dtype == torch.int32
         assert result.qzeros.device == torch.device("cpu")
 
+        assert result.qweight_is_packed is False
+        assert result.qzeros_is_packed is False
+        assert result.qweight_original_shape == tuple(layer.weight.shape)
         assert result.qweight.shape == layer.weight.shape
 
         if result.actorder:
