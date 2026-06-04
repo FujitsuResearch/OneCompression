@@ -15,7 +15,7 @@ setup_logger()
 
 # Prepare the model
 model_config = ModelConfig(
-    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T", device="cuda:0"
+    model_id="Qwen/Qwen3.6-27B"
 )
 
 # Configure the quantization method
