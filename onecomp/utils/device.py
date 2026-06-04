@@ -12,6 +12,16 @@ def _has_mps_backend() -> bool:
     return hasattr(torch.backends, "mps")
 
 
+def is_mps_device(device: torch.device | str | None) -> bool:
+    """Return True when device refers to Apple MPS."""
+    if device is None:
+        return False
+    if isinstance(device, torch.device):
+        return device.type == "mps"
+    dev = str(device)
+    return dev == "mps" or dev.startswith("mps:")
+
+
 def get_default_device() -> torch.device:
     """Return the best available device: CUDA > MPS > CPU."""
     if torch.cuda.is_available():

@@ -25,12 +25,14 @@ from .model_config import ModelConfig
 from .qep import QEPConfig
 from .lpcd import LPCDConfig
 from .quantizer import GPTQ, Quantizer
-from .quantizer.autobit import AutoBitQuantizer
+from .quantizer.autobit import AssignmentStrategy, AutoBitQuantizer
+from .quantizer.autobit.dbf_fallback import MPS_DBF_FALLBACK_ERROR
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
 from .utils.quantization_progress import QuantizationProgressTracker
 from .log import setup_logger
 from .utils import empty_cache
+from .utils.device import is_mps_device
 
 
 class Runner:
@@ -324,10 +326,9 @@ class Runner:
                 )
 
         # MPS device validation: only GPTQ (or AutoBitQuantizer whose
-        # candidates are all GPTQ) is supported on MPS
+        # candidates are all GPTQ, without DBF fallback) is supported on MPS
         device = self.model_config.device
-        is_mps = (device == "mps" or str(device).startswith("mps"))
-        if is_mps:
+        if is_mps_device(device):
             if self.multi_gpu:
                 raise ValueError(
                     "multi_gpu is not supported on MPS device."
@@ -347,6 +348,12 @@ class Runner:
                                 "AutoBitQuantizer on MPS requires all candidate "
                                 "quantizers to be GPTQ."
                             )
+                    if (
+                        q.auto_dbf
+                        and q.assignment_strategy != AssignmentStrategy.MANUAL
+                        and q._needs_dbf_only()
+                    ):
+                        raise ValueError(MPS_DBF_FALLBACK_ERROR)
                 elif not isinstance(q, GPTQ):
                     raise ValueError(
                         f"{label} ({type(q).__name__}) is not supported on MPS device. "

@@ -654,7 +654,7 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
         zero = quantizer.zero.to(dtype=torch.int32, device="cpu")
     perm = perm.cpu() if perm is not None else None
 
-    _device = quantized_weight.device
+    _device = hessian.device
     del hessian, Hinv, matrix_W, Q_int
     gc.collect()
     empty_cache(_device)
