@@ -24,7 +24,7 @@ vLLM is available as an optional dependency:
     ```
 
     !!! note "Use `cu130`; older CUDA extras are rejected"
-        Recent vLLM releases depend on `torch>=2.10`, whose wheels are only published for the `cu130` PyTorch index. `pyproject.toml` therefore declares `--extra vllm` as conflicting with `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, and `cu128`; combining any of those with `--extra vllm` will fail at lock time. Use `--extra cu130` for vLLM workflows.
+        Recent vLLM releases depend on `torch>=2.10`, whose wheels are only published for the `cu130` PyTorch index. `pyproject.toml` therefore declares `--extra vllm` as conflicting with `cpu`, `mps`, `cu118`, `cu121`, `cu124`, `cu126`, and `cu128`; combining any of those with `--extra vllm` will fail at lock time. Use `--extra cu130` for vLLM workflows.
 
 === "pip"
 

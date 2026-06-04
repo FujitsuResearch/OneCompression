@@ -46,7 +46,8 @@ Changelog = "https://github.com/FujitsuResearch/OneCompression/blob/main/CHANGEL
 onecomp = "onecomp.cli:main"
 
 [project.optional-dependencies]
-cpu = ["torch", "torchvision"]
+cpu = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
+mps = ["torch; sys_platform == 'darwin'", "torchvision; sys_platform == 'darwin'"]
 cu118 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
 cu121 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
 cu124 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
@@ -79,13 +80,16 @@ mixed_gptq = "vllm_plugins.gptq.vllm_plugin:register_vllm_plugin"
 
 [tool.uv]
 conflicts = [
+    [{extra = "cpu"}, {extra = "mps"}],
     [{extra = "cpu"}, {extra = "cu118"}, {extra = "cu121"}, {extra = "cu124"}, {extra = "cu126"}, {extra = "cu128"}, {extra = "cu130"}],
+    [{extra = "mps"}, {extra = "cu118"}, {extra = "cu121"}, {extra = "cu124"}, {extra = "cu126"}, {extra = "cu128"}, {extra = "cu130"}],
     # vLLM (latest, >=0.20) requires torch 2.10/2.11, whose wheels are only
     # published for cu130. Forbid using vllm together with the older CUDA
     # wheel indices so that uv either picks vllm>=0.20 on cu130 or refuses
     # the combination, instead of silently falling back to a vllm version
     # that is incompatible with transformers>=5 at runtime.
     [{extra = "cpu"}, {extra = "vllm"}],
+    [{extra = "mps"}, {extra = "vllm"}],
     [{extra = "cu118"}, {extra = "vllm"}],
     [{extra = "cu121"}, {extra = "vllm"}],
     [{extra = "cu124"}, {extra = "vllm"}],
@@ -98,8 +102,9 @@ environments = [
 ]
 
 [tool.uv.sources]
+# Index overrides only: cpu/cu* redirect away from PyPI; mps has no entry (PyPI default = MPS wheels on macOS).
 torch = [
-    {index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'"},
+    {index = "pytorch-cpu", extra = "cpu"},
     {index = "pytorch-cu118", extra = "cu118"},
     {index = "pytorch-cu121", extra = "cu121"},
     {index = "pytorch-cu124", extra = "cu124"},
@@ -108,7 +113,7 @@ torch = [
     {index = "pytorch-cu130", extra = "cu130"},
 ]
 torchvision = [
-    {index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'"},
+    {index = "pytorch-cpu", extra = "cpu"},
     {index = "pytorch-cu118", extra = "cu118"},
     {index = "pytorch-cu121", extra = "cu121"},
     {index = "pytorch-cu124", extra = "cu124"},

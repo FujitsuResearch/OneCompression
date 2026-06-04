@@ -6,7 +6,7 @@
 
 - **MPS quantization**: GPTQ (and AutoBit with GPTQ-only candidates) on `device="mps"`; Cholesky-heavy steps run on CPU where MPS lacks support; cross-platform `empty_cache()` via new `onecomp/utils/device.py` (`runner.py`, `quantizer/gptq/_gptq.py`, `quantizer/_quantizer.py`)
 - **MPS inference**: load saved quantized models on Mac with `QuantizedModelLoader` + Transformers `generate()` (GemLite/vLLM remain Linux + CUDA)
-- **macOS `uv sync`**: added `darwin` to `tool.uv.environments`, Linux-only markers on CUDA extras (`cu118`–`cu130`), documented `--extra cpu` path in `README.md`
+- **macOS `uv sync`**: added `darwin` to `tool.uv.environments`, `--extra mps` for MPS-enabled PyTorch from PyPI; `--extra cpu` is Linux-only (pytorch-cpu index); Linux-only markers on CUDA extras (`cu118`–`cu130`)
 
 ## [v1.1.1] 2026-05-21
 
