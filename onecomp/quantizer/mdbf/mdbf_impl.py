@@ -12,7 +12,7 @@ The core algorithm (initialize / admm / gradient_refine) remains unchanged.
 
 Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura
+Author: Yuma Ichikawa
 
 """
 

@@ -1,6 +1,9 @@
 """Tests for the MDBF quantizer implementation.
 
 Copyright 2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+
 """
 
 import logging

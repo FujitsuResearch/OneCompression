@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 MDBF-ADMM: ADMM optimization using Multi-Scale SVID (Phase 2)
 
@@ -12,7 +11,7 @@ Activation-aware extension:
 
 Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura
+Author: Yuma Ichikawa
 
 """
 

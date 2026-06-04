@@ -6,6 +6,9 @@ a model). Delegates the override priority (module_target_bits >
 mlp_target_bits > default) to MDBF.
 
 Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+
 """
 
 from __future__ import annotations

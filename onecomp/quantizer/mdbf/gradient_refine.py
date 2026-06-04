@@ -9,7 +9,7 @@ Activation-aware extension:
 
 Copyright 2025-2026 Fujitsu Ltd.
 
-Author: Keiji Kimura
+Author: Yuma Ichikawa
 
 """
 
