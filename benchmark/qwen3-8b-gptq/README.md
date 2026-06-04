@@ -1,13 +1,15 @@
 # Qwen3-8B GPTQ Benchmark
 
-GPTQ benchmark for [Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) using OneComp v1.1.0.
+GPTQ benchmark for [Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) using OneComp v1.1.1.
 
 All combinations of `bits × group_size` are run in a single pass, sharing calibration data accumulation across quantizers for efficiency.
 
-Two configurations are benchmarked:
+Four configurations are benchmarked (the 2×2 grid of `actorder × mse`):
 
 1. **GPTQ (default)** — `actorder=false`, `mse=false`
-2. **GPTQ (mse+actorder)** — `actorder=true`, `mse=true` (strongest GPTQ setting)
+2. **GPTQ (actorder)** — `actorder=true`, `mse=false`
+3. **GPTQ (mse)** — `actorder=false`, `mse=true`
+4. **GPTQ (mse+actorder)** — `actorder=true`, `mse=true` (strongest GPTQ setting)
 
 ## Benchmark Configuration
 
@@ -21,15 +23,16 @@ Two configurations are benchmarked:
 | num_calibration_samples | 1024 |
 | calibration_strategy | drop_rand |
 | max_length | 2048 |
+| dtype | bfloat16 |
 
 This produces **4 quantizers** (2 bits × 2 group sizes) per configuration.
 
 ### Configuration-Specific Parameters
 
-| Parameter | default | mse+actorder |
-|---|---|---|
-| actorder | false | true |
-| mse | false | true |
+| Parameter | default | actorder | mse | mse+actorder |
+|---|---|---|---|---|
+| actorder | false | true | false | true |
+| mse | false | false | true | true |
 
 ### Evaluation
 
@@ -45,6 +48,14 @@ Requires [Hydra](https://hydra.cc/) (see [benchmark/README.md](../README.md) for
 ```bash
 # default
 python quant_benchmark.py model_path=/path/to/Qwen3-8B
+
+# actorder
+python quant_benchmark.py model_path=/path/to/Qwen3-8B \
+    gptq.actorder=true output_dir=qwen3-8b-actorder
+
+# mse
+python quant_benchmark.py model_path=/path/to/Qwen3-8B \
+    gptq.mse=true output_dir=qwen3-8b-mse
 
 # mse+actorder
 python quant_benchmark.py model_path=/path/to/Qwen3-8B \
@@ -65,57 +76,60 @@ python quant_benchmark.py model_path=/path/to/model num_calibration_samples=512
 
 ## Results
 
+PPL = perplexity on WikiText-2 (↓ lower is better). Accuracy = 0-shot `acc_norm` where available, `acc` otherwise (winogrande) (↑ higher is better).
+
 ### GPTQ (default)
 
-PPL = perplexity on WikiText-2 (↓ lower is better). Accuracy = 0-shot `acc_norm` where available, `acc` otherwise (winogrande) (↑ higher is better).
+`actorder=false`, `mse=false`
 
 | bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
 |---|---|---|---|---|---|---|---|
-| — (Original) | — | 9.72 | 0.5648 | 0.8093 | 0.7769 | 0.6756 | — |
-| 4 | 128 | 10.26 | 0.5580 | 0.7934 | 0.7671 | 0.6669 | 259.4 |
-| 4 | per-channel | 10.88 | 0.5119 | 0.7466 | 0.7622 | 0.6740 | 252.3 |
-| 3 | 128 | 11.75 | 0.4846 | 0.7222 | 0.7481 | 0.6488 | 257.2 |
-| 3 | per-channel | 20.02 | 0.3200 | 0.4217 | 0.6703 | 0.5391 | 251.9 |
+| — (Original) | — | 9.73 | 0.5640 | 0.8093 | 0.7758 | 0.6772 | — |
+| 4 | 128 | 10.33 | 0.5614 | 0.7879 | 0.7639 | 0.6693 | 273.2 |
+| 4 | per-channel | 11.04 | 0.5077 | 0.7441 | 0.7557 | 0.6835 | 268.5 |
+| 3 | 128 | 11.75 | 0.4881 | 0.7193 | 0.7584 | 0.6527 | 273.0 |
+| 3 | per-channel | 19.55 | 0.3208 | 0.4735 | 0.6850 | 0.5391 | 266.7 |
 
-Total elapsed time (including calibration data preparation): 3888.8 s (~65 min).
+Total elapsed time (including calibration data preparation): 3909.6 s (~65 min).
+
+### GPTQ (actorder)
+
+`actorder=true`, `mse=false`
+
+| bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|---|
+| 4 | 128 | 9.99 | 0.5418 | 0.7849 | 0.7688 | 0.6859 | 265.5 |
+| 4 | per-channel | 10.39 | 0.5060 | 0.7378 | 0.7688 | 0.6519 | 260.5 |
+| 3 | 128 | 11.52 | 0.4761 | 0.6932 | 0.7546 | 0.6511 | 268.7 |
+| 3 | per-channel | 16.50 | 0.3191 | 0.4895 | 0.6980 | 0.5533 | 262.8 |
+
+Total elapsed time (including calibration data preparation): 3892.6 s (~65 min).
+
+### GPTQ (mse)
+
+`actorder=false`, `mse=true`
+
+| bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
+|---|---|---|---|---|---|---|---|
+| 4 | 128 | 10.36 | 0.5435 | 0.7879 | 0.7715 | 0.6843 | 1701.3 |
+| 4 | per-channel | 12.78 | 0.5119 | 0.7454 | 0.7650 | 0.6511 | 422.2 |
+| 3 | 128 | 14.09 | 0.4625 | 0.7037 | 0.7448 | 0.6519 | 2033.1 |
+| 3 | per-channel | 51.11 | 0.2662 | 0.3636 | 0.6420 | 0.5517 | 426.1 |
+
+Total elapsed time (including calibration data preparation): 7406.1 s (~123 min).
 
 ### GPTQ (mse+actorder)
 
-| bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
-|---|---|---|---|---|---|---|---|
-| — (Original) | — | 9.72 | 0.5648 | 0.8093 | 0.7769 | 0.6756 | — |
-| 4 | 128 | 9.91 | 0.5384 | 0.8056 | 0.7791 | 0.6835 | 1517.6 |
-| 4 | per-channel | 11.22 | 0.5401 | 0.7828 | 0.7715 | 0.6693 | 395.0 |
-| 3 | 128 | 11.24 | 0.5307 | 0.7597 | 0.7601 | 0.6867 | 1794.6 |
-| 3 | per-channel | 41.77 | 0.3259 | 0.4524 | 0.6801 | 0.5643 | 401.0 |
-
-Total elapsed time (including calibration data preparation): 6988.5 s (~117 min).
-
-## Reduced Calibration Benchmark (num_calibration_samples=128)
-
-Same configurations as above with `num_calibration_samples` reduced from 1024 to 128.
-
-### GPTQ (default, calib=128)
+`actorder=true`, `mse=true`
 
 | bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
 |---|---|---|---|---|---|---|---|
-| 4 | 128 | 10.53 | 0.5435 | 0.7807 | 0.7628 | 0.6598 | 267.3 |
-| 4 | per-channel | 11.10 | 0.5051 | 0.7437 | 0.7622 | 0.6717 | 261.0 |
-| 3 | 128 | 12.01 | 0.4548 | 0.6700 | 0.7454 | 0.6346 | 265.9 |
-| 3 | per-channel | 21.94 | 0.2927 | 0.4011 | 0.6594 | 0.5249 | 261.2 |
+| 4 | 128 | 9.93 | 0.5495 | 0.8005 | 0.7780 | 0.6748 | 1718.1 |
+| 4 | per-channel | 11.18 | 0.5316 | 0.7740 | 0.7666 | 0.6756 | 424.6 |
+| 3 | 128 | 11.42 | 0.5418 | 0.7841 | 0.7682 | 0.6906 | 2041.9 |
+| 3 | per-channel | 43.42 | 0.2986 | 0.4310 | 0.6790 | 0.5635 | 430.0 |
 
-Total elapsed time (including calibration data preparation): 1634.8 s (~27 min).
-
-### GPTQ (mse+actorder, calib=128)
-
-| bits | group_size | PPL | ARC-c | ARC-e | PIQA | WinoGrande | Time (s) |
-|---|---|---|---|---|---|---|---|
-| 4 | 128 | 9.88 | 0.5597 | 0.8026 | 0.7791 | 0.6843 | 1585.6 |
-| 4 | per-channel | 11.19 | 0.5350 | 0.7753 | 0.7677 | 0.6661 | 402.3 |
-| 3 | 128 | 11.38 | 0.5290 | 0.7748 | 0.7633 | 0.6922 | 1875.2 |
-| 3 | per-channel | 44.03 | 0.3046 | 0.4268 | 0.6806 | 0.5635 | 404.3 |
-
-Total elapsed time (including calibration data preparation): 4893.4 s (~82 min).
+Total elapsed time (including calibration data preparation): 7448.1 s (~124 min).
 
 ## Environment
 

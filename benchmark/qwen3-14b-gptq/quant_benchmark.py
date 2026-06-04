@@ -52,7 +52,7 @@ def create_quantizers(cfg: DictConfig):
 def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
 
-    model_config = ModelConfig(path=cfg.model_path, device=cfg.model_device)
+    model_config = ModelConfig(path=cfg.model_path, device=cfg.model_device, dtype="bfloat16")
 
     quantizers = create_quantizers(cfg)
 
