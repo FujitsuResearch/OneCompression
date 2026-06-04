@@ -3,6 +3,12 @@
 
 ## [v1.2.0] 2026-06-04 (WIP)
 
+## New Feature : Dashboard
+
+- Added `dashboard/`, a browser-based web app for OneCompression on **SLURM-managed HPC GPU nodes without Docker**: pick a Hugging Face model and quantization settings in the UI, run jobs on the GPU, deploy the quantized checkpoint, and validate inference via chat
+- **Stack**: React + Vite frontend (local PC), FastAPI API, Celery worker + user-built Redis, SQLite job DB, per-job output under `backend/tmp/quantized/`; CUDA quantization via `onecomp` and chat deploy via a separate **vLLM** subprocess from the same `backend/.venv` (`onecomp` + `vllm>=0.21` in `pyproject.toml`)
+- **Quantization methods exposed in the UI**: `gptq`, `autobit`, `jointq`, and `auto_run` (VRAM-based bitwidth / group size); optional QEP (not with JointQ); fractional bit widths for `autobit` / `auto_run`
+
 ### for Developer: pre-commit
 
 - Added `.pre-commit-config.yaml` with `black`, `isort`, and local hooks (`no-japanese`, `copyright-header`, `no-email-address`); install with `uv sync --extra dev` then `pre-commit install` (see README)

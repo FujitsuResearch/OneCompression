@@ -29,3 +29,29 @@ tests/onecomp/quantizer/jointq/data/model_layers_0_self_attn_k_proj.pth
 .uv-sync-vllm.lock
 .uv-sync-vllm.done
 .venv-vllm/
+
+# ── dashboard/ (HPC LLM quantization dashboard) ──────────────
+# Re-include the app/models package shadowed by the global `models` rule above
+!dashboard/backend/app/models/
+!dashboard/backend/app/models/*.py
+
+# uv venv (.venv-vllm/ already covered above)
+dashboard/backend/.venv/
+
+# Redis built from source per dashboard/docs/setup-hpc.md §1.3
+dashboard/backend/7.2.7.tar.gz
+dashboard/backend/redis-*/
+dashboard/backend/dump.rdb
+
+# Runtime state (SQLite, quantized models)
+dashboard/backend/onecomp.db
+dashboard/backend/onecomp.db-journal
+dashboard/backend/tmp/
+
+# Frontend (node_modules already in dashboard/frontend/.gitignore; dist/ covered by global rule)
+dashboard/frontend/node_modules/
+# yarn is canonical (README uses `yarn dev`); avoid double lockfiles
+dashboard/frontend/package-lock.json
+
+# vLLM / worker logs written under /tmp by setup-hpc.md
+*.log
