@@ -236,7 +236,7 @@ class Quantizer(metaclass=ABCMeta):
         result.quantization_time = end_time - start_time
 
         self.results[name] = result
-        empty_cache()
+        empty_cache(module.weight.device)
 
         if self.calc_quant_error:
             # Record quantization error
@@ -282,7 +282,7 @@ class Quantizer(metaclass=ABCMeta):
                 percdamp=percdamp,
                 perccorr=perccorr,
             )
-            empty_cache()
+            empty_cache(module.weight.device)
 
         self.logger.debug("Quantizing layer: %s", name)
         result = self.quantize_layer(module, quant_input_activation, hessian=hessian)
@@ -296,7 +296,7 @@ class Quantizer(metaclass=ABCMeta):
         result.quantization_time = end_time - start_time
 
         self.results[name] = result
-        empty_cache()
+        empty_cache(module.weight.device)
 
         if self.calc_quant_error:
             # Record quantization error
@@ -332,7 +332,7 @@ class Quantizer(metaclass=ABCMeta):
             result.relative_weight_squared_error,
         ) = self.calculate_weight_quantization_error(module, dequantized_weight)
 
-        empty_cache()
+        empty_cache(module.weight.device)
 
     def adjust_weight(
         self,
@@ -921,7 +921,7 @@ class Quantizer(metaclass=ABCMeta):
 
             del batch_diff, batch_X_T
 
-        empty_cache()
+        empty_cache(device)
 
         # MSE = output_squared_error / (out_features * total_samples)
         mean_output_squared_error = output_squared_error / num_elements

@@ -1135,7 +1135,7 @@ class Runner:
             tokenizer = self.model_config.load_tokenizer()
             original_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
             del model, tokenizer
-            empty_cache()
+            empty_cache(self.model_config.device)
 
         if quantized_model:
             try:
@@ -1152,7 +1152,7 @@ class Runner:
                     model.to(self.model_config.device)
                     quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
                     del model, tokenizer
-                empty_cache()
+                empty_cache(self.model_config.device)
             except NotImplementedError:
                 logger.warning(
                     "This quantization method does not support creating a quantized model; "
@@ -1167,7 +1167,7 @@ class Runner:
             self.update_model_weights(model, quantizer=quantizer)
             dequantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
             del model, tokenizer
-            empty_cache()
+            empty_cache(self.model_config.device)
 
         return original_result, dequantized_result, quantized_result
 
@@ -2114,7 +2114,7 @@ class Runner:
             )
             # Release fragmented GPU memory from previous operations (e.g., run())
             gc.collect()
-            empty_cache()
+            empty_cache(self.model_config.device)
 
             model = self.model_config.load_model()
             input_device = next(model.parameters()).device
@@ -2138,7 +2138,7 @@ class Runner:
                 )
                 # Release fragmented GPU memory from previous operations (e.g., run())
                 gc.collect()
-                empty_cache()
+                empty_cache(self.model_config.device)
 
                 model = self.model_config.load_model()
                 input_device = next(model.parameters()).device

@@ -8,12 +8,15 @@ Copyright 2025-2026 Fujitsu Ltd.
 import torch
 
 
+def _has_mps_backend() -> bool:
+    return hasattr(torch.backends, "mps")
+
 
 def get_default_device() -> torch.device:
     """Return the best available device: CUDA > MPS > CPU."""
     if torch.cuda.is_available():
         return torch.device("cuda")
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    if _has_mps_backend() and torch.backends.mps.is_available():
         return torch.device("mps")
     return torch.device("cpu")
 
@@ -28,5 +31,7 @@ def empty_cache(device: torch.device | str | None = None) -> None:
 
     if device_type == "cuda":
         torch.cuda.empty_cache()
-    elif device_type == "mps" and hasattr(torch.mps, "empty_cache"):
-        torch.mps.empty_cache()
+    elif device_type == "mps" and _has_mps_backend():
+        empty_cache_fn = getattr(getattr(torch, "mps", None), "empty_cache", None)
+        if empty_cache_fn is not None:
+            empty_cache_fn()

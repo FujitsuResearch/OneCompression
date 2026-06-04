@@ -252,7 +252,7 @@ def accumulate_xtx(
 
         # Free memory
         del chunk_inputs
-        empty_cache()
+        empty_cache(input_device)
 
         logger.debug(
             "  Chunk %d/%d done (samples %d-%d)",
@@ -328,7 +328,7 @@ def quantize_group(quantizer, group, xtx_dict, nsamples):
         result.quantization_time = end_time - start_time
 
         quantizer.results[name] = result
-        empty_cache()
+        empty_cache(module.weight.device)
 
 
 # =============================================================================
@@ -398,4 +398,4 @@ def record_quantization_errors(quantizer, group, xtx_dict, nsamples):
             else None
         )
 
-        empty_cache()
+        empty_cache(device)

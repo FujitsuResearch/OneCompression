@@ -1,6 +1,6 @@
 # Change log
 
-## [v1.1.1+mps] 2026-05-27
+## [v1.2.0+mps] 2026-06-05
 
 ### Apple Silicon / macOS support
 
