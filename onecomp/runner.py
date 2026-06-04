@@ -867,6 +867,8 @@ class Runner:
         Uses ``self.quantized_model`` when one has already been assigned;
         otherwise builds a quantized model on CPU from ``quantizer.results``.
         The model is passed to each :class:`PostQuantizationProcess` in order.
+        Applied processes are accumulated until ``save_quantized_model()``
+        writes their metadata and clears the pending list.
 
         Raises:
             ValueError: If neither ``self.quantized_model`` nor
@@ -874,7 +876,6 @@ class Runner:
                 yet supported for building post-process inputs).
         """
         logger = self.logger
-        self._applied_processes = []
 
         if self.quantized_model is not None:
             logger.info("Using existing quantized model for post-quantization processes")
@@ -2027,8 +2028,9 @@ class Runner:
             )
             quant_config = None
 
+        metadata_attached = False
         if quant_config is not None:
-            self._attach_post_process_metadata(quant_config)
+            metadata_attached = self._attach_post_process_metadata(quant_config)
 
         # Save model and tokenizer
         save_path = Path(save_directory)
@@ -2060,7 +2062,7 @@ class Runner:
         else:
             logger.warning("Source model dir not resolvable; skipping auxiliary file copy.")
 
-        if quant_config is not None:
+        if metadata_attached:
             self._applied_processes = []
 
         logger.info(f"Quantized model saved to {save_directory}")
