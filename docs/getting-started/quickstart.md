@@ -176,4 +176,5 @@ model, tokenizer = load_quantized_model("./output/quantized_model")
 - [CLI Reference](../user-guide/cli.md) -- full CLI options and usage
 - [Configuration](../user-guide/configuration.md) -- detailed explanation of `ModelConfig`, `QEPConfig`, `LPCDConfig`, and `Runner` parameters
 - [Examples](../user-guide/examples.md) -- more usage patterns including multi-GPU and chunked calibration
+- [Evaluation](../user-guide/evaluation.md) -- `onecomp-eval` for MT-Bench and throughput on vLLM-served models
 - [Algorithms](../algorithms/overview.md) -- learn about the quantization algorithms available in OneComp
