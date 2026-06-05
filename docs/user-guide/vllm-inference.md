@@ -35,7 +35,7 @@ vLLM is available as an optional dependency:
     ```
 
     !!! note "Use `cu130`; older CUDA extras are rejected"
-        Recent vLLM releases depend on `torch>=2.10`, whose wheels are only published for the `cu130` PyTorch index. `pyproject.toml` therefore declares `--extra vllm` as conflicting with `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, and `cu128`; combining any of those with `--extra vllm` will fail at lock time. Use `--extra cu130` for vLLM workflows.
+        Recent vLLM releases depend on `torch>=2.10`, whose wheels are only published for the `cu130` PyTorch index. `pyproject.toml` therefore declares `--extra vllm` as conflicting with `cpu`, `mps`, `cu118`, `cu121`, `cu124`, `cu126`, and `cu128`; combining any of those with `--extra vllm` will fail at lock time. Use `--extra cu130` for vLLM workflows.
 
 === "pip"
 
@@ -45,6 +45,11 @@ vLLM is available as an optional dependency:
 
 !!! note
     vLLM requires CUDA and a compatible GPU. See the [vLLM documentation](https://docs.vllm.ai/) for detailed installation instructions and system requirements.
+
+!!! tip "macOS users"
+    vLLM is not available on macOS. Quantize on Mac with `device="mps"`, then run
+    inference locally via `load_quantized_model()` and Transformers `generate()`.
+    See the [macOS / MPS guide](mps.md#inference-with-transformers).
 
 !!! warning
     **uv users:** Do not install vLLM with `uv pip install vllm`. Packages installed via `uv pip` are not tracked by the lockfile and will be removed by subsequent `uv sync` or `uv run` commands. Always use `--extra vllm` instead.

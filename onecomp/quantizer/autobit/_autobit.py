@@ -19,7 +19,7 @@ from onecomp.quantizer.dbf import DBF
 from onecomp.quantizer.gptq import GPTQ
 from onecomp.utils import effective_bits_for_quantizer, effective_bits_per_param
 
-from .dbf_fallback import inject_dbf
+from .dbf_fallback import inject_dbf, reject_mps_dbf_fallback
 from .ilp import _find_candidates, assign_by_ilp
 from .manual import assign_manually
 
@@ -270,7 +270,10 @@ class AutoBitQuantizer(Quantizer):
                     "budget. Use a higher target_bit or a smaller model."
                 )
 
+        model_device = next(model.parameters()).device
+
         if not is_manual and self.auto_dbf and self._needs_dbf_only():
+            reject_mps_dbf_fallback(model_device)
             min_eff = min(effective_bits_for_quantizer(q) for q in self.quantizers)
             self.logger.warning(
                 "target_bit=%.2f is at/below dbf_threshold=%.2f or "
@@ -295,6 +298,7 @@ class AutoBitQuantizer(Quantizer):
                 self.dbf_threshold,
                 self.logger,
                 dbf_iters=self.dbf_iters,
+                device=model_device,
             )
             self._sync_flags()
 

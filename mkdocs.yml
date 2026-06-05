@@ -84,6 +84,7 @@ nav:
       - Quick Start: getting-started/quickstart.md
   - User Guide:
       - Basic Usage: user-guide/basic-usage.md
+      - macOS / MPS: user-guide/mps.md
       - CLI: user-guide/cli.md
       - Configuration: user-guide/configuration.md
       - Pre-Process (Rotation): user-guide/pre-process.md
