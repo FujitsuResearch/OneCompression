@@ -6,9 +6,9 @@ Author: Yuma Ichikawa, Keiji Kimura
 
 """
 
-from dataclasses import dataclass
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ import torch
 from torch import nn
 from transformers import Conv1D
 
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.utils.quant_config import get_quant_param
 from onecomp.utils.device import empty_cache
 

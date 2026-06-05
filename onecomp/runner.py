@@ -8,31 +8,31 @@ Author: Keiji Kimura
 
 # pylint: disable=too-many-arguments, too-many-positional-arguments
 import copy
-import math
 import gc
 import json
+import math
 import os
-from typing import Optional
 import time
 from logging import getLogger
 from pathlib import Path
+from typing import Optional
 
 import torch
 
 from .__version__ import __version__
 from .calibration import CalibrationConfig, prepare_calibration_dataset
+from .log import setup_logger
+from .lpcd import LPCDConfig
 from .model_config import ModelConfig
 from .qep import QEPConfig
-from .lpcd import LPCDConfig
 from .quantizer import GPTQ, Quantizer
 from .quantizer.autobit import AssignmentStrategy, AutoBitQuantizer
 from .quantizer.autobit.dbf_fallback import MPS_DBF_FALLBACK_ERROR
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
-from .utils.quantization_progress import QuantizationProgressTracker
-from .log import setup_logger
 from .utils import empty_cache
 from .utils.device import is_mps_device
+from .utils.quantization_progress import QuantizationProgressTracker
 
 
 class Runner:
@@ -2081,9 +2081,8 @@ class Runner:
         """
         # Lazy import: load submodule only when needed
         # pylint: disable-next=import-outside-toplevel
-        from .analyzer.cumulative_error import analyze_cumulative_error as _analyze
-
         # pylint: disable-next=import-outside-toplevel
+        from .analyzer.cumulative_error import analyze_cumulative_error as _analyze
         from .analyzer.cumulative_error import plot_cumulative_error as _plot
 
         logger = self.logger

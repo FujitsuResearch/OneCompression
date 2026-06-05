@@ -5,22 +5,15 @@ Copyright 2025-2026 Fujitsu Ltd.
 
 import torch
 from transformers.models.qwen3.modeling_qwen3 import (
-    Qwen3DecoderLayer,
     Qwen3Attention,
+    Qwen3DecoderLayer,
     apply_rotary_pos_emb,
     repeat_kv,
 )
 
-
 from .._lpcd_config import LPCDConfig
 from .._metric import LpcdMetric, LpcdMetricGroup
-from ._llama import (
-    LlamaQueryKey,
-    LlamaValueOut,
-    LlamaOut,
-    LlamaUpDown,
-    LlamaDown,
-)
+from ._llama import LlamaDown, LlamaOut, LlamaQueryKey, LlamaUpDown, LlamaValueOut
 
 
 # q_proj / k_proj

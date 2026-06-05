@@ -16,6 +16,7 @@ pytest -v -s --log-cli-level=INFO test_quantizer.py
 from unittest import TestCase
 
 import torch
+
 from onecomp.quantizer.jointq.core import Quantizer
 
 

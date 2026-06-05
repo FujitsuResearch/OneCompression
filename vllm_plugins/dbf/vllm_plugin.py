@@ -5,23 +5,19 @@ from typing import Any, List
 
 import torch
 from torch.nn import Parameter
-
 from vllm.distributed import get_tensor_model_parallel_world_size
 from vllm.logger import init_logger
-from vllm.model_executor.layers.linear import (
-    LinearBase,
-    LinearMethodBase,
-    UnquantizedLinearMethod,
-)
+from vllm.model_executor.layers.linear import LinearBase, LinearMethodBase, UnquantizedLinearMethod
 from vllm.model_executor.layers.quantization import register_quantization_config
 from vllm.model_executor.layers.quantization.base_config import QuantizationConfig
 from vllm.model_executor.utils import set_weight_attrs
+
+from vllm_plugins.dbf.modules.naive import unpack_sign_bits
 from vllm_plugins.utils.module import (
     _lookup_module_config,
     _parse_layer_and_module,
     _validate_quant_config_within_shard,
 )
-from vllm_plugins.dbf.modules.naive import unpack_sign_bits
 
 logger = init_logger(__name__)
 
@@ -38,10 +34,7 @@ _USE_NAIVE = _parse_bool_env("ONECOMP_DBF_NAIVE_LINEAR", default=False)
 
 def _try_import_gemlite():
     try:
-        from vllm_plugins.dbf.modules.gemlite_linear import (
-            get_gemlite_linear,
-            GROUP_SIZE,
-        )
+        from vllm_plugins.dbf.modules.gemlite_linear import GROUP_SIZE, get_gemlite_linear
     except Exception as exc:  # pragma: no cover - best effort import
         logger.warning("DBF gemlite unavailable; falling back to naive. (%s)", exc)
         return None

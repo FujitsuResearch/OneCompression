@@ -33,7 +33,7 @@ import torch
 
 from onecomp.calibration import CalibrationConfig, prepare_calibration_dataset
 from onecomp.model_config import ModelConfig
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.utils.device import empty_cache
 from onecomp.utils.quantization_progress import QuantizationProgressTracker
 

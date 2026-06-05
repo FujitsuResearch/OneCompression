@@ -41,6 +41,7 @@ Full documentation is available at **[https://FujitsuResearch.github.io/OneCompr
 - **Block-wise PTQ**: Post-quantization block-wise distillation that minimises intermediate-representation MSE against an FP16 teacher model at Transformer-block granularity. Includes Phase 1 (greedy per-block optimisation) and Phase 2 CBQ (cross-block sliding-window optimisation). Supports GPTQ, DBF, and OneBit quantizers.
 - **LoRA SFT Post-Process**: Fine-tune quantized models with LoRA adapters for accuracy recovery or domain-specific knowledge injection. Supports SFT loss, teacher distillation, and intermediate block alignment.
 - **Rotation Preprocessing**: SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Rotation/scaling matrices are absorbed into model weights, with online Hadamard hooks automatically registered at load time. Supports Llama and Qwen3 architectures.
+- **Web Dashboard (HPC)**: A browser-based dashboard for launching quantization jobs, deploying models, and validating chat-based inference in HPC environments. See [dashboard/README.md](dashboard/README.md) for details.
 - (TBD)
 
 ## 🤖 Supported Models
@@ -169,7 +170,7 @@ On macOS, use `--extra mps` only. CUDA extras (`cu118`–`cu130`), `--extra cpu`
 After `uv sync`, you can run GPTQ quantization and Hugging Face `generate()` inference on MPS; vLLM serving still requires Linux with an NVIDIA GPU.
 See the **MPS device placement (GPTQ vs QEP)** note under [macOS (MPS)](#macos-mps) above for why GPTQ runs on CPU while QEP correction uses MPS.
 
-Adding `--extra dev` installs development tools (black, pytest, pylint).
+Adding `--extra dev` installs development tools (black, pre-commit, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
 Adding `--extra hydra` installs `hydra-core` for the example scripts and `model_validation/` runners that use Hydra-based configuration.
 
@@ -220,6 +221,40 @@ pip install -e ".[dev]"
 
 Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
 
+#### Pre-commit
+
+After installing development dependencies (`--extra dev` with uv, or `pip install -e ".[dev]"` with pip), register the Git hooks once:
+
+```bash
+pre-commit install
+```
+
+On every `git commit`, the following checks run automatically:
+
+| Hook | Description |
+|------|-------------|
+| **black** | Code formatting (line length 99) |
+| **isort** | Import sorting |
+| **no-japanese** | Forbid Japanese characters in text files (`.md` and `.gitignore` are excluded) |
+| **copyright-header** | Verify the Fujitsu copyright header in Python files |
+| **no-email-address** | Forbid email addresses in Python files |
+
+Common commands:
+
+```bash
+# Run hooks on staged files only
+pre-commit run
+
+# Run hooks on all files (useful after first install or config changes)
+pre-commit run --all-files
+
+# Run a specific hook
+pre-commit run black --all-files
+
+# With uv (no activation needed)
+uv run pre-commit run --all-files
+```
+
 
 ### Building Documentation Locally
 
@@ -250,11 +285,12 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 | | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
 | | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
+| | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
 
 ## 🔌 vLLM Inference
 
-OneComp-quantized models can be served with [vLLM](https://docs.vllm.ai/) via built-in plugins (DBF, Mixed-GPTQ).
+OneComp-quantized models can be served with [vLLM](https://docs.vllm.ai/): GPTQ, JointQ, and RTN models use vLLM's built-in GPTQ plugin, while DBF and Mixed-GPTQ models are served via OneComp's own plugins.
 Combined with [Open WebUI](https://github.com/open-webui/open-webui), you can chat with your quantized model through a ChatGPT-like browser interface — entirely on your local machine.
 
 ```bash

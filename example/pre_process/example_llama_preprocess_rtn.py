@@ -7,7 +7,7 @@ Step 2: Load the rotated model and quantize with RTN.
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
-from onecomp import ModelConfig, Runner, RTN, prepare_rotated_model, setup_logger
+from onecomp import RTN, ModelConfig, Runner, prepare_rotated_model, setup_logger
 
 setup_logger()
 

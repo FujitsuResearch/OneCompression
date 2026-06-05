@@ -6,9 +6,14 @@ Author: Akihiro Yoshida
 
 """
 
+<<<<<<< HEAD
 from onecomp.utils import effective_bits_for_quantizer
 from onecomp.utils.device import is_mps_device
+
+=======
+>>>>>>> upstream/develop/v1-2-0
 from onecomp.quantizer.dbf import DBF
+from onecomp.utils import effective_bits_for_quantizer
 
 MPS_DBF_FALLBACK_ERROR = (
     "AutoBitQuantizer DBF fallback is not supported on MPS device. "

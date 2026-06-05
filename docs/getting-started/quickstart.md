@@ -130,7 +130,7 @@ _, _, quantized_acc = runner.calculate_accuracy()
 
 !!! note
     - Evaluating the original or dequantized model requires loading the full model on GPU.
-    - Quantized-model evaluation is currently supported for **GPTQ**, **DBF**, and **AutoBitQuantizer**. Support for other methods is planned.
+    - Quantized-model evaluation is supported for **GPTQ**, **DBF**, **AutoBitQuantizer**, **JointQ**, **RTN**, and **OneBit**. Other methods automatically fall back to the dequantized (FP16) model.
 
 ## Using QEP (Quantization Error Propagation)
 

@@ -8,14 +8,15 @@ Author: Keiji Kimura
 import logging
 import os
 import sys
+
 import torch
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from onecomp.quantizer.gptq._gptq import GPTQ, GPTQResult
-
 from test_module import BaseQuantizeSpec
+
+from onecomp.quantizer.gptq._gptq import GPTQ, GPTQResult
 
 
 class TestGPTQ(BaseQuantizeSpec):
@@ -163,8 +164,8 @@ class TestGPTQ(BaseQuantizeSpec):
         Thresholds are set for FP16 dequantized weights returned by
         compute_dequantized_weight().
         """
-        assert error < 0.6
-        assert max_error < 2.5
+        assert error < 0.4
+        assert max_error < 1.71
 
     def check_forward_error(
         self,

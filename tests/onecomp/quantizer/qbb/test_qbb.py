@@ -3,16 +3,17 @@
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
-import sys
 import os
+import sys
+
 import torch
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from onecomp.quantizer.qbb._qbb import QBB, QBBResult
-
 from test_module import BaseQuantizeSpec
+
+from onecomp.quantizer.qbb._qbb import QBB, QBBResult
 
 
 class TestQBB(BaseQuantizeSpec):

@@ -6,16 +6,15 @@ Author: Keiji Kimura
 
 """
 
-from abc import ABCMeta
-from abc import abstractmethod
+import math
+import time
+from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, field
 from logging import getLogger
 from typing import Any, Optional, Union
 
-import time
-import math
 import torch
-from torch.nn import Linear, Conv2d, Conv1d
+from torch.nn import Conv1d, Conv2d, Linear
 
 from onecomp.utils.device import empty_cache
 

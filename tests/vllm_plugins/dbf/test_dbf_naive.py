@@ -1,17 +1,18 @@
 """Copyright 2025-2026 Fujitsu Ltd."""
 
+import logging
+import re
+
 import pytest
 import torch
 import torch.nn as nn
-import re
-import logging
 
 logger = logging.getLogger(__name__)
 from vllm_plugins.dbf.modules.naive import (
-    unpack_sign_bits,
-    naive_post_init,
     BitLinearPacked,
     DBFLinear_NAIVE,
+    naive_post_init,
+    unpack_sign_bits,
 )
 
 

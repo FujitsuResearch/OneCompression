@@ -35,8 +35,9 @@ class TestSaveLoadPipelineTinyLlama:
 
     @pytest.mark.parametrize("model_id, quant_type, save_type", _cases())
     def test_save_load(self, model_id, quant_type, save_type, tmp_path):
-        from onecomp import GPTQ, RTN, ModelConfig, Runner, load_quantized_model
         from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        from onecomp import GPTQ, RTN, ModelConfig, Runner, load_quantized_model
 
         device = "cuda:0"
         model_config = ModelConfig(model_id=model_id, device=device)

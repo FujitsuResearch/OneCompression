@@ -56,6 +56,33 @@ runner = Runner(model_config=model_config, quantizer=rtn)
 runner.run()
 ```
 
+## Save and Load
+
+RTN uses the same tensor format as GPTQ (`qweight`/`scales`/`qzeros`), so it emits
+`quant_method="gptq"` and can be saved with the standard OneComp save API, reloaded
+with `load_quantized_model()`, and served with vLLM's built-in GPTQ plugin:
+
+```python
+runner.save_quantized_model("./output/rtn_model")
+
+# Load later with OneComp
+from onecomp import load_quantized_model
+model, tokenizer = load_quantized_model("./output/rtn_model")
+```
+
+See [vLLM Inference](../user-guide/vllm-inference.md) for serving details.
+
+!!! note "Bit-width and vLLM"
+    Use `wbits` in {2, 3, 4, 8} for vLLM serving. RTN itself accepts a wider
+    range of `wbits`, but GPTQ-compatible bit packing and vLLM serving are limited
+    to these bit-widths.
+
+!!! warning "Rotation-preprocessed RTN models cannot be served with vLLM"
+    The SpinQuant-style [Rotation Preprocessing + RTN](../user-guide/examples.md#rotation-preprocessing-rtn)
+    flow produces models that vLLM cannot serve, because vLLM does not apply the online
+    Hadamard transform on `down_proj` inputs. Such models remain loadable with
+    `load_quantized_model()`, which auto-registers the Hadamard hooks.
+
 ## Characteristics
 
 - **No calibration data required** -- quantization is performed directly on the model weights

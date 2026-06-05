@@ -10,11 +10,12 @@ Author: Yuma Ichikawa
 
 """
 
+from logging import getLogger
+from typing import Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Union, Tuple
-from logging import getLogger
 
 logger = getLogger(__name__)
 
@@ -477,7 +478,9 @@ class GPTQLinear(nn.Module):
         self.groupsize = groupsize
         self.actorder = actorder
         self.checkpoint_format = checkpoint_format
-        self._weight_is_packed = True
+        # JointQ wbits=1 is saved with pack_weights=False
+        # (GPTQLinear packing does not support 1-bit), so load it unpacked as well.
+        self._weight_is_packed = wbits != 1
 
         def _t(k):
             t = layer_state_dict[k]
