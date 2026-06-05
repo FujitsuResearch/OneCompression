@@ -115,6 +115,14 @@ print(torch.backends.mps.is_available())
 
 Then install OneComp from PyPI (see step 2 below). GPTQ quantization and Hugging Face `generate()` inference on MPS are supported; vLLM serving requires Linux with an NVIDIA GPU. An editable install from a git clone is **not** required for MPS use — see [for developers (pip)](#for-developers-pip) only if you are contributing to OneComp.
 
+> **MPS device placement (GPTQ vs QEP)**  
+> With `device="mps"`, calibration and model forward passes can run on the GPU. The bottleneck is usually not missing Cholesky ops on MPS (recent PyTorch builds implement them); the implementation splits work as follows:
+>
+> - GPTQ (`run_gptq`): Hessian and weights are moved to CPU for the full column-wise loop (including inverse-Hessian Cholesky). If that loop stayed on MPS, `quantize()` would call `maxq.item()` once per column; each call triggers **per-column host sync** (wait for pending MPS ops, then read one scalar—not a full Hessian/weight copy every column)—often several times slower than CPU on Apple Silicon (e.g. ~4× in internal benchmarks with PyTorch 2.12). Keeping GPTQ on CPU avoids that overhead. With `mse=True`, `find_params` also calls `quantize()` in a grid loop and benefits from the same CPU placement.
+> - QEP weight correction (`adjust_weight`, when QEP correction runs—typically `qep=True` with error propagation enabled): Per-layer work stays on MPS (e.g. `weight @ delta_hatX`, diagonal damping). Only the Cholesky solve uses CPU via `_safe_cholesky_and_solve` (one solve per layer, not per column); moving all of QEP to CPU does not materially improve speed. The subsequent GPTQ step still uses the CPU path above.
+>
+> DBF-based AutoBit fallback and multi-GPU quantization are not supported on MPS.
+
 #### 2. Install `onecomp`
 
 Once PyTorch is installed, you can install `onecomp`:
@@ -159,6 +167,7 @@ uv sync --extra mps --extra dev --extra visualize
 
 On macOS, use `--extra mps` only. CUDA extras (`cu118`–`cu130`), `--extra cpu` (Linux-only), and `--extra vllm` are not supported on macOS.
 After `uv sync`, you can run GPTQ quantization and Hugging Face `generate()` inference on MPS; vLLM serving still requires Linux with an NVIDIA GPU.
+See the **MPS device placement (GPTQ vs QEP)** note under [macOS (MPS)](#macos-mps) above for why GPTQ runs on CPU while QEP correction uses MPS.
 
 Adding `--extra dev` installs development tools (black, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.

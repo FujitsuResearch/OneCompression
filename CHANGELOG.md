@@ -4,7 +4,8 @@
 
 ### Apple Silicon / macOS support
 
-- **MPS quantization**: GPTQ (and AutoBit with GPTQ-only candidates) on `device="mps"`; Cholesky-heavy steps run on CPU where MPS lacks support; cross-platform `empty_cache()` via new `onecomp/utils/device.py` (`runner.py`, `quantizer/gptq/_gptq.py`, `quantizer/_quantizer.py`)
+- **MPS quantization**: GPTQ (and AutoBit with GPTQ-only candidates) on `device="mps"`; cross-platform `empty_cache()` via new `onecomp/utils/device.py` (`runner.py`, `quantizer/gptq/_gptq.py`, `quantizer/_quantizer.py`)
+- **MPS device placement (GPTQ on CPU, QEP correction on MPS)**: With `device="mps"`, `run_gptq` moves the Hessian and weights to **CPU** for the full column-wise GPTQ loop (including inverse-Hessian Cholesky). The main reason is not absent Cholesky kernels on MPS (recent PyTorch supports them); if the GPTQ loop stayed on MPS, `maxq.item()` inside `quantize()` would run once per column—each call waits for pending MPS work to finish and read back a single scalar to the host (per-column host sync), not a full matrix copy per column—and that overhead is often several times slower than CPU on Apple Silicon (~4× in internal benchmarks with PyTorch 2.12). When QEP weight correction runs (`adjust_weight`, typically under `qep=True`), per-layer work stays on **MPS** (e.g. `weight @ delta_hatX`); only the Cholesky solve uses CPU via `_safe_cholesky_and_solve` (one solve per layer). A full CPU fallback for QEP does not materially improve speed. Calibration forwards may still use MPS. Details: README (macOS / MPS).
 - **MPS inference**: load saved quantized models on Mac with `QuantizedModelLoader` + Transformers `generate()` (GemLite/vLLM remain Linux + CUDA)
 - **macOS `uv sync`**: added `darwin` to `tool.uv.environments`, `--extra mps` for MPS-enabled PyTorch from PyPI; `--extra cpu` is Linux-only (pytorch-cpu index); Linux-only markers on CUDA extras (`cu118`–`cu130`)
 
