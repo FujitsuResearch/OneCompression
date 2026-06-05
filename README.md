@@ -223,11 +223,10 @@ Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118
 
 ### Building Documentation Locally
 
+`--extra docs` alone is sufficient (no PyTorch `mps` / `cu*` extra required):
+
 ```bash
-# Linux
-uv sync --extra cu128 --extra dev --extra docs
-# macOS
-uv sync --extra mps --extra dev --extra docs
+uv sync --extra docs
 uv run mkdocs serve
 ```
 

@@ -60,9 +60,14 @@ model_config = ModelConfig(
 | `model_id` | Hugging Face Hub model ID          | —            |
 | `path`     | Local path to a saved model         | —            |
 | `dtype`    | Data type (`"float16"`, `"float32"`)| `"float16"`  |
-| `device`   | Device (`"cpu"`, `"cuda"`, `"auto"`)| `"auto"`     |
+| `device`   | Device (`"cpu"`, `"cuda"`, `"mps"`, `"auto"`)| `"auto"`     |
 
 You must provide either `model_id` or `path`.
+
+!!! tip "macOS (Apple Silicon)"
+    Use `device="mps"` for quantization on Mac. `Runner.auto_run` defaults to
+    `cuda:0`; pass `device="mps"` and `total_vram_gb` explicitly. See the
+    [macOS / MPS guide](mps.md).
 
 ## Step 2: Choose a Quantizer
 

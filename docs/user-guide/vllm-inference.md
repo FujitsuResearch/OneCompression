@@ -35,6 +35,11 @@ vLLM is available as an optional dependency:
 !!! note
     vLLM requires CUDA and a compatible GPU. See the [vLLM documentation](https://docs.vllm.ai/) for detailed installation instructions and system requirements.
 
+!!! tip "macOS users"
+    vLLM is not available on macOS. Quantize on Mac with `device="mps"`, then run
+    inference locally via `load_quantized_model()` and Transformers `generate()`.
+    See the [macOS / MPS guide](mps.md#inference-with-transformers).
+
 !!! warning
     **uv users:** Do not install vLLM with `uv pip install vllm`. Packages installed via `uv pip` are not tracked by the lockfile and will be removed by subsequent `uv sync` or `uv run` commands. Always use `--extra vllm` instead.
 
