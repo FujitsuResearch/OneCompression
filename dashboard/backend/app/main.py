@@ -1,11 +1,10 @@
 from contextlib import asynccontextmanager
 
+from app.api.jobs import router as jobs_router
+from app.core.database import Base, engine
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
-
-from app.api.jobs import router as jobs_router
-from app.core.database import Base, engine
 
 
 def _sync_schema():
@@ -24,7 +23,9 @@ def _sync_schema():
                 col_type = col.type.compile(dialect=engine.dialect)
                 nullable = "NULL" if col.nullable else "NOT NULL"
                 conn.execute(
-                    text(f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}" {col_type} {nullable}')
+                    text(
+                        f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}" {col_type} {nullable}'
+                    )
                 )
 
 
