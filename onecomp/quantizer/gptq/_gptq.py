@@ -497,7 +497,7 @@ def _compute_inverse_hessian(
         try:
             cholesky_lower = torch.linalg.cholesky(hessian)
             break
-        except (torch._C._LinAlgError, RuntimeError):
+        except torch._C._LinAlgError:
             damp_scale *= 10.0
             extra = damp_scale * damp
             hessian[diag, diag] += extra
