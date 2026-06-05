@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 """Backend entrypoint – applies cuda patch (no-op when CUDA is available)."""
-import cpu_patch  # noqa: F401
+
 import sys
 
+import cpu_patch  # noqa: F401
 import uvicorn
 
 if __name__ == "__main__":

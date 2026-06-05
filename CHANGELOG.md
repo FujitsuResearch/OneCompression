@@ -3,6 +3,10 @@
 
 ## [v1.2.0] 2026-06-04 (WIP)
 
+### Evaluation:
+- Added `onecomp.eval` and the `onecomp-eval` CLI: one vLLM server, subprocess evaluators, aggregated `summary.json` / `summary.csv`
+- Added `mt_bench` (Japanese MT-Bench) and opt-in `throughput` (TTFT / decode tok/s) evaluators
+
 ## New Feature : Dashboard
 
 - Added `dashboard/`, a browser-based web app for OneCompression on **SLURM-managed HPC GPU nodes without Docker**: pick a Hugging Face model and quantization settings in the UI, run jobs on the GPU, deploy the quantized checkpoint, and validate inference via chat

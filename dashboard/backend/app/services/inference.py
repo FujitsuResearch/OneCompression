@@ -7,9 +7,8 @@ import time
 
 import httpx
 import torch
-
-from app.core.config import settings
 from app.constants import InferenceStatus
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.job import Job
 from app.schemas.job import ChatMessage
@@ -28,6 +27,7 @@ _loaded_models: dict[str, dict] = {}
 
 # ── Mock implementations ──────────────────────────────────────
 
+
 def deploy_mock(job_id: str) -> None:
     update_job(job_id, inference_status=InferenceStatus.DEPLOYING)
     time.sleep(1)
@@ -36,12 +36,14 @@ def deploy_mock(job_id: str) -> None:
 
 # ── OneComp implementations (CPU / MPS) ──────────────────────
 
+
 def deploy_onecomp(job_id: str, model_name: str, model_dir: str) -> None:
     """Load quantized model directly from local path."""
     update_job(job_id, inference_status=InferenceStatus.DEPLOYING)
 
     try:
         from onecomp import load_quantized_model
+
         model, tokenizer = load_quantized_model(model_dir)
 
         if settings.device == "mps" and torch.backends.mps.is_available():
@@ -87,7 +89,7 @@ def chat_onecomp(
             temperature=temperature if temperature > 0 else None,
         )
     generated = tokenizer.decode(
-        output_ids[0][inputs["input_ids"].shape[1]:],
+        output_ids[0][inputs["input_ids"].shape[1] :],
         skip_special_tokens=True,
     )
 
@@ -139,8 +141,9 @@ def _pick_gpu_memory_utilization() -> float:
     free, total = torch.cuda.mem_get_info()
     free_gb, total_gb = free / (1 << 30), total / (1 << 30)
     util = round(min(max((free_gb * 0.9) / total_gb, 0.1), 0.9), 2)
-    logger.info("GPU memory: %.1f/%.1f GiB free → gpu-memory-utilization=%.2f",
-                free_gb, total_gb, util)
+    logger.info(
+        "GPU memory: %.1f/%.1f GiB free → gpu-memory-utilization=%.2f", free_gb, total_gb, util
+    )
     return util
 
 
@@ -170,13 +173,20 @@ def deploy_vllm(job_id: str, model_name: str, model_dir: str) -> None:
         env.setdefault("NCCL_SOCKET_FAMILY", "AF_INET")
 
         cmd = [
-            settings.vllm_python, "-m", "vllm.entrypoints.openai.api_server",
-            "--model", model_dir,
-            "--served-model-name", model_name,
-            "--port", str(port),
-            "--host", "0.0.0.0",
+            settings.vllm_python,
+            "-m",
+            "vllm.entrypoints.openai.api_server",
+            "--model",
+            model_dir,
+            "--served-model-name",
+            model_name,
+            "--port",
+            str(port),
+            "--host",
+            "0.0.0.0",
             "--trust-remote-code",
-            "--gpu-memory-utilization", str(gpu_util),
+            "--gpu-memory-utilization",
+            str(gpu_util),
             "--no-enable-log-requests",
             "--enforce-eager",
         ]
@@ -200,13 +210,16 @@ def deploy_vllm(job_id: str, model_name: str, model_dir: str) -> None:
                 with open(log_path) as f:
                     lines = f.readlines()
                 error_lines = [
-                    l.rstrip() for l in lines
+                    l.rstrip()
+                    for l in lines
                     if "ERROR" in l or "ValueError" in l or "RuntimeError" in l
                 ]
                 tail = "".join(lines[-40:])
                 raise RuntimeError(
                     f"vLLM exited with code {proc.returncode}:\n"
-                    + "\n".join(error_lines[-20:]) + "\n---\n" + tail
+                    + "\n".join(error_lines[-20:])
+                    + "\n---\n"
+                    + tail
                 )
             try:
                 resp = httpx.get(health_url, timeout=5)
@@ -217,9 +230,7 @@ def deploy_vllm(job_id: str, model_name: str, model_dir: str) -> None:
 
         else:
             proc.terminate()
-            raise RuntimeError(
-                f"vLLM failed to become healthy within {_VLLM_HEALTH_TIMEOUT}s"
-            )
+            raise RuntimeError(f"vLLM failed to become healthy within {_VLLM_HEALTH_TIMEOUT}s")
 
         inference_url = f"http://{host}:{port}"
         update_job(
@@ -265,6 +276,7 @@ def chat_vllm(
 
 
 # ── Lifecycle ─────────────────────────────────────────────────
+
 
 def stop_inference(job_id: str) -> None:
     _loaded_models.pop(job_id, None)
