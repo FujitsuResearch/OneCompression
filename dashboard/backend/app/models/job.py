@@ -1,11 +1,10 @@
 import uuid
 from datetime import datetime, timezone
 
+from app.constants import InferenceStatus, JobStatus
+from app.core.database import Base
 from sqlalchemy import JSON, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
-
-from app.core.database import Base
-from app.constants import InferenceStatus, JobStatus
 
 
 class Job(Base):
@@ -14,9 +13,7 @@ class Job(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    status: Mapped[str] = mapped_column(
-        String(20), default=JobStatus.PENDING, index=True
-    )
+    status: Mapped[str] = mapped_column(String(20), default=JobStatus.PENDING, index=True)
     progress: Mapped[int] = mapped_column(Integer, default=0)
 
     model_name: Mapped[str] = mapped_column(String(256))

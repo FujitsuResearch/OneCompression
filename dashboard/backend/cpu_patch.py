@@ -6,8 +6,9 @@ so that onecomp can be imported on CPU/MPS machines. On CUDA machines the origin
 functions succeed and the patches are transparent no-ops.
 """
 
-import torch
 from unittest.mock import MagicMock
+
+import torch
 
 _original_get_device_properties = torch.cuda.get_device_properties
 

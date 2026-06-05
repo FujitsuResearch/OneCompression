@@ -6,8 +6,8 @@ import os
 import threading
 import time
 
-from app.core.config import settings
 from app.constants import InferenceStatus, JobStatus
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.job import Job
 from app.services.job_store import update_job
@@ -171,9 +171,7 @@ def _run_real_quantization(job_id: str, model_name: str, quant_method: str, para
         # VRAM budget. Matches onecomp.Runner.auto_run.
         wbits = math.floor(est.target_bitwidth * 100) / 100
         if wbits <= 0:
-            raise RuntimeError(
-                f"VRAM-based wbits estimation returned non-positive value: {wbits}"
-            )
+            raise RuntimeError(f"VRAM-based wbits estimation returned non-positive value: {wbits}")
         resolved_params = {
             **params,
             "bits": wbits,
@@ -247,6 +245,7 @@ def run_quantization(self, job_id: str):
         gc.collect()
         try:
             import torch
+
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 logger.info("Released CUDA cache after quantization")

@@ -261,3 +261,7 @@ python your_vllm_script.py
 ```
 
 Both variables are read directly by vLLM; OneComp does not interpret them.
+
+## See also
+
+- [Evaluation](evaluation.md) — `onecomp-eval` for MT-Bench and throughput benchmarks on vLLM-served models

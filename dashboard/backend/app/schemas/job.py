@@ -1,8 +1,7 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
-
 from app.constants import ChatTaskStatus, InferenceStatus, JobStatus
+from pydantic import BaseModel, Field
 
 
 class QuantParams(BaseModel):

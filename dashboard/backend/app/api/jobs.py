@@ -1,6 +1,3 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-
 from app.constants import ChatTaskStatus, InferenceStatus, JobStatus
 from app.core.config import settings
 from app.core.database import get_db
@@ -20,6 +17,8 @@ from app.services.huggingface import check_model_exists
 from app.services.inference import chat_vllm, stop_inference
 from app.worker.celery_app import celery_app
 from app.worker.tasks import chat_with_model, deploy_model, run_quantization
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -200,9 +199,7 @@ def get_chat_result(task_id: str) -> ChatTaskResult:
 
 
 @router.get("")
-def list_jobs(
-    limit: int = 20, offset: int = 0, db: Session = Depends(get_db)
-) -> JobListResponse:
+def list_jobs(limit: int = 20, offset: int = 0, db: Session = Depends(get_db)) -> JobListResponse:
     total = db.query(Job).count()
     jobs = db.query(Job).order_by(Job.created_at.desc()).offset(offset).limit(limit).all()
     return JobListResponse(

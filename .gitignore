@@ -29,6 +29,9 @@ tests/onecomp/quantizer/jointq/data/model_layers_0_self_attn_k_proj.pth
 .uv-sync-vllm.lock
 .uv-sync-vllm.done
 .venv-vllm/
+# MT-Bench eval data (download via onecomp/eval/scripts/download_mt_bench_data*.sh)
+onecomp/eval/data/
+onecomp/eval/data_backup/
 
 # ── dashboard/ (HPC LLM quantization dashboard) ──────────────
 # Re-include the app/models package shadowed by the global `models` rule above
