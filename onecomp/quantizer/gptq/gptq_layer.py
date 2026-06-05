@@ -229,7 +229,7 @@ class GPTQLinear(nn.Module):
         zero: torch.Tensor,  # FP16
         perm: Optional[torch.Tensor] = None,  # INT64
         bias: Optional[torch.Tensor] = None,
-        device: str = "cuda",
+        device: Union[str, torch.device] = "cuda",
         pack_weights: bool = True,  # Pack INT weights for memory efficiency
         use_gemlite: Optional[bool] = None,  # GemLite flag
     ):
@@ -387,11 +387,9 @@ class GPTQLinear(nn.Module):
         # Cast dequantized weight to input dtype (e.g. float32 -> float16)
         weight = weight.to(x.dtype)
 
-        # Cast dequantized weight to input dtype (e.g. float32 -> float16)
-        weight = weight.to(x.dtype)
-
-        # Linear op
-        weight = weight.to(x.dtype)
+        # MPS F.linear produces incorrect results on non-contiguous tensors.
+        if weight.device.type == "mps":
+            weight = weight.contiguous()
         bias = self.bias.to(x.dtype) if self.bias is not None else None
         output = F.linear(x, weight, bias)
 

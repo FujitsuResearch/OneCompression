@@ -5,7 +5,7 @@ This page describes how to install Fujitsu One Compression (OneComp).
 ## Requirements
 
 - Python 3.12 or later (< 3.14)
-- PyTorch (CPU or CUDA)
+- PyTorch (CPU, CUDA, or MPS on macOS)
 
 ## For Users (pip)
 
@@ -55,7 +55,32 @@ Install the appropriate version of PyTorch for your system.
     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
     ```
 
-Check your CUDA version:
+=== "macOS (MPS)"
+
+    On macOS, install PyTorch from PyPI (default wheels include MPS support).
+    You do **not** need the CUDA index URLs above.
+
+    ```bash
+    pip install torch torchvision torchaudio
+    ```
+
+    Verify MPS:
+
+    ```python
+    import torch
+    print(torch.backends.mps.is_available())
+    ```
+
+    Then install OneComp (step 2 below). GPTQ quantization and Hugging Face
+    `generate()` inference on MPS are supported; vLLM serving requires Linux with
+    an NVIDIA GPU. An editable install from a git clone is **not** required for
+    MPS use — see [For Developers (pip)](#for-developers-pip) only if you are
+    contributing to OneComp.
+
+    For usage (`device="mps"`, VRAM budget, limitations), see the
+    [macOS / MPS guide](../user-guide/mps.md).
+
+Check your CUDA version (Linux / Windows with NVIDIA GPU):
 
 ```bash
 nvcc --version
@@ -63,7 +88,7 @@ nvcc --version
 nvidia-smi
 ```
 
-Verify PyTorch GPU support:
+Verify PyTorch GPU support (CUDA):
 
 ```python
 import torch
@@ -91,26 +116,45 @@ It provides deterministic, reproducible environments via its lockfile.
 # Install uv (macOS or Linux)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Clone and set up
 git clone https://github.com/FujitsuResearch/OneCompression.git
 cd OneCompression
+```
+
+The `uv sync` command creates a virtual environment and installs all dependencies.
+
+### Linux (CUDA quantization / vLLM)
+
+```bash
 uv sync --extra cu128 --extra dev --extra visualize
 ```
 
-The `uv sync` command creates a virtual environment and installs all dependencies (including `torchvision` from the same CUDA index as PyTorch).
-Replace `cu128` with the appropriate CUDA variant for your system: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
+The `--extra cu128` option installs the CUDA-enabled version of PyTorch (along with `torchvision` from the same CUDA index).
+Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
+PyTorch will be automatically downloaded by `uv`, so you do not need to install it beforehand.
+
+### macOS (development / MPS inference)
+
+```bash
+uv sync --extra mps --extra dev --extra visualize
+```
+
+On macOS, use `--extra mps` only. CUDA extras (`cu118`–`cu130`), `--extra cpu` (Linux-only),
+and `--extra vllm` are not supported on macOS.
+After `uv sync`, you can run GPTQ quantization and Hugging Face `generate()` inference on MPS;
+vLLM serving still requires Linux with an NVIDIA GPU.
+See the [macOS / MPS guide](../user-guide/mps.md) for device placement and usage details.
 
 Adding `--extra dev` installs development tools (black, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
 
-To use vLLM for serving quantized models, add `--extra vllm` together with `--extra cu130`:
+To use vLLM for serving quantized models on Linux, add `--extra vllm` together with `--extra cu130`:
 
 ```bash
 uv sync --extra cu130 --extra dev --extra visualize --extra vllm
 ```
 
 !!! note "vLLM requires the `cu130` extra"
-    Recent vLLM releases depend on `torch>=2.10`, whose wheels are only published for the `cu130` index. The `--extra vllm` declaration in `pyproject.toml` therefore conflicts with `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, and `cu128`; combining any of these with `--extra vllm` is rejected by `uv` at lock time.
+    Recent vLLM releases depend on `torch>=2.10`, whose wheels are only published for the `cu130` index. The `--extra vllm` declaration in `pyproject.toml` therefore conflicts with `cpu`, `mps`, `cu118`, `cu121`, `cu124`, `cu126`, and `cu128`; combining any of these with `--extra vllm` is rejected by `uv` at lock time.
 
 !!! warning
     Do **not** install vLLM with `uv pip install vllm` after `uv sync`. Packages installed via `uv pip` are not tracked by the lockfile and will be removed or overwritten by subsequent `uv sync` or `uv run` commands. Always use `--extra vllm` instead.
@@ -138,18 +182,29 @@ uv sync --extra cu130 --extra dev --extra visualize --extra vllm
 
 ## For Developers (pip)
 
+!!! note
+    The editable install below is for developing OneComp from a local clone.
+    **macOS users who only want MPS inference or quantization should use the
+    [For Users (pip)](#for-users-pip) flow** (`pip install torch` then
+    `pip install onecomp` from PyPI); `pip install -e` is not needed for MPS.
+
 ```bash
 git clone https://github.com/FujitsuResearch/OneCompression.git
 cd OneCompression
 
-# Install PyTorch with CUDA support
+# First, install PyTorch for your environment
 pip install torch --index-url https://download.pytorch.org/whl/cu128
-
-# Install onecomp with development dependencies
+# Then install onecomp with development dependencies
 pip install -e ".[dev]"
 ```
 
+Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
+On macOS, install PyTorch from PyPI instead (see [macOS (MPS)](#step-1-install-pytorch) above).
+
 ## Building Documentation Locally
+
+`--extra docs` alone is enough. PyTorch extras (`mps`, `cu*`, `cpu`) are not required
+to build or serve the documentation.
 
 ```bash
 uv sync --extra docs
