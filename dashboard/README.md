@@ -116,6 +116,9 @@ mkdir -p tmp/redis
 
 . .venv/bin/activate
 export ONECOMP_DEVICE=cuda
+# Local model root — required on worker **and** API when using short local names
+# instead of a Hugging Face repo id. See Environment variables.
+export LOCAL_MODEL_ROOT="$(pwd)/models"
 # Required on nodes without nvcc (CUDA toolkit); see Environment variables below
 export VLLM_USE_FLASHINFER_SAMPLER=0
 nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
@@ -130,6 +133,7 @@ srun --jobid=41229 --pty bash      # replace 41229 with your JOBID
 cd backend/
 . .venv/bin/activate
 export ONECOMP_DEVICE=cuda
+export LOCAL_MODEL_ROOT="$(pwd)/models"
 uv run python start_backend.py --reload --port 8001
 ```
 
@@ -230,7 +234,33 @@ tail -80 /tmp/vllm-<job-id>.log    # when vLLM fails
 
 ## Environment variables
 
-All use the `ONECOMP_` prefix. HPC defaults live in `backend/app/core/config.py`.
+`ONECOMP_*` settings default in `backend/app/core/config.py`. Other variables
+below are read directly from the process environment.
+
+### `LOCAL_MODEL_ROOT` (local model directory)
+
+Set this **before starting both the Celery worker and the API** when jobs use
+short local directory names (e.g. `gemma-2-2b-it`) rather than a Hugging Face
+repo id (`org/model`). The server maps `model_name` to
+`{LOCAL_MODEL_ROOT}/<model_name>` for job validation and quantization.
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOCAL_MODEL_ROOT` | `/models` | Root directory of pre-downloaded models on shared storage |
+
+Example (run from `backend/`; models live in `backend/models/`):
+
+```bash
+export LOCAL_MODEL_ROOT="$(pwd)/models"
+```
+
+Use the **same value** in Terminal A (worker) and Terminal B (API). If only
+one process has it, jobs may pass validation but fail during quantization with
+“not a local folder” / Hugging Face Hub errors.
+
+After changing `LOCAL_MODEL_ROOT`, restart **both** processes (step **3**).
+
+### `ONECOMP_*` (application settings)
 
 | Variable | Default (HPC) | Description |
 |---|---|---|
@@ -261,6 +291,7 @@ works but the CUDA toolkit is not installed.
 pkill -f start_worker.py
 cd backend && . .venv/bin/activate
 export ONECOMP_DEVICE=cuda
+export LOCAL_MODEL_ROOT="$(pwd)/models"
 export VLLM_USE_FLASHINFER_SAMPLER=0
 nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
 ```
@@ -273,7 +304,9 @@ does not propagate to the worker.
 ```bash
 pkill -f start_worker.py
 cd backend && . .venv/bin/activate
-ONECOMP_DEVICE=cuda nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
+export ONECOMP_DEVICE=cuda
+export LOCAL_MODEL_ROOT="$(pwd)/models"
+nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
 ```
 
 ---
@@ -310,6 +343,7 @@ See [troubleshooting in docs/setup-hpc.md](docs/setup-hpc.md#5-troubleshooting) 
 | SSH tunnel established but API unreachable | Point `LocalForward` at the GPU node name |
 | Chat is slow / keeps polling | `ONECOMP_DEVICE=cuda`, then Stop → Deploy |
 | Deploy fails: `Could not find nvcc` | `VLLM_USE_FLASHINFER_SAMPLER=0` on the **worker**, restart worker, Stop → Deploy ([#10](docs/setup-hpc.md#10-vllm-deploy-fails--could-not-find-nvcc)) |
+| Local model name fails / “not a local folder” on HF | Set the same `LOCAL_MODEL_ROOT` on **worker and API**, restart both; model dir must be `{LOCAL_MODEL_ROOT}/<name>/` |
 
 ### Separating the vLLM venv
 
