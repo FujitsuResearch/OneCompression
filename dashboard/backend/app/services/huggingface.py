@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import httpx
 
@@ -14,22 +15,59 @@ logger = logging.getLogger(__name__)
 
 _HF_API_BASE = "https://huggingface.co/api/models"
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+_LOCAL_MODEL_ROOT_ENV = "LOCAL_MODEL_ROOT"
+_DEFAULT_LOCAL_MODEL_ROOT = "/models"
+
+
+def _local_model_root() -> Path:
+    return Path(
+        os.environ.get(_LOCAL_MODEL_ROOT_ENV, _DEFAULT_LOCAL_MODEL_ROOT),
+    ).resolve()
+
+
+def _local_model_dir(model_id: str) -> Path | None:
+    """Return the resolved local model directory when it exists under the allowed root."""
+    root = _local_model_root()
+    candidate = (root / model_id).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate if candidate.is_dir() else None
+
+
+def resolve_model_identifier(model_id: str) -> str:
+    """Normalize *model_id* and map local names to an absolute filesystem path.
+
+    Short identifiers such as ``gemma-2-2b-it`` that exist under
+    ``LOCAL_MODEL_ROOT`` are returned as absolute paths so downstream loaders
+    (``ModelConfig``, ``transformers``) use the local snapshot instead of
+    HuggingFace Hub.
+    """
+    normalized = model_id.strip()
+    if not normalized:
+        raise ValueError("Model name must not be empty.")
+
+    absolute = Path(normalized)
+    if absolute.is_absolute() and absolute.is_dir():
+        return str(absolute.resolve())
+
+    local_dir = _local_model_dir(normalized)
+    if local_dir is not None:
+        return str(local_dir)
+    return normalized
 
 
 def check_model_exists(model_id: str) -> None:
     """Raise ``ValueError`` if ``model_id`` is not resolvable on HuggingFace Hub.
 
-    A local path that exists on disk is treated as a valid model identifier,
-    matching ``transformers.AutoConfig.from_pretrained`` behaviour. This is
-    important when callers point at an already-downloaded model directory.
+    A model directory under ``LOCAL_MODEL_ROOT`` (default ``/models``) is
+    treated as a valid local identifier. This matches the deployment layout
+    where already-downloaded models live on shared storage.
     """
-    if not model_id or not model_id.strip():
-        raise ValueError("Model name must not be empty.")
+    model_id = resolve_model_identifier(model_id)
 
-    model_id = model_id.strip()
-
-    # Local path takes precedence (matches transformers' resolution order).
-    if os.path.isdir(model_id):
+    if Path(model_id).is_dir():
         return
 
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
