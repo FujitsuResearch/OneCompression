@@ -125,7 +125,9 @@ def calculate_perplexity(
     if stride is None:
         stride = max_length
     seq_len = encodings.input_ids.size(1)
-    use_cpu_accum = device.type == "mps" if isinstance(device, torch.device) else str(device).startswith("mps")
+    use_cpu_accum = (
+        device.type == "mps" if isinstance(device, torch.device) else str(device).startswith("mps")
+    )
     accum_device = torch.device("cpu") if use_cpu_accum else device
     nll_sum = torch.tensor(0.0, dtype=torch.float64, device=accum_device)
     n_tokens = 0
