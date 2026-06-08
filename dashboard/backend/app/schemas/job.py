@@ -1,3 +1,5 @@
+"""Copyright 2025-2026 Fujitsu Ltd."""
+
 from datetime import datetime
 
 from app.constants import ChatTaskStatus, InferenceStatus, JobStatus

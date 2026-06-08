@@ -54,8 +54,12 @@ cu124 = ["torch", "torchvision"]
 cu126 = ["torch", "torchvision"]
 cu128 = ["torch", "torchvision"]
 cu130 = ["torch", "torchvision"]
+distributed = [
+    "deepspeed",
+]
 dev = [
     "black",
+    "deepspeed",
     "hydra-core",
     "pre-commit",
     "pylint",

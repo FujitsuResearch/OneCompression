@@ -108,6 +108,12 @@ Once PyTorch is installed, you can install `onecomp`:
 pip install onecomp
 ```
 
+To enable multi-GPU training features (DeepSpeed), install with the `distributed` extra:
+
+```bash
+pip install "onecomp[distributed]"
+```
+
 ### for developers (uv : recommended)
 
 #### Install `uv`
@@ -133,6 +139,7 @@ PyTorch will be automatically downloaded by `uv`, so you do not need to install 
 
 Adding `--extra dev` installs development tools (black, pre-commit, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
+Adding `--extra distributed` installs DeepSpeed for multi-GPU training.
 Adding `--extra hydra` installs `hydra-core` for the example scripts and `model_validation/` runners that use Hydra-based configuration.
 
 To use vLLM for serving quantized models, add `--extra vllm` together with `--extra cu130`:

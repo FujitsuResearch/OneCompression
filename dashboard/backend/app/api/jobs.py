@@ -1,3 +1,5 @@
+"""Copyright 2025-2026 Fujitsu Ltd."""
+
 from app.constants import ChatTaskStatus, InferenceStatus, JobStatus
 from app.core.config import settings
 from app.core.database import get_db

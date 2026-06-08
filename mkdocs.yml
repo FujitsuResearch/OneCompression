@@ -87,7 +87,7 @@ nav:
       - CLI: user-guide/cli.md
       - Configuration: user-guide/configuration.md
       - Pre-Process (Rotation): user-guide/pre-process.md
-      - Post-Process (Block-wise PTQ / LoRA SFT): user-guide/post-process.md
+      - Post-Process (Global PTQ / Block-wise PTQ / LoRA SFT): user-guide/post-process.md
       - vLLM Inference: user-guide/vllm-inference.md
       - Evaluation: user-guide/evaluation.md
       - Examples: user-guide/examples.md
