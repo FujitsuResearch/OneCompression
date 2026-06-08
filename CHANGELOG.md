@@ -86,6 +86,10 @@
 - Fixed `tests/onecomp/quantizer/test_module.py` to feed `y_replaced` consistently into `q_proj` / `k_proj` / `v_proj` after quantized weights are applied, aligning the replacement-path forward test with the intended residual update flow
 - Extracted the duplicated attention+MLP forward loop in `test_quantize_error` into `TestModel.forward()` (`tests/onecomp/quantizer/test_module.py`); both the pre-quantization and post-quantization inference paths now call `model(inp)` directly, eliminating 34 duplicate lines
 
+### Dependencies
+
+- Pinned the `vllm` optional dependency to `vllm>=0.10,<0.22` in `pyproject.toml` (and regenerated `uv.lock`). vLLM 0.22.0 removed the legacy Exllama GPTQ kernel that OneComp's GPTQ serving uses for low bit-widths (2-/3-bit, and 4-/8-bit models that are asymmetric or use `desc_act`), so **vLLM 0.22 and later are not supported** — serving affected models on 0.22+ fails at runtime. Documented in `docs/user-guide/vllm-inference.md` and `docs/getting-started/installation.md`.
+
 ### Documentation
 
 - Documented save/load and vLLM compatibility for the newly-supported **JointQ**, **RTN**, and **OneBit** quantizers across the docs:
