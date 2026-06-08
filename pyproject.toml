@@ -71,6 +71,8 @@ visualize = [
 hydra = [
     "hydra-core",
 ]
+# vllm v0.22.0 removes Exllama legacy gptq
+vllm = ["vllm>=0.10,<0.22"]
 eval = [
     "hydra-core>=1.3",
     "omegaconf>=2.3",
@@ -79,7 +81,6 @@ eval = [
     "japanize-matplotlib>=1.1",
     "shortuuid>=1.0",
 ]
-vllm = ["vllm>=0.10"]
 docs = [
     "mkdocs-material",
     "mkdocstrings[python]",
