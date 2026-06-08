@@ -43,6 +43,9 @@ vLLM is available as an optional dependency:
     pip install vllm
     ```
 
+!!! warning "vLLM 0.22+ is not supported"
+    OneComp's GPTQ serving relies on the Exllama GPTQ kernel for low bit-widths — 2-/3-bit, and 4-/8-bit when the model is asymmetric or uses activation reordering (`desc_act`). vLLM 0.22.0 removed the legacy Exllama GPTQ kernel, so these configurations fail at runtime. `pyproject.toml` therefore pins `vllm>=0.10,<0.22`; use a vLLM version below 0.22.
+
 !!! note
     vLLM requires CUDA and a compatible GPU. See the [vLLM documentation](https://docs.vllm.ai/) for detailed installation instructions and system requirements.
 

@@ -119,6 +119,9 @@ uv sync --extra cu130 --extra dev --extra visualize --extra vllm
 !!! note "vLLM requires the `cu130` extra"
     Recent vLLM releases depend on `torch>=2.10`, whose wheels are only published for the `cu130` index. The `--extra vllm` declaration in `pyproject.toml` therefore conflicts with `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, and `cu128`; combining any of these with `--extra vllm` is rejected by `uv` at lock time.
 
+!!! warning "vLLM 0.22+ is not supported"
+    vLLM 0.22.0 removed the legacy Exllama GPTQ kernel that OneComp's GPTQ serving relies on for low bit-widths (2-/3-bit, and Marlin-ineligible 4-/8-bit), so `pyproject.toml` pins `vllm>=0.10,<0.22`. See [vLLM Inference](../user-guide/vllm-inference.md#installation) for details.
+
 !!! warning
     Do **not** install vLLM with `uv pip install vllm` after `uv sync`. Packages installed via `uv pip` are not tracked by the lockfile and will be removed or overwritten by subsequent `uv sync` or `uv run` commands. Always use `--extra vllm` instead.
 
