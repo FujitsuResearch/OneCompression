@@ -1,3 +1,5 @@
+"""Copyright 2025-2026 Fujitsu Ltd."""
+
 import uuid
 from datetime import datetime, timezone
 

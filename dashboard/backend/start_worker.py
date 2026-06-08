@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-"""Celery worker entrypoint – applies cuda patch (no-op when CUDA is available)."""
+"""Celery worker entrypoint – applies cuda patch (no-op when CUDA is available).
+
+Copyright 2025-2026 Fujitsu Ltd.
+"""
 
 import cpu_patch  # noqa: F401
 from app.worker.celery_app import celery_app

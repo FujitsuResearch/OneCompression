@@ -1,4 +1,7 @@
-"""Parent-side adapter for the throughput evaluator."""
+"""Parent-side adapter for the throughput evaluator.
+
+Copyright 2025-2026 Fujitsu Ltd.
+"""
 
 from __future__ import annotations
 
