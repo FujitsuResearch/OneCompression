@@ -24,6 +24,7 @@ from .quantizer.gptq.config import resolve_gptq_layer_group_size, resolve_gptq_l
 from .quantizer.gptq.gptq_layer import GPTQLinear
 from .quantizer.onebit.onebit_layer import OneBitLinear
 from .utils.dtype import needs_bfloat16
+from .utils.device import get_default_device
 from .utils.quant_config import get_quant_param
 
 logger = getLogger(__name__)
@@ -170,7 +171,7 @@ class QuantizedModelLoader:
                 device_map_resolved = infer_auto_device_map(model)
                 model = dispatch_model(model, device_map=device_map_resolved)
             except ImportError:
-                model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+                model = model.to(get_default_device())
 
         tokenizer = AutoTokenizer.from_pretrained(
             save_directory,
@@ -232,7 +233,7 @@ class QuantizedModelLoader:
                 device_map_resolved = infer_auto_device_map(model)
                 model = dispatch_model(model, device_map=device_map_resolved)
             except ImportError:
-                model = model.to("cuda" if torch.cuda.is_available() else "cpu")
+                model = model.to(get_default_device())
 
         tokenizer = AutoTokenizer.from_pretrained(
             save_directory,

@@ -15,6 +15,10 @@ from .blockwise import (
     get_blocks_and_inputs,
     move_kwargs_to_device,
 )
+from .device import (
+    empty_cache,
+    get_default_device,
+)
 from .dtype import needs_bfloat16
 from .model_inputs import add_model_specific_inputs
 from .perplexity import calculate_perplexity

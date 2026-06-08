@@ -31,9 +31,9 @@ quantized model is saved to `TinyLlama-1.1B-...-autobit-<X>bit/` by default.
 |------------------------|------------|----------------------------------------------------------|
 | `model_id`             | (required) | Hugging Face model ID or local path                      |
 | `wbits`                | `None`     | Target bitwidth. When `None`, estimated from VRAM        |
-| `total_vram_gb`        | `None`     | VRAM budget in GB. When `None`, detected from GPU        |
+| `total_vram_gb`        | `None`     | VRAM budget in GB. When `None`, detected from CUDA GPU   |
 | `groupsize`            | `128`      | GPTQ group size (`-1` to disable)                        |
-| `device`               | `"cuda:0"` | Device for computation                                   |
+| `device`               | `"cuda:0"` | Device for computation (`"mps"` on macOS — see below)    |
 | `qep`                  | `True`     | Enable QEP (Quantization Error Propagation)              |
 | `evaluate`             | `True`     | Calculate perplexity and zero-shot accuracy              |
 | `eval_original_model`  | `False`    | Also evaluate the original (unquantized) model           |
@@ -65,6 +65,21 @@ Runner.auto_run(
     evaluate=False,
 )
 ```
+
+### macOS (Apple Silicon)
+
+On Mac, set `device="mps"` and pass `total_vram_gb` (VRAM auto-detection uses CUDA only):
+
+
+```python
+Runner.auto_run(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="mps",
+    total_vram_gb=16,
+)
+```
+See the [macOS / MPS guide](../user-guide/mps.md) for supported features, device
+placement (GPTQ vs QEP), and inference with Transformers.
 
 ---
 
@@ -178,3 +193,4 @@ model, tokenizer = load_quantized_model("./output/quantized_model")
 - [Examples](../user-guide/examples.md) -- more usage patterns including multi-GPU and chunked calibration
 - [Evaluation](../user-guide/evaluation.md) -- `onecomp-eval` for MT-Bench and throughput on vLLM-served models
 - [Algorithms](../algorithms/overview.md) -- learn about the quantization algorithms available in OneComp
+- [macOS / MPS](../user-guide/mps.md) -- Apple Silicon setup, limitations, and inference

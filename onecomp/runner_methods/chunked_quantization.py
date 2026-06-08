@@ -34,6 +34,7 @@ import torch
 from onecomp.calibration import CalibrationConfig, prepare_calibration_dataset
 from onecomp.model_config import ModelConfig
 from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
+from onecomp.utils.device import empty_cache
 from onecomp.utils.quantization_progress import QuantizationProgressTracker
 
 logger = getLogger(__name__)
@@ -251,7 +252,7 @@ def accumulate_xtx(
 
         # Free memory
         del chunk_inputs
-        torch.cuda.empty_cache()
+        empty_cache(input_device)
 
         logger.debug(
             "  Chunk %d/%d done (samples %d-%d)",
@@ -327,7 +328,7 @@ def quantize_group(quantizer, group, xtx_dict, nsamples):
         result.quantization_time = end_time - start_time
 
         quantizer.results[name] = result
-        torch.cuda.empty_cache()
+        empty_cache(module.weight.device)
 
 
 # =============================================================================
@@ -397,4 +398,4 @@ def record_quantization_errors(quantizer, group, xtx_dict, nsamples):
             else None
         )
 
-        torch.cuda.empty_cache()
+        empty_cache(device)
