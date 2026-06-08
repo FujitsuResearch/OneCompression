@@ -32,6 +32,39 @@ from ._base import PostQuantizationProcess
 logger = getLogger(__name__)
 
 
+def _remove_deepspeed_hooks(model: nn.Module) -> None:
+    """Remove DeepSpeed-injected forward (pre/post) hooks from every submodule.
+
+    DeepSpeed registers hooks whose callables are local closures defined inside
+    ``DeepSpeedEngine`` (e.g. ``_module_forward_post_hook``). They are not
+    picklable, so they must be removed before ``torch.save(model)``.
+    """
+    hook_dict_names = (
+        "_forward_hooks",
+        "_forward_pre_hooks",
+        "_forward_hooks_with_kwargs",
+        "_forward_pre_hooks_with_kwargs",
+    )
+    for module in model.modules():
+        forward_hooks = getattr(module, "_forward_hooks", None)
+        pre_hooks = getattr(module, "_forward_pre_hooks", None)
+        stale_ids = set()
+        for hook_dict in (forward_hooks, pre_hooks):
+            if not hook_dict:
+                continue
+            for handle_id, hook in list(hook_dict.items()):
+                if "DeepSpeedEngine" in getattr(hook, "__qualname__", ""):
+                    stale_ids.add(handle_id)
+        if not stale_ids:
+            continue
+        for hook_dict_name in hook_dict_names:
+            hook_dict = getattr(module, hook_dict_name, None)
+            if not hook_dict:
+                continue
+            for handle_id in stale_ids:
+                hook_dict.pop(handle_id, None)
+
+
 @dataclass
 class GlobalPTQDistributed(PostQuantizationProcess):
     """Global PTQ via Trainer-based KL distillation.
@@ -467,5 +500,23 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             for param in quantized_model.parameters():
                 param.requires_grad = False
             quantized_model.eval()
+
+            # HF Trainer enables gradient checkpointing by attaching a
+            # non-picklable forward hook (``make_inputs_require_grads``, a
+            # local closure) via ``enable_input_require_grads``. Leaving it on
+            # the model breaks ``torch.save(model)`` in
+            # ``save_quantized_model_pt`` with an AttributeError. Remove it
+            # here (no-op when no hook is registered).
+            if hasattr(quantized_model, "gradient_checkpointing_disable"):
+                quantized_model.gradient_checkpointing_disable()
+            if hasattr(quantized_model, "disable_input_require_grads"):
+                quantized_model.disable_input_require_grads()
+
+            # DeepSpeed wraps the module and injects non-picklable forward
+            # (pre/post) hook closures (e.g. ``_module_forward_post_hook`` from
+            # ``DeepSpeedEngine``) onto every submodule. These persist after
+            # training and likewise break ``torch.save(model)``. Strip any hook
+            # whose closure originates from DeepSpeed.
+            _remove_deepspeed_hooks(quantized_model)
 
         logger.info("GlobalPTQDistributed complete.")
