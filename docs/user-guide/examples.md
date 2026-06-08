@@ -370,6 +370,9 @@ outputs = model.generate(**inputs, max_new_tokens=50)
 print(tokenizer.decode(outputs[0], skip_special_tokens=True))
 ```
 
+On macOS, the model is placed on MPS automatically when available. For vLLM serving,
+use a Linux machine with an NVIDIA GPU. See the [macOS / MPS guide](mps.md).
+
 ## Global PTQ: KL Distillation
 
 Optimise quantization parameters globally via KL-divergence distillation from a full-precision teacher:

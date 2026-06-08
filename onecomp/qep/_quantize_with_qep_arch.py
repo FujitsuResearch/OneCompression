@@ -34,6 +34,7 @@ from onecomp.utils.blockwise import (
     move_kwargs_to_device,
     prepare_block_kwargs,
 )
+from onecomp.utils.device import empty_cache
 from onecomp.utils.quantization_progress import QuantizationProgressTracker
 
 logger = getLogger(__name__)
@@ -521,6 +522,6 @@ def run_quantize_with_qep_arch(
 
         # free memory
         block_q.cpu()
-        torch.cuda.empty_cache()
+        empty_cache(device)
 
     quantizer.execute_post_processing()
