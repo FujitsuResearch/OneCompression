@@ -2,6 +2,8 @@
 
 Carried over verbatim from the old eval_jp/utils/model_utils.py; only
 the prints use the module logger so callers can route them at runtime.
+
+Copyright 2025-2026 Fujitsu Ltd.
 """
 
 from __future__ import annotations

@@ -1,21 +1,6 @@
 # Change log
 
-
-## [v1.2.0] 2026-06-04 (WIP)
-
-### Evaluation:
-- Added `onecomp.eval` and the `onecomp-eval` CLI: one vLLM server, subprocess evaluators, aggregated `summary.json` / `summary.csv`
-- Added `mt_bench` (Japanese MT-Bench) and opt-in `throughput` (TTFT / decode tok/s) evaluators
-
-## New Feature : Dashboard
-
-- Added `dashboard/`, a browser-based web app for OneCompression on **SLURM-managed HPC GPU nodes without Docker**: pick a Hugging Face model and quantization settings in the UI, run jobs on the GPU, deploy the quantized checkpoint, and validate inference via chat
-- **Stack**: React + Vite frontend (local PC), FastAPI API, Celery worker + user-built Redis, SQLite job DB, per-job output under `backend/tmp/quantized/`; CUDA quantization via `onecomp` and chat deploy via a separate **vLLM** subprocess from the same `backend/.venv` (`onecomp` + `vllm>=0.21` in `pyproject.toml`)
-- **Quantization methods exposed in the UI**: `gptq`, `autobit`, `jointq`, and `auto_run` (VRAM-based bitwidth / group size); optional QEP (not with JointQ); fractional bit widths for `autobit` / `auto_run`
-
-### for Developer: pre-commit
-
-- Added `.pre-commit-config.yaml` with `black`, `isort`, and local hooks (`no-japanese`, `copyright-header`, `no-email-address`); install with `uv sync --extra dev` then `pre-commit install` (see README)
+## [v1.2.0] 2026-06-08
 
 ### Save/Load Support for JointQ, RTN, and OneBit Quantizers
 
@@ -36,6 +21,26 @@
   - `compute_dequantized_weight()` implements `W ≈ a[:, None] * sign * b[None, :]`
   - `create_inference_layer()` builds `OneBitLinear` via `OneBitLinear.from_quantization_result()`
   - Added `_build_quantization_bits()` static method for per-layer metadata
+
+## New Feature : Dashboard
+
+- Added `dashboard/`, a browser-based web app for OneCompression on **SLURM-managed HPC GPU nodes without Docker**: pick a Hugging Face model and quantization settings in the UI, run jobs on the GPU, deploy the quantized checkpoint, and validate inference via chat
+- **Stack**: React + Vite frontend (local PC), FastAPI API, Celery worker + user-built Redis, SQLite job DB, per-job output under `backend/tmp/quantized/`; CUDA quantization via `onecomp` and chat deploy via a separate **vLLM** subprocess from the same `backend/.venv` (`onecomp` + `vllm>=0.21` in `pyproject.toml`)
+- **Quantization methods exposed in the UI**: `gptq`, `autobit`, `jointq`, and `auto_run` (VRAM-based bitwidth / group size); optional QEP (not with JointQ); fractional bit widths for `autobit` / `auto_run`
+
+### New Feature: Global PTQ (Post-Training Quantization)
+
+- Added `GlobalPTQ` and `GlobalPTQDistributed` post-process classes for KL-distillation-based global optimisation of continuous quantization parameters (scales and zeros for GPTQ; scaling factors for DBF)
+- `GlobalPTQ`: Single-GPU implementation with cosine-warmup LR scheduling, early stopping, mixed-precision support, and gradient accumulation
+- `GlobalPTQDistributed`: Multi-GPU implementation using HuggingFace Trainer + DeepSpeed ZeRO-2, supporting KL divergence and/or NTP loss with automatic best-state rollback
+
+### Evaluation:
+- Added `onecomp.eval` and the `onecomp-eval` CLI: one vLLM server, subprocess evaluators, aggregated `summary.json` / `summary.csv`
+- Added `mt_bench` (Japanese MT-Bench) and opt-in `throughput` (TTFT / decode tok/s) evaluators
+
+### for Developer: pre-commit
+
+- Added `.pre-commit-config.yaml` with `black`, `isort`, and local hooks (`no-japanese`, `copyright-header`, `no-email-address`); install with `uv sync --extra dev` then `pre-commit install` (see README)
 
 ### OneBitLinear Inference Layer Improvements
 
@@ -77,6 +82,9 @@
 - Changed JointQ test default `bits` from `1` to `2` to match GPTQLinear packing constraints (`tests/onecomp/quantizer/jointq/test_jointq.py`)
 - Updated `check_equal_results` in RTN and OneBit tests to use `compute_dequantized_weight()` instead of direct `dequantized_weight` attribute access
 - Updated `apply_quantized_weights` in RTN and OneBit tests to use `compute_dequantized_weight()` with proper dtype preservation
+- Tightened GPTQ unit test tolerances in `tests/onecomp/quantizer/gptq/test_gptq.py` so regressions in dequantized-weight error are detected earlier (`error < 0.4`, `max_error < 1.71`; previously `0.6` / `2.5`) (`tests/onecomp/quantizer/gptq/test_gptq.py`)
+- Fixed `tests/onecomp/quantizer/test_module.py` to feed `y_replaced` consistently into `q_proj` / `k_proj` / `v_proj` after quantized weights are applied, aligning the replacement-path forward test with the intended residual update flow
+- Extracted the duplicated attention+MLP forward loop in `test_quantize_error` into `TestModel.forward()` (`tests/onecomp/quantizer/test_module.py`); both the pre-quantization and post-quantization inference paths now call `model(inp)` directly, eliminating 34 duplicate lines
 
 ### Documentation
 
@@ -92,17 +100,6 @@
 
 - Added `example/vllm_inference/example_jointq_vllm_inference.py`: end-to-end JointQ quantization (4-bit, `group_size=128`) → save → vLLM offline inference. Mirrors the GPTQ vLLM example, uses `qep=False` (JointQ does not support QEP), and documents the `bits >= 2` requirement for vLLM bit-packing. Registered in the README example table.
 
-### Quantizer module forward test fix
-
-- Fixed `tests/onecomp/quantizer/test_module.py` to feed `y_replaced` consistently into `q_proj` / `k_proj` / `v_proj` after quantized weights are applied, aligning the replacement-path forward test with the intended residual update flow
-
-### GPTQ quantization test thresholds
-
-- Tightened GPTQ unit test tolerances in `tests/onecomp/quantizer/gptq/test_gptq.py` so regressions in dequantized-weight error are detected earlier (`error < 0.4`, `max_error < 1.71`; previously `0.6` / `2.5`)
-
-### Test infrastructure
-
-- Extracted the duplicated attention+MLP forward loop in `test_quantize_error` into `TestModel.forward()` (`tests/onecomp/quantizer/test_module.py`); both the pre-quantization and post-quantization inference paths now call `model(inp)` directly, eliminating 34 duplicate lines
 
 ## [v1.1.1] 2026-05-21
 

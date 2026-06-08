@@ -1,4 +1,7 @@
-"""Lightweight HuggingFace Hub helpers used by the API layer."""
+"""Lightweight HuggingFace Hub helpers used by the API layer.
+
+Copyright 2025-2026 Fujitsu Ltd.
+"""
 
 from __future__ import annotations
 

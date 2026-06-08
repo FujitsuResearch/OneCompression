@@ -1,5 +1,8 @@
 """MT-Bench judge scoring via the OpenAI API (judge model is independent of
-the model under test, e.g. GPT-4o)."""
+the model under test, e.g. GPT-4o).
+
+Copyright 2025-2026 Fujitsu Ltd.
+"""
 
 from __future__ import annotations
 

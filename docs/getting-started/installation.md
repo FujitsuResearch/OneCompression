@@ -82,6 +82,12 @@ To enable visualization features (matplotlib), install with the `visualize` extr
 pip install onecomp[visualize]
 ```
 
+To enable multi-GPU training features (DeepSpeed), install with the `distributed` extra:
+
+```bash
+pip install "onecomp[distributed]"
+```
+
 ## For Developers (uv -- recommended)
 
 [`uv`](https://docs.astral.sh/uv/getting-started/installation/) is a fast Python package and project manager written in Rust.
@@ -102,6 +108,7 @@ Replace `cu128` with the appropriate CUDA variant for your system: `cpu`, `cu118
 
 Adding `--extra dev` installs development tools (black, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
+Adding `--extra distributed` installs DeepSpeed for multi-GPU training.
 
 To use vLLM for serving quantized models, add `--extra vllm` together with `--extra cu130`:
 

@@ -1,4 +1,7 @@
-"""Port allocation and HTTP readiness polling."""
+"""Port allocation and HTTP readiness polling.
+
+Copyright 2025-2026 Fujitsu Ltd.
+"""
 
 from __future__ import annotations
 
