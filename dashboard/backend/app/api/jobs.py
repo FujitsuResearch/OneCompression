@@ -15,7 +15,7 @@ from app.schemas.job import (
     JobListResponse,
     JobResponse,
 )
-from app.services.huggingface import check_model_exists
+from app.services.huggingface import check_model_exists, resolve_model_identifier
 from app.services.inference import chat_vllm, stop_inference
 from app.worker.celery_app import celery_app
 from app.worker.tasks import chat_with_model, deploy_model, run_quantization
@@ -98,7 +98,7 @@ def estimate_wbits(body: EstimateWbitsRequest) -> EstimateWbitsResponse:
 
     try:
         result = estimate_wbits_from_vram(
-            body.model_name,
+            resolve_model_identifier(body.model_name),
             vram_ratio=body.vram_ratio,
             total_vram_gb=body.total_vram_gb,
             group_size=body.group_size,
