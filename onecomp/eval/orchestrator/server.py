@@ -234,8 +234,6 @@ class VllmServerManager:
             str(self.cfg.max_model_len),
             "--dtype",
             dtype,
-            "--api-key",
-            self.cfg.api_key,
         ]
         if self.cfg.trust_remote_code:
             argv.append("--trust-remote-code")

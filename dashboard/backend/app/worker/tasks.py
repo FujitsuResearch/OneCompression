@@ -12,6 +12,7 @@ from app.constants import InferenceStatus, JobStatus
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.job import Job
+from app.services.huggingface import resolve_model_identifier
 from app.services.job_store import update_job
 from app.worker.celery_app import celery_app
 
@@ -136,7 +137,8 @@ def _run_real_quantization(job_id: str, model_name: str, quant_method: str, para
     update_job(job_id, progress=5)
 
     quant_device = "cuda" if settings.device == "cuda" else "cpu"
-    model_config = ModelConfig(model_id=model_name, device=quant_device)
+    resolved_model = resolve_model_identifier(model_name)
+    model_config = ModelConfig(model_id=resolved_model, device=quant_device)
 
     try:
         quantizer_name, force_qep = QUANTIZER_MAP[quant_method]
@@ -164,7 +166,7 @@ def _run_real_quantization(job_id: str, model_name: str, quant_method: str, para
 
         groupsize = 128
         est = estimate_wbits_from_vram(
-            model_name,
+            resolved_model,
             total_vram_gb=params.get("total_vram_gb"),
             group_size=groupsize,
             logger=logger,

@@ -104,12 +104,8 @@ def judge_answers(
             f"{probed}"
         )
 
-    client_kwargs: dict = {
-        "api_key": api_key,
-        "base_url": _resolve_judge_base_url(judge_api_base),
-    }
-    logger.info("[JUDGE] Using base_url=%s", client_kwargs["base_url"])
-    client = OpenAI(**client_kwargs)
+    logger.info("[JUDGE] Initializing judge client")
+    client = OpenAI(api_key=api_key, base_url=_resolve_judge_base_url(judge_api_base))
 
     question_file = data_dir / "question.jsonl"
     questions = {q["question_id"]: q for q in load_questions(question_file)}
