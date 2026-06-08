@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-"""Backend entrypoint – applies cuda patch (no-op when CUDA is available)."""
+"""Backend entrypoint – applies cuda patch (no-op when CUDA is available).
+
+Copyright 2025-2026 Fujitsu Ltd.
+"""
 
 import sys
 

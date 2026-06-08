@@ -1,3 +1,5 @@
+"""Copyright 2025-2026 Fujitsu Ltd."""
+
 from app.core.database import SessionLocal
 from app.models.job import Job
 

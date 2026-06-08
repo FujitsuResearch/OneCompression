@@ -1,3 +1,5 @@
+"""Copyright 2025-2026 Fujitsu Ltd."""
+
 from contextlib import asynccontextmanager
 
 from app.api.jobs import router as jobs_router

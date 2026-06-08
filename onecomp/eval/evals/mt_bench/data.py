@@ -1,4 +1,7 @@
-"""JSONL loaders for the MT-Bench dataset."""
+"""JSONL loaders for the MT-Bench dataset.
+
+Copyright 2025-2026 Fujitsu Ltd.
+"""
 
 from __future__ import annotations
 
