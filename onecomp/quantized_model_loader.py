@@ -23,8 +23,8 @@ from .quantizer.dbf.dbf_layer import DoubleBinaryLinear
 from .quantizer.gptq.config import resolve_gptq_layer_group_size, resolve_gptq_layer_wbits
 from .quantizer.gptq.gptq_layer import GPTQLinear
 from .quantizer.onebit.onebit_layer import OneBitLinear
-from .utils.dtype import needs_bfloat16
 from .utils.device import get_default_device
+from .utils.dtype import needs_bfloat16
 from .utils.quant_config import get_quant_param
 
 logger = getLogger(__name__)

@@ -330,13 +330,8 @@ class Runner:
         device = self.model_config.device
         if is_mps_device(device):
             if self.multi_gpu:
-                raise ValueError(
-                    "multi_gpu is not supported on MPS device."
-                )
-            all_quantizers = (
-                self.quantizers if self.quantizers is not None
-                else [self.quantizer]
-            )
+                raise ValueError("multi_gpu is not supported on MPS device.")
+            all_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
             for i, q in enumerate(all_quantizers):
                 label = f"quantizers[{i}]" if self.quantizers else "quantizer"
                 if isinstance(q, AutoBitQuantizer):
@@ -583,7 +578,9 @@ class Runner:
                 enable_fused_groups=True,
             )
         qep_config = QEPConfig(device=device)
-        runner = cls(model_config=model_config, quantizer=quantizer, qep=qep, qep_config=qep_config)
+        runner = cls(
+            model_config=model_config, quantizer=quantizer, qep=qep, qep_config=qep_config
+        )
         runner.run()
 
         if evaluate:

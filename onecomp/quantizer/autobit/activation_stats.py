@@ -16,7 +16,7 @@ from onecomp.utils.blockwise import (
     get_blocks_and_inputs,
     move_kwargs_to_device,
 )
-from onecomp.utils.device import get_default_device, empty_cache
+from onecomp.utils.device import empty_cache, get_default_device
 
 
 def _find_head_modules(model, blocks):
