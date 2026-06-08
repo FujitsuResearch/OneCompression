@@ -155,11 +155,18 @@ Once a node is allocated (e.g. `gpu08`), run every command below
 
 ```bash
 cd backend/
-./redis-7.2.7/src/redis-server --daemonize yes --bind 127.0.0.1
+export LC_ALL=C
+mkdir -p tmp/redis
+./redis-7.2.7/src/redis-server \
+  --daemonize yes \
+  --bind 127.0.0.1 \
+  --dir "$(pwd)/tmp/redis" \
+  --pidfile "$(pwd)/tmp/redis/redis.pid" \
+  --logfile "$(pwd)/tmp/redis/redis.log"
+./redis-7.2.7/src/redis-cli -h 127.0.0.1 ping   # → PONG
 ```
 
-> **Important**: always pass `--bind 127.0.0.1` (see Troubleshooting below
-> for the reason).
+> **Important**: `--bind 127.0.0.1` ([#1](#1-redis-connection-error--address-family-not-supported-by-protocol-errno-97)) and `LC_ALL=C` ([#1b](#1b-redis-exits-immediately--invalid-locale)) on HPC nodes.
 
 ### 2.3 Start the worker
 
@@ -467,6 +474,17 @@ redis_url: str = "redis://127.0.0.1:6379/0"
 ```bash
 ./redis-7.2.7/src/redis-server --daemonize yes --bind 127.0.0.1
 ```
+
+### #1b: Redis exits immediately — invalid locale
+
+**Symptom**: `redis-cli ping` → `Connection refused`. Log:
+`Failed to configure LOCALE for invalid locale name.`
+
+**Cause**: Redis 7.x needs a valid locale at startup; HPC nodes often have
+`LANG` set to a locale that is not installed.
+
+**Fix**: `export LC_ALL=C`, then start Redis again (§2.2). If Celery already
+failed, restart the API and worker too.
 
 ### #2: vLLM health check is routed through the HTTP proxy
 

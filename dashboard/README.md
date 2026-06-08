@@ -104,7 +104,15 @@ All commands below run **on the GPU node**.
 
 ```bash
 cd backend/
-./redis-7.2.7/src/redis-server --daemonize yes --bind 127.0.0.1
+export LC_ALL=C
+mkdir -p tmp/redis
+./redis-7.2.7/src/redis-server \
+  --daemonize yes \
+  --bind 127.0.0.1 \
+  --dir "$(pwd)/tmp/redis" \
+  --pidfile "$(pwd)/tmp/redis/redis.pid" \
+  --logfile "$(pwd)/tmp/redis/redis.log"
+./redis-7.2.7/src/redis-cli -h 127.0.0.1 ping   # → PONG
 
 . .venv/bin/activate
 export ONECOMP_DEVICE=cuda
@@ -294,6 +302,7 @@ See [troubleshooting in docs/setup-hpc.md](docs/setup-hpc.md#5-troubleshooting) 
 
 | Symptom | Fix |
 |---|---|
+| Redis won't start (`Failed to configure LOCALE`) | `export LC_ALL=C` before `redis-server` ([#1b](docs/setup-hpc.md#1b-redis-exits-immediately--invalid-locale)) |
 | Redis `Error 97` / Celery reconnect failure | Use `127.0.0.1` in the Redis URL and `--bind` |
 | vLLM `/health` returns Squid 403 | `no_proxy` (set automatically in code) |
 | Deploy fails because `vllm_python` path is missing | Align `config` with the venv layout and restart the worker (#7) |
