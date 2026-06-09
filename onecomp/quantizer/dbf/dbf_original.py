@@ -21,11 +21,11 @@ Optimized using ADMM (Alternating Direction Method of Multipliers).
 """
 
 import gc
+import logging
 from logging import getLogger
 from typing import Dict, Optional, Tuple
 
 import numpy as np
-import logging
 
 logger = logging.getLogger(__name__)
 import torch

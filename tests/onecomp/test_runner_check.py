@@ -98,3 +98,44 @@ class TestRunnerCheckQEPSupport:
             qep=True,
         )
         runner.check()
+
+
+class TestRunnerCheckMPS:
+    """MPS-specific validation in ``Runner.check()``."""
+
+    @staticmethod
+    def _mps_model_config() -> ModelConfig:
+        return ModelConfig(
+            model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+            device="mps",
+        )
+
+    def test_autobit_dbf_only_target_on_mps_raises(self):
+        """Ultra-low target_bit triggers DBF-only path; must fail on MPS."""
+        autobit = AutoBitQuantizer(
+            quantizers=[GPTQ(wbits=4), GPTQ(wbits=2)],
+            target_bit=1.5,
+            auto_dbf=True,
+        )
+        runner = Runner(
+            model_config=self._mps_model_config(),
+            quantizer=autobit,
+            calibration_config=CalibrationConfig(max_length=128, num_calibration_samples=8),
+        )
+
+        with pytest.raises(ValueError, match=r"DBF fallback is not supported on MPS"):
+            runner.check()
+
+    def test_autobit_low_target_on_mps_with_auto_dbf_disabled_passes(self):
+        """auto_dbf=False skips DBF fallback even for low target_bit."""
+        autobit = AutoBitQuantizer(
+            quantizers=[GPTQ(wbits=4), GPTQ(wbits=2)],
+            target_bit=1.5,
+            auto_dbf=False,
+        )
+        runner = Runner(
+            model_config=self._mps_model_config(),
+            quantizer=autobit,
+            calibration_config=CalibrationConfig(max_length=128, num_calibration_samples=8),
+        )
+        runner.check()

@@ -13,8 +13,9 @@ Usage:
 """
 
 import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 from tests.onecomp.fixtures.generate_qep_gptq_reference import run_qep_gptq_quantization
 
