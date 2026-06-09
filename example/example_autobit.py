@@ -8,8 +8,7 @@ Author: Akihiro Yoshida
 
 """
 
-from onecomp import setup_logger
-from onecomp import CalibrationConfig, ModelConfig, Runner, AutoBitQuantizer, GPTQ
+from onecomp import GPTQ, AutoBitQuantizer, CalibrationConfig, ModelConfig, Runner, setup_logger
 from onecomp.utils import estimate_wbits_from_vram
 
 setup_logger()

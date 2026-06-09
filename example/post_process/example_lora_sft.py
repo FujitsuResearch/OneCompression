@@ -23,8 +23,8 @@ Usage:
 import torch
 
 from onecomp import (
-    CalibrationConfig,
     GPTQ,
+    CalibrationConfig,
     ModelConfig,
     PostProcessLoraSFT,
     Runner,

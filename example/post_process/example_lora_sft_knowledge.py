@@ -28,7 +28,7 @@ from pathlib import Path
 
 import torch
 
-from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner, PostProcessLoraSFT, setup_logger, load_quantized_model
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, PostProcessLoraSFT, Runner, load_quantized_model, setup_logger
 
 setup_logger()
 

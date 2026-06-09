@@ -12,10 +12,10 @@ Author: Yuma Ichikawa
 """
 
 import gc  # ! Free memory
+import logging
 from typing import Optional, Tuple
 
 import numpy as np
-import logging
 
 logger = logging.getLogger(__name__)
 import torch

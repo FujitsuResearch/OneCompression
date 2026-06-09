@@ -6,9 +6,8 @@ Copyright 2025-2026 Fujitsu Ltd.
 from abc import ABC, abstractmethod
 
 import torch
-from torch import nn
 import torch.nn.functional as F
-from torch import optim
+from torch import nn, optim
 from transformers import get_cosine_schedule_with_warmup
 
 from ._lpcd_config import LPCDConfig
