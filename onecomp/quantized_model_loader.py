@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from safetensors.torch import load_file
+from torch import nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
@@ -135,22 +136,28 @@ class QuantizedModelLoader:
         if quant_config.get("rotated", False):
             from .pre_process.rotation_utils import register_online_hadamard_hooks
 
+            down_proj_types = list({
+                type(m)
+                for n, m in model.named_modules()
+                if "down_proj" in n 
+            })
             fp32_had = quant_config.get("fp32_had", False)
-            quant_method = quant_config.get("quant_method", "")
-            effective_method = (
-                quant_method[len("mixed_") :]
-                if quant_method.startswith("mixed_")
-                else quant_method
-            )
-            if effective_method == "gptq":
-                layers_cls = [GPTQLinear]
-            elif effective_method == "dbf":
-                layers_cls = [DoubleBinaryLinear]
-            else:
-                layers_cls = None
+            # quant_method = quant_config.get("quant_method", "")
+            # effective_method = (
+            #     quant_method[len("mixed_") :]
+            #     if quant_method.startswith("mixed_")
+            #     else quant_method
+            # )
+            # if effective_method == "gptq":
+            #     layers_cls = [GPTQLinear, nn.Linear]  # down_proj may be GPTQLinear or nn.Linear depending on exclude_layer_keywords
+            # elif effective_method == "dbf":
+            #     layers_cls = [DoubleBinaryLinear]
+            # else:
+            #     layers_cls = None
             hooks = register_online_hadamard_hooks(
                 model,
-                layers_cls=layers_cls,
+                # layers_cls=layers_cls,
+                layers_cls=down_proj_types,
                 fp32_had=fp32_had,
             )
             logger.info(
