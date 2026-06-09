@@ -10,6 +10,7 @@ Covers items from the test spec not present in test_rotation.py:
 """
 
 import pytest
+import torch
 from unittest.mock import MagicMock
 
 from onecomp.pre_process.rotation_utils import is_online_hadamard_target
@@ -18,7 +19,7 @@ from vllm_plugins.utils.rotation import RotatedLinearMethod, RotationMetadata
 
 try:
     from vllm.model_executor.layers.linear import LinearBase
-    from vllm_plugins.dbf.vllm_plugin import DbfConfig
+    from vllm_plugins.dbf.vllm_plugin import DbfConfig, DBFLinearMethod
 
     _HAS_VLLM = True
 except ImportError:
@@ -172,3 +173,56 @@ class TestDbfConfigRotation:
         method = config.get_quant_method(layer, "model.layers.0.mlp.down_proj")
 
         assert method is None
+
+    def test_get_quant_method_wraps_dbf_linear_method_for_quantized_down_proj(self):
+        # quantization_bits=[] exercises the Unquantized path; this test uses a
+        # real entry so that DBFLinearMethod (not UnquantizedLinearMethod) is wrapped.
+        quantization_bits = [{"mlp.down_proj": {"bits": 1.5, "method": "dbf"}}]
+        config = DbfConfig(
+            quantization_bits=quantization_bits,
+            rotation_metadata=RotationMetadata(rotated=True, fp32_had=True),
+        )
+        layer = MagicMock(spec=LinearBase)
+
+        method = config.get_quant_method(layer, "model.layers.0.mlp.down_proj")
+
+        assert isinstance(method, RotatedLinearMethod)
+        assert isinstance(method.base_method, DBFLinearMethod)
+        assert layer._dbf_mod_cfg == {"bits": 1.5, "method": "dbf"}
+        assert layer._dbf_prefix == "model.layers.0.mlp.down_proj"
+
+    def test_prehook_is_installed_on_down_proj_after_process_weights(self):
+        # Verify that _onecomp_hadamard_prehook_installed is set after
+        # process_weights_after_loading is called through the DBF quantized path.
+        quantization_bits = [{"mlp.down_proj": {"bits": 1.5, "method": "dbf"}}]
+        config = DbfConfig(
+            quantization_bits=quantization_bits,
+            rotation_metadata=RotationMetadata(rotated=True, fp32_had=True),
+        )
+        spec_layer = MagicMock(spec=LinearBase)
+        method = config.get_quant_method(spec_layer, "model.layers.0.mlp.down_proj")
+        assert isinstance(method, RotatedLinearMethod)
+
+        dummy_layer = _DummyLayer(input_is_parallel=False, tp_size=1)
+        method.process_weights_after_loading(dummy_layer)
+
+        assert getattr(dummy_layer, "_onecomp_hadamard_prehook_installed", False) is True
+        assert len(dummy_layer.registered_hooks) == 1
+
+    def test_create_weights_raises_for_tensor_parallel_size_greater_than_one(self, monkeypatch):
+        # TP > 1 is unsupported; DBFLinearMethod.create_weights must raise immediately.
+        import vllm_plugins.dbf.vllm_plugin as plugin_mod
+        monkeypatch.setattr(plugin_mod, "get_tensor_model_parallel_world_size", lambda: 2)
+
+        config = DbfConfig(quantization_bits=[], rotation_metadata=RotationMetadata())
+        method = DBFLinearMethod(config)
+
+        with pytest.raises(ValueError, match="tensor_parallel_size=1"):
+            method.create_weights(
+                layer=MagicMock(),
+                input_size_per_partition=64,
+                output_partition_sizes=[32],
+                input_size=64,
+                output_size=32,
+                params_dtype=torch.float16,
+            )
