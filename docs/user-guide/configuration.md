@@ -21,10 +21,15 @@ model_config = ModelConfig(
 | `model_id` | `str` | Hugging Face Hub model ID              | `None`       |
 | `path`     | `str` | Local path to model directory           | `None`       |
 | `dtype`    | `str` | Model precision (`"float16"`, `"float32"`)| `"float16"` |
-| `device`   | `str` | Device placement (`"cpu"`, `"cuda"`, `"auto"`)| `"auto"` |
+| `device`   | `str` | Device placement (`"cpu"`, `"cuda"`, `"mps"`, `"auto"`)| `"auto"` |
 
 !!! note
     Provide exactly one of `model_id` or `path`. A `ValueError` is raised if neither is specified.
+
+!!! note "macOS (MPS)"
+    On Apple Silicon, set `device="mps"` for GPTQ / AutoBit (GPTQ-only) quantization.
+    Only GPTQ quantizers are supported on MPS; DBF fallback and multi-GPU are not.
+    See the [macOS / MPS guide](mps.md) for details.
 
 ## Runner
 
@@ -148,7 +153,7 @@ qep_config = QEPConfig(
 | `general`                 | `bool`      | Use generic (architecture-independent) QEP       | `False`              |
 | `percdamp`                | `float`     | Damping percentage for Hessian regularization     | `0.01`               |
 | `perccorr`                | `float`     | Correction percentage for error propagation       | `0.5`                |
-| `device`                  | `str`       | GPU device for QEP computations                   | `"cuda:0"`           |
+| `device`                  | `str`       | Device for QEP computations (`"cuda"`, `"mps"`, `"cpu"`) | `"cuda:0"`           |
 | `exclude_layer_keywords`  | `list[str]` | Layer keywords excluded from error propagation    | `["mlp.down_proj"]`  |
 
 !!! tip

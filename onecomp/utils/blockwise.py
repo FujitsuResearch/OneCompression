@@ -264,10 +264,7 @@ def _compute_per_type_attention_masks(blocks_parent, kwargs, unique_layer_types)
     Uses create_causal_mask / create_sliding_window_causal_mask
     from transformers to produce the correct mask per layer type.
     """
-    from transformers.masking_utils import (
-        create_causal_mask,
-        create_sliding_window_causal_mask,
-    )
+    from transformers.masking_utils import create_causal_mask, create_sliding_window_causal_mask
 
     position_ids = kwargs.get("position_ids")
     if position_ids is None:

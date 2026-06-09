@@ -7,11 +7,12 @@ Author: Keiji Kimura
 """
 
 import time
+
 import torch
 
 from .clip import clip
-from .solution import Solution
 from .local_search import LocalSearchSolver
+from .solution import Solution
 
 
 # pylint: disable=too-many-arguments,too-many-positional-arguments, too-few-public-methods

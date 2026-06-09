@@ -9,14 +9,15 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 """
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
 
 # Optional GemLite/HQQ imports
 try:
-    from gemlite.core import GemLiteLinearTriton, DType
+    from gemlite.core import DType, GemLiteLinearTriton
     from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
 
     HAS_GEMLITE = True

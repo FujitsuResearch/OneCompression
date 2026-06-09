@@ -15,10 +15,9 @@ Usage:
 import logging
 from pathlib import Path
 
-from onecomp import CalibrationConfig, ModelConfig, Runner
+from onecomp import CalibrationConfig, ModelConfig, Runner, setup_logger
 from onecomp.qep import QEPConfig
 from onecomp.quantizer.gptq import GPTQ
-from onecomp import setup_logger
 
 logger = logging.getLogger(__name__)
 

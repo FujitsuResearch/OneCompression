@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import torch
 
-from .quantize import quantize, merge_solutions, _validate_quantize_args
+from .quantize import _validate_quantize_args, merge_solutions, quantize
 
 
 def _warmup_linalg_on_devices(device_list):
