@@ -134,6 +134,7 @@ class AutoBitQuantizer(Quantizer):
 
     # --- core ---
     quantizers: list = field(default_factory=list)
+    bitpack_on_quantize: bool = True
     assignment_strategy: AssignmentStrategy = AssignmentStrategy.ACTIVATION_AWARE
     ratios: list = None
     target_bit: float = None
@@ -196,6 +197,12 @@ class AutoBitQuantizer(Quantizer):
                 f"got {type(self.quantizers).__name__} with {len(self.quantizers) if isinstance(self.quantizers, list) else 'N/A'} items"
             )
 
+        if not isinstance(self.bitpack_on_quantize, bool):
+            bad.append(
+                f"Invalid parameter 'bitpack_on_quantize': {self.bitpack_on_quantize!r} "
+                f"(expected bool)"
+            )
+
         if not isinstance(self.dbf_threshold, (int, float)) or self.dbf_threshold <= 0:
             bad.append(
                 f"Invalid parameter 'dbf_threshold': {self.dbf_threshold!r} "
@@ -226,6 +233,9 @@ class AutoBitQuantizer(Quantizer):
                 f"{calib_config.max_length!r} (expected int >= 1)"
             )
 
+        if isinstance(self.bitpack_on_quantize, bool):
+            self._sync_gptq_bitpack_on_quantize()
+
         for i, q in enumerate(self.quantizers):
             try:
                 q.validate_params()
@@ -251,6 +261,15 @@ class AutoBitQuantizer(Quantizer):
 
         if bad:
             raise ValueError("; ".join(bad))
+
+    def _sync_gptq_bitpack_on_quantize(self):
+        """Propagate AutoBit bitpack mode to GPTQ candidates before validation."""
+        supported_bits = {2, 3, 4, 8}
+        for q in self.quantizers:
+            if isinstance(q, GPTQ):
+                q.bitpack_on_quantize = (
+                    self.bitpack_on_quantize and q.wbits in supported_bits
+                )
 
     def setup(self, model):
         self.validate_params()
