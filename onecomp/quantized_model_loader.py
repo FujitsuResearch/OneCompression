@@ -23,7 +23,7 @@ from .quantizer.dbf.dbf_layer import DoubleBinaryLinear
 from .quantizer.gptq.config import resolve_gptq_layer_wbits, resolve_gptq_layer_group_size
 from .quantizer.gptq.gptq_layer import GPTQLinear
 from .utils.dtype import needs_bfloat16
-from .utils.quant_config import get_quant_param
+from .utils.quant_config import get_quant_param, validate_quant_config
 
 logger = getLogger(__name__)
 
@@ -248,6 +248,11 @@ class QuantizedModelLoader:
     def _load_config_and_quant_config(save_directory: str) -> Tuple[Dict, Dict]:
         """Load config.json and return (config_dict, quant_config) with validation.
 
+        The quantization_config schema is validated by the same
+        :func:`onecomp.utils.quant_config.validate_quant_config` used by the
+        save path, so saving and loading enforce identical required keys and
+        raise the same exception type.
+
         Raises:
             FileNotFoundError: If config.json is missing.
             ValueError: If quantization_config, quant_method, or
@@ -261,12 +266,7 @@ class QuantizedModelLoader:
             config_dict = json.load(f)
 
         quant_config = config_dict.get("quantization_config")
-        if quant_config is None:
-            raise ValueError(
-                "No quantization config found in config.json. " "Expected 'quantization_config'."
-            )
-        if quant_config.get("quant_method") is None:
-            raise ValueError("quant_method not found in quantization config.")
+        validate_quant_config(quant_config, "config.json")
 
         return config_dict, quant_config
 
