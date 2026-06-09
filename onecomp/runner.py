@@ -1598,7 +1598,7 @@ class Runner:
                 )
                 logger.debug("Updated the model weights for layer: %s", name)
 
-    def create_quantized_model(self, pack_weights: bool = True, quantizer=None, use_gemlite=None):
+    def create_quantized_model(self, pack_weights: bool = True, quantizer=None, use_gemlite=False):
         """Create a quantized model from quantization results.
 
         Loads the base model on CPU, replaces Linear layers with quantized
@@ -1660,15 +1660,17 @@ class Runner:
         fp32_had = getattr(self.model_config, "fp32_had", False)
         if self.model_config.has_additional_data():
             from .pre_process.rotation_utils import register_online_hadamard_hooks
+            import torch.nn as nn
+            quantized_down_proj_types = list({
+                type(m)
+                for n, m in model.named_modules()
+                if "down_proj" in n and isinstance(model, nn.Linear)
+            })
 
-            sample_layer = next(
-                (m for n, m in model.named_modules() if "down_proj" in n),
-                None,
-            )
-            if sample_layer is not None:
+            if quantized_down_proj_types:
                 hooks = register_online_hadamard_hooks(
                     model,
-                    layers_cls=[type(sample_layer)],
+                    layers_cls=quantized_down_proj_types,
                     fp32_had=fp32_had,
                 )
                 self.logger.info(
@@ -1676,6 +1678,19 @@ class Runner:
                     len(hooks),
                     fp32_had,
                 )
+                
+
+            # sample_layer = next(
+            #     (m for n, m in model.named_modules() if "down_proj" in n),
+            #     None,
+            # )
+            # if sample_layer is not None:
+            #     hooks = register_online_hadamard_hooks(
+            #         model,
+            #         layers_cls=[type(sample_layer)],
+            #         fp32_had=fp32_had,
+            #     )
+
 
         # Build modules_in_block_to_quantize from actually-quantized layer names.
         quantized_names = sorted(quantizer.results.keys())
