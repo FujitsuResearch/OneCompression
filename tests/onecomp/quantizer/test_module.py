@@ -93,8 +93,23 @@ class TestModel(nn.Module):
         )
 
     def forward(self, x):
-        """Forward pass is not needed for quantization tests."""
-        pass
+        y = x
+        for layer in self.model.layers:
+            q = layer.self_attn.q_proj(y)
+            k = layer.self_attn.k_proj(y)
+            v = layer.self_attn.v_proj(y)
+            head_dim = k.shape[-1]
+            qk = torch.matmul(q, k.transpose(-2, -1)) / (head_dim**0.5)
+            attn_weights = torch.nn.functional.softmax(qk, dim=-1)
+            v = torch.matmul(attn_weights, v)
+            attn_out = layer.self_attn.o_proj(v)
+
+            gate = torch.nn.functional.silu(layer.mlp.gate_proj(y))
+            up = layer.mlp.up_proj(y)
+            mlp_out = layer.mlp.down_proj(gate * up)
+
+            y = y + attn_out + mlp_out
+        return y
 
 
 class BaseQuantizeSpec:
@@ -122,6 +137,9 @@ class BaseQuantizeSpec:
     # Subclasses specify boundary and abnormal parameter cases.
     boundary_parameters = []
     abnormal_parameters = []
+    # Layer size used by test_forward_error. Override when the quantizer
+    # requires a specific in_features (e.g. divisible by pack_factor).
+    _forward_error_features: int = 8
 
     @pytest.fixture
     def helper(self):
@@ -291,22 +309,7 @@ class BaseQuantizeSpec:
         )
 
         with torch.no_grad():
-            y_original = inp
-            for layer in model.model.layers:
-                q = layer.self_attn.q_proj(y_original)
-                k = layer.self_attn.k_proj(y_original)
-                v = layer.self_attn.v_proj(y_original)
-                head_dim = k.shape[-1]
-                qk = torch.matmul(q, k.transpose(-2, -1)) / (head_dim**0.5)
-                attn_weights = torch.nn.functional.softmax(qk, dim=-1)
-                v = torch.matmul(attn_weights, v)
-                attn_out = layer.self_attn.o_proj(v)
-
-                gate = torch.nn.functional.silu(layer.mlp.gate_proj(y_original))
-                up = layer.mlp.up_proj(y_original)
-                mlp_out = layer.mlp.down_proj(gate * up)
-
-                y_original = y_original + attn_out + mlp_out
+            y_original = model(inp)
 
         for layer in model.model.layers:
             for _, module_dict in [
@@ -330,22 +333,7 @@ class BaseQuantizeSpec:
         model = model.to(device)
 
         with torch.no_grad():
-            y_replaced = inp
-            for layer in model.model.layers:
-                q = layer.self_attn.q_proj(y_original)
-                k = layer.self_attn.k_proj(y_original)
-                v = layer.self_attn.v_proj(y_original)
-                head_dim = k.shape[-1]
-                qk = torch.matmul(q, k.transpose(-2, -1)) / (head_dim**0.5)
-                attn_weights = torch.nn.functional.softmax(qk, dim=-1)
-                v = torch.matmul(attn_weights, v)
-                attn_out = layer.self_attn.o_proj(v)
-
-                gate = torch.nn.functional.silu(layer.mlp.gate_proj(y_replaced))
-                up = layer.mlp.up_proj(y_replaced)
-                mlp_out = layer.mlp.down_proj(gate * up)
-
-                y_replaced = y_replaced + attn_out + mlp_out
+            y_replaced = model(inp)
 
         error = torch.norm(y_original - y_replaced) / torch.norm(y_original)
         max_error = torch.abs(y_original - y_replaced).max().item()
@@ -355,13 +343,14 @@ class BaseQuantizeSpec:
     def test_forward_error(self, helper):
         """Validate forward error."""
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        n = self._forward_error_features
 
         helper.set_deterministic()
         helper.seed_everything(123)
 
         # Prepare a linear layer and input
-        layer = helper.make_linear(8, 8, device=device, dtype=torch.float32)
-        inp = helper.make_input(device=device, dtype=torch.float32)
+        layer = helper.make_linear(n, n, device=device, dtype=torch.float32)
+        inp = helper.make_input(device=device, dtype=torch.float32, hidden=n)
 
         # original output
         with torch.no_grad():
@@ -372,7 +361,7 @@ class BaseQuantizeSpec:
         hessian = q.calculate_hessian(layer, inp)
         result = q.quantize_layer(layer, inp, hessian=hessian)
 
-        dequantized_layer = helper.make_linear(8, 8, device=device, dtype=torch.float32)
+        dequantized_layer = helper.make_linear(n, n, device=device, dtype=torch.float32)
         dequantized_layer.weight.data.copy_(result.compute_dequantized_weight().to(device))
         with torch.no_grad():
             y_dequantized = dequantized_layer(inp)

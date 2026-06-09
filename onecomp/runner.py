@@ -8,28 +8,31 @@ Author: Keiji Kimura
 
 # pylint: disable=too-many-arguments, too-many-positional-arguments
 import copy
-import math
 import gc
 import json
+import math
 import os
-from typing import Optional
 import time
 from logging import getLogger
 from pathlib import Path
+from typing import Optional
 
 import torch
 
 from .__version__ import __version__
 from .calibration import CalibrationConfig, prepare_calibration_dataset
+from .log import setup_logger
+from .lpcd import LPCDConfig
 from .model_config import ModelConfig
 from .qep import QEPConfig
-from .lpcd import LPCDConfig
 from .quantizer import GPTQ, Quantizer
-from .quantizer.autobit import AutoBitQuantizer
+from .quantizer.autobit import AssignmentStrategy, AutoBitQuantizer
+from .quantizer.autobit.dbf_fallback import MPS_DBF_FALLBACK_ERROR
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
+from .utils import empty_cache
+from .utils.device import is_mps_device
 from .utils.quantization_progress import QuantizationProgressTracker
-from .log import setup_logger
 
 
 class Runner:
@@ -322,6 +325,36 @@ class Runner:
                     f"CalibrationConfig objects."
                 )
 
+        # MPS device validation: only GPTQ (or AutoBitQuantizer whose
+        # candidates are all GPTQ, without DBF fallback) is supported on MPS
+        device = self.model_config.device
+        if is_mps_device(device):
+            if self.multi_gpu:
+                raise ValueError("multi_gpu is not supported on MPS device.")
+            all_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
+            for i, q in enumerate(all_quantizers):
+                label = f"quantizers[{i}]" if self.quantizers else "quantizer"
+                if isinstance(q, AutoBitQuantizer):
+                    for j, cand in enumerate(q.quantizers):
+                        if not isinstance(cand, GPTQ):
+                            raise ValueError(
+                                f"{label}.quantizers[{j}] ({type(cand).__name__}) "
+                                f"is not supported on MPS device. "
+                                "AutoBitQuantizer on MPS requires all candidate "
+                                "quantizers to be GPTQ."
+                            )
+                    if (
+                        q.auto_dbf
+                        and q.assignment_strategy != AssignmentStrategy.MANUAL
+                        and q._needs_dbf_only()
+                    ):
+                        raise ValueError(MPS_DBF_FALLBACK_ERROR)
+                elif not isinstance(q, GPTQ):
+                    raise ValueError(
+                        f"{label} ({type(q).__name__}) is not supported on MPS device. "
+                        "Only GPTQ quantization supports MPS."
+                    )
+
     def _exclude_moe_router_if_needed(self):
         """Exclude MoE router layers from quantization.
 
@@ -544,7 +577,10 @@ class Runner:
                 save_path=save_dir if save_dir is not None else None,
                 enable_fused_groups=True,
             )
-        runner = cls(model_config=model_config, quantizer=quantizer, qep=qep)
+        qep_config = QEPConfig(device=device)
+        runner = cls(
+            model_config=model_config, quantizer=quantizer, qep=qep, qep_config=qep_config
+        )
         runner.run()
 
         if evaluate:
@@ -1103,7 +1139,7 @@ class Runner:
             tokenizer = self.model_config.load_tokenizer()
             original_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
             del model, tokenizer
-            torch.cuda.empty_cache()
+            empty_cache(self.model_config.device)
 
         if quantized_model:
             try:
@@ -1120,7 +1156,7 @@ class Runner:
                     model.to(self.model_config.device)
                     quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
                     del model, tokenizer
-                torch.cuda.empty_cache()
+                empty_cache(self.model_config.device)
             except NotImplementedError:
                 logger.warning(
                     "This quantization method does not support creating a quantized model; "
@@ -1135,7 +1171,7 @@ class Runner:
             self.update_model_weights(model, quantizer=quantizer)
             dequantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
             del model, tokenizer
-            torch.cuda.empty_cache()
+            empty_cache(self.model_config.device)
 
         return original_result, dequantized_result, quantized_result
 
@@ -2042,9 +2078,8 @@ class Runner:
         """
         # Lazy import: load submodule only when needed
         # pylint: disable-next=import-outside-toplevel
-        from .analyzer.cumulative_error import analyze_cumulative_error as _analyze
-
         # pylint: disable-next=import-outside-toplevel
+        from .analyzer.cumulative_error import analyze_cumulative_error as _analyze
         from .analyzer.cumulative_error import plot_cumulative_error as _plot
 
         logger = self.logger
@@ -2082,7 +2117,7 @@ class Runner:
             )
             # Release fragmented GPU memory from previous operations (e.g., run())
             gc.collect()
-            torch.cuda.empty_cache()
+            empty_cache(self.model_config.device)
 
             model = self.model_config.load_model()
             input_device = next(model.parameters()).device
@@ -2106,7 +2141,7 @@ class Runner:
                 )
                 # Release fragmented GPU memory from previous operations (e.g., run())
                 gc.collect()
-                torch.cuda.empty_cache()
+                empty_cache(self.model_config.device)
 
                 model = self.model_config.load_model()
                 input_device = next(model.parameters()).device

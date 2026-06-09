@@ -3,13 +3,13 @@ Copyright 2025-2026 Fujitsu Ltd.
 
 """
 
-import torch
-from torch import nn
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable
+
+import torch
+from torch import nn
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
 from ._lpcd_config import LPCDConfig
 

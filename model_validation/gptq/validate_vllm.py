@@ -21,9 +21,9 @@ Usage:
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
+from vllm import LLM, SamplingParams
 
 from onecomp import setup_logger
-from vllm import LLM, SamplingParams
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="validate_vllm")
@@ -33,8 +33,7 @@ def main(cfg: DictConfig):
 
     if cfg.quantized_path is None:
         raise ValueError(
-            "quantized_path must be provided "
-            "(e.g. quantized_path=/path/to/saved/quantized)"
+            "quantized_path must be provided " "(e.g. quantized_path=/path/to/saved/quantized)"
         )
 
     llm = LLM(

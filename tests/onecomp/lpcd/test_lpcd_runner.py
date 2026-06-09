@@ -23,13 +23,7 @@ import gc
 import pytest
 import torch
 
-from onecomp import (
-    CalibrationConfig,
-    LPCDConfig,
-    ModelConfig,
-    Runner,
-    setup_logger,
-)
+from onecomp import CalibrationConfig, LPCDConfig, ModelConfig, Runner, setup_logger
 from onecomp.qep import QEPConfig
 from onecomp.quantizer.gptq import GPTQ
 

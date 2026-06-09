@@ -298,8 +298,8 @@ def collect_layer_inputs(model, layers, calibration_inputs, dev):
 
 def auto_detect_quantization_strategy(layers):
     """Return per-block method string: "gptq" / "dbf" / "onebit" / None (FP16)."""
-    from ...quantizer.gptq.gptq_layer import GPTQLinear
     from ...quantizer.dbf.dbf_layer import DoubleBinaryLinear
+    from ...quantizer.gptq.gptq_layer import GPTQLinear
     from ...quantizer.onebit.onebit_layer import OneBitLinear
 
     strategy = []
