@@ -1,5 +1,9 @@
 # Change log
 
+## [v1.3.0] 2026-MM-DD (WIP)
+
+(TODO: Add changelog for v1.3.0)
+
 ## [v1.2.0] 2026-06-08
 
 ### Save/Load Support for JointQ, RTN, and OneBit Quantizers
