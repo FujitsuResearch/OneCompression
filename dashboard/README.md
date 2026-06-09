@@ -343,7 +343,7 @@ See [troubleshooting in docs/setup-hpc.md](docs/setup-hpc.md#5-troubleshooting) 
 | SSH tunnel established but API unreachable | Point `LocalForward` at the GPU node name |
 | Chat is slow / keeps polling | `ONECOMP_DEVICE=cuda`, then Stop → Deploy |
 | Deploy fails: `Could not find nvcc` | `VLLM_USE_FLASHINFER_SAMPLER=0` on the **worker**, restart worker, Stop → Deploy ([#10](docs/setup-hpc.md#10-vllm-deploy-fails--could-not-find-nvcc)) |
-| Local model name fails / “not a local folder” on HF | Set the same `LOCAL_MODEL_ROOT` on **worker and API**, restart both; model dir must be `{LOCAL_MODEL_ROOT}/<name>/` |
+| Local model name fails / “not a local folder” on HF | Set the same `LOCAL_MODEL_ROOT` on **worker and API**, restart both; model dir must be `{LOCAL_MODEL_ROOT}/<name>/` ([#11](docs/setup-hpc.md#11-local-model-name-fails--not-a-local-folder-on-hugging-face)) |
 
 ### Separating the vLLM venv
 
