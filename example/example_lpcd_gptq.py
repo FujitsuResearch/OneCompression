@@ -12,14 +12,7 @@ Author: Keiji Kimura
 
 """
 
-from onecomp import (
-    CalibrationConfig,
-    GPTQ,
-    LPCDConfig,
-    ModelConfig,
-    Runner,
-    setup_logger,
-)
+from onecomp import GPTQ, CalibrationConfig, LPCDConfig, ModelConfig, Runner, setup_logger
 
 setup_logger()
 

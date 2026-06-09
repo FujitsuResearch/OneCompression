@@ -10,6 +10,18 @@ Performs the following steps:
 Requirements:
   pip install vllm
 
+Note:
+  vLLM runs a DeepGEMM (FP8) kernel warmup at engine startup even for
+  non-FP8 quantization such as mixed-precision GPTQ. If ``deep_gemm`` is not
+  installed this fails with ``RuntimeError: DeepGEMM backend is not available
+  or outdated``. OneComp-quantized models do not need DeepGEMM, so disable the
+  FP8 path before running this script::
+
+      export VLLM_USE_DEEP_GEMM=0
+      export VLLM_DEEP_GEMM_WARMUP=skip
+
+  See docs/user-guide/vllm-inference.md (Troubleshooting) for details.
+
 Copyright 2025-2026 Fujitsu Ltd.
 
 Author: Keiji Kimura
@@ -19,8 +31,9 @@ Author: Keiji Kimura
 import gc
 
 import torch
-from onecomp import Runner
 from vllm import LLM, SamplingParams
+
+from onecomp import Runner
 
 
 def main():

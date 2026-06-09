@@ -2,6 +2,11 @@
 
 Loader for quantized models saved by OneComp.
 
+On macOS, `load_quantized_model()` places the model on MPS when available
+(CUDA > MPS > CPU via `get_default_device()`). Use Transformers `generate()` for
+inference; vLLM requires Linux with an NVIDIA GPU. See the
+[macOS / MPS guide](../user-guide/mps.md#inference-with-transformers).
+
 ::: onecomp.quantized_model_loader.QuantizedModelLoader
     options:
       show_source: false

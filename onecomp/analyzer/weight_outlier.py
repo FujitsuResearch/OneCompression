@@ -58,7 +58,7 @@ Author: Keiji Kimura
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from logging import getLogger
 from typing import Literal
 
@@ -647,6 +647,7 @@ def save_weight_distribution_plots(
     try:
         import os
         import re
+
         import matplotlib.pyplot as plt  # type: ignore
     except ImportError as e:  # pragma: no cover
         raise ImportError(

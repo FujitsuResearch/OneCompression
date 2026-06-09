@@ -13,11 +13,11 @@ import torch
 from transformers import AutoTokenizer
 
 from onecomp.calibration.chunking import (
-    prepare_from_texts,
-    chunk_single_document,
+    _VALID_CALIBRATION_STRATEGIES,
     chunk_concat,
     chunk_concat_rand,
-    _VALID_CALIBRATION_STRATEGIES,
+    chunk_single_document,
+    prepare_from_texts,
 )
 
 
