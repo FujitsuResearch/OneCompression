@@ -30,9 +30,9 @@ Author: Keiji Kimura
 """
 
 import gc
-
 import json
 import os
+
 import torch
 from vllm import LLM, SamplingParams
 
@@ -51,9 +51,7 @@ def main():
     )
     quantizer = GPTQ(wbits=4, groupsize=128)
     calibration_config = CalibrationConfig(
-        max_length=128,
-        num_calibration_samples=16,
-        batch_size=8
+        max_length=128, num_calibration_samples=16, batch_size=8
     )
     runner = Runner(
         model_config=model_config,

@@ -1861,8 +1861,9 @@ class Runner:
 
         # Inline imports keep runner.py import-time cheap and avoid any
         # circular-import risk with the post_process package.
-        from .post_process.post_process_lora_sft import LoRAGPTQLinear
         from safetensors.torch import save_file as _st_save_file
+
+        from .post_process.post_process_lora_sft import LoRAGPTQLinear
 
         lora_modules = [
             (name, mod)

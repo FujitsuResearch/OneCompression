@@ -18,26 +18,25 @@ Author: Keiji Kimura
 """
 
 import gc
-
 import json
 import os
+
 import torch
-from onecomp import CalibrationConfig, GPTQ, ModelConfig, PostProcessLoraSFT, Runner, setup_logger
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase as _PTBase
+
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, PostProcessLoraSFT, Runner, setup_logger
 
 try:
     from vllm import LLM, SamplingParams
     from vllm.lora.request import LoRARequest
 except ImportError as e:
     raise SystemExit(
-        "This example requires vllm to be installed. "
-        "Install with: uv sync --extra vllm"
+        "This example requires vllm to be installed. " "Install with: uv sync --extra vllm"
     ) from e
 
 if not hasattr(_PTBase, "all_special_tokens_extended"):
-    _PTBase.all_special_tokens_extended = property(
-        lambda self: list(self.all_special_tokens)
-    )
+    _PTBase.all_special_tokens_extended = property(lambda self: list(self.all_special_tokens))
+
 
 def _ensure_fast_tokenizer_class(save_dir: str) -> None:
     """Rewrite tokenizer_config.json so vLLM loads the fast tokenizer."""
@@ -93,9 +92,7 @@ def main():
         logging_steps=5,
     )
     calibration_config = CalibrationConfig(
-        max_length=128,
-        num_calibration_samples=16,
-        batch_size=8
+        max_length=128, num_calibration_samples=16, batch_size=8
     )
     runner = Runner(
         model_config=model_config,

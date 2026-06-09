@@ -28,7 +28,15 @@ from pathlib import Path
 
 import torch
 
-from onecomp import GPTQ, CalibrationConfig, ModelConfig, PostProcessLoraSFT, Runner, load_quantized_model, setup_logger
+from onecomp import (
+    GPTQ,
+    CalibrationConfig,
+    ModelConfig,
+    PostProcessLoraSFT,
+    Runner,
+    load_quantized_model,
+    setup_logger,
+)
 
 setup_logger()
 
@@ -174,5 +182,3 @@ print(before_text)
 print(f"\n--- AFTER LoRA SFT ---")
 print(after_text)
 print("=" * 70)
-
-
