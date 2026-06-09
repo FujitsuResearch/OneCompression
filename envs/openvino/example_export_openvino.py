@@ -1,10 +1,19 @@
-# Sample script: convert a GPTQ-quantized model to OpenVINO IR and save it.
+"""
+
+Example: convert a GPTQ-quantized model to OpenVINO IR and save it.
+
+Copyright 2025-2026 Fujitsu Ltd.
+
+Author: Keiji Kimura
+
+"""
+
 import json
-from pathlib import Path
 import shutil
 import sys
 import tempfile
 import types
+from pathlib import Path
 
 
 def install_auto_gptq_shim():
@@ -37,6 +46,7 @@ def install_auto_gptq_shim():
     auto_gptq.__dict__["__all__"] = ["exllama_set_max_input_length"]
 
     sys.modules["auto_gptq"] = auto_gptq
+
 
 install_auto_gptq_shim()
 
@@ -176,6 +186,7 @@ def main():
     finally:
         if temp_model_dir is not None:
             shutil.rmtree(temp_model_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     main()
