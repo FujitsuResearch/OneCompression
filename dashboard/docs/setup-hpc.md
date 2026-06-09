@@ -104,6 +104,7 @@ Environment variables with the `ONECOMP_` prefix take precedence over
 pkill -f start_worker.py
 cd backend && . .venv/bin/activate
 export ONECOMP_DEVICE=cuda
+export LOCAL_MODEL_ROOT="$(pwd)/models"
 # also set this if you did not edit config.py
 export ONECOMP_VLLM_PYTHON="$(pwd)/.venv-vllm/bin/python"
 nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
@@ -174,6 +175,9 @@ mkdir -p tmp/redis
 cd backend/
 . .venv/bin/activate
 export ONECOMP_DEVICE=cuda
+# Local model root — required on worker **and** API when using short local names
+# instead of a Hugging Face repo id. See §4.
+export LOCAL_MODEL_ROOT="$(pwd)/models"
 # On nodes without nvcc (typical HPC); see Troubleshooting #10
 export VLLM_USE_FLASHINFER_SAMPLER=0
 nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
@@ -182,7 +186,11 @@ nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
 ### 2.4 Start the backend API
 
 ```bash
-ONECOMP_DEVICE=cuda python start_backend.py --reload --port 8001
+cd backend/
+. .venv/bin/activate
+export ONECOMP_DEVICE=cuda
+export LOCAL_MODEL_ROOT="$(pwd)/models"
+uv run python start_backend.py --reload --port 8001
 ```
 
 Binding to port 8001 lets the frontend reach the GPU-node API.
@@ -348,7 +356,10 @@ old code.
 
 ```bash
 pkill -f start_worker.py
-ONECOMP_DEVICE=cuda nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
+cd backend && . .venv/bin/activate
+export ONECOMP_DEVICE=cuda
+export LOCAL_MODEL_ROOT="$(pwd)/models"
+nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
 tail -f /tmp/worker.log               # look for "Starting vLLM" on the next deploy
 ```
 
@@ -362,6 +373,7 @@ Everything runs as processes on the GPU node.
 | Item | Location | Setting |
 |---|---|---|
 | Job metadata | `backend/onecomp.db` (SQLite) | `ONECOMP_DATABASE_URL` (default `sqlite:///./onecomp.db`) |
+| Pre-downloaded models (local names) | `backend/models/<name>/` | `LOCAL_MODEL_ROOT` (default `/models`; use `$(pwd)/models` from `backend/`) |
 | Quantized models | `backend/tmp/quantized/<job-id>/` | `ONECOMP_QUANTIZED_DIR` (default `tmp/quantized`) |
 
 `database.py` sets `check_same_thread=False` on SQLite so that FastAPI
@@ -415,8 +427,33 @@ To work around HPC HTTP proxies, `inference.py` appends
 
 ## 4. Environment variables
 
-All use the `ONECOMP_` prefix. Defaults live in
-`backend/app/core/config.py` and can be overridden via env vars.
+`ONECOMP_*` settings default in `backend/app/core/config.py`. Other variables
+below are read directly from the process environment.
+
+### `LOCAL_MODEL_ROOT` (local model directory)
+
+Set this **before starting both the Celery worker and the API** when jobs use
+short local directory names (e.g. `gemma-2-2b-it`) rather than a Hugging Face
+repo id (`org/model`). The server maps `model_name` to
+`{LOCAL_MODEL_ROOT}/<model_name>` for job validation and quantization.
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOCAL_MODEL_ROOT` | `/models` | Root directory of pre-downloaded models on shared storage |
+
+Example (run from `backend/`; models live in `backend/models/`):
+
+```bash
+export LOCAL_MODEL_ROOT="$(pwd)/models"
+```
+
+Use the **same value** in the worker terminal (§2.3) and API terminal (§2.4).
+If only one process has it, jobs may pass validation but fail during
+quantization with “not a local folder” / Hugging Face Hub errors.
+
+After changing `LOCAL_MODEL_ROOT`, restart **both** processes.
+
+### `ONECOMP_*` (application settings)
 
 | Variable | Default | Description |
 |---|---|---|
@@ -626,6 +663,7 @@ Either way, restart the worker:
 pkill -f start_worker.py
 cd backend && . .venv/bin/activate
 export ONECOMP_DEVICE=cuda
+export LOCAL_MODEL_ROOT="$(pwd)/models"
 # only when using a separated venv:
 # export ONECOMP_VLLM_PYTHON="$(pwd)/.venv-vllm/bin/python"
 nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
@@ -668,6 +706,7 @@ export VLLM_USE_FLASHINFER_SAMPLER=0
 pkill -f start_worker.py
 cd backend && . .venv/bin/activate
 export ONECOMP_DEVICE=cuda
+export LOCAL_MODEL_ROOT="$(pwd)/models"
 export VLLM_USE_FLASHINFER_SAMPLER=0
 nohup uv run python start_worker.py > /tmp/worker.log 2>&1 &
 ```
@@ -727,7 +766,7 @@ export ONECOMP_VLLM_PYTHON="$(pwd)/.venv-vllm/bin/python"
 ```
 
 4. `pkill -f start_worker.py`, then restart the worker with
-   `ONECOMP_DEVICE=cuda`
+   `ONECOMP_DEVICE=cuda` and `LOCAL_MODEL_ROOT="$(pwd)/models"` (§4)
 5. **Stop → Deploy**. Verify `tail /tmp/worker.log` shows
    `.venv-vllm/bin/python` in the command line
 
@@ -747,3 +786,27 @@ export ONECOMP_VLLM_PYTHON="$(pwd)/.venv-vllm/bin/python"
 Removing `vllm>=0.21.0` from `pyproject.toml` and re-running `uv sync`
 leaves the main venv with `onecomp` only and the `.venv-vllm` with vLLM
 only.
+
+### #11: Local model name fails / “not a local folder” on Hugging Face
+
+**Symptom**:
+
+- Job uses a short local name (e.g. `gemma-2-2b-it`) instead of
+  `org/model`
+- Validation or quantization fails with Hugging Face Hub / “not a local
+  folder” errors
+- Default `LOCAL_MODEL_ROOT` is `/models`, which may not exist on the node
+
+**Fix**:
+
+1. Place the model under `backend/models/<name>/` (or your shared storage
+   layout)
+2. Export the **same** root on **both** worker and API (from `backend/`):
+
+```bash
+export LOCAL_MODEL_ROOT="$(pwd)/models"
+```
+
+3. Restart worker (§2.3) and API (§2.4)
+
+See **§4** for details.

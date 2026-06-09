@@ -25,15 +25,19 @@ def _local_model_root() -> Path:
     ).resolve()
 
 
-def _local_model_dir(model_id: str) -> Path | None:
-    """Return the resolved local model directory when it exists under the allowed root."""
+def _resolve_local_model_path(identifier: str) -> Path | None:
+    """Return a model directory under LOCAL_MODEL_ROOT, or None if not found."""
     root = _local_model_root()
-    candidate = (root / model_id).resolve()
+    candidate = Path(identifier.strip())
+    if candidate.is_absolute():
+        resolved = candidate.resolve()
+    else:
+        resolved = (root / identifier).resolve()
     try:
-        candidate.relative_to(root)
+        resolved.relative_to(root)
     except ValueError:
         return None
-    return candidate if candidate.is_dir() else None
+    return resolved if resolved.is_dir() else None
 
 
 def resolve_model_identifier(model_id: str) -> str:
@@ -48,11 +52,7 @@ def resolve_model_identifier(model_id: str) -> str:
     if not normalized:
         raise ValueError("Model name must not be empty.")
 
-    absolute = Path(normalized)
-    if absolute.is_absolute() and absolute.is_dir():
-        return str(absolute.resolve())
-
-    local_dir = _local_model_dir(normalized)
+    local_dir = _resolve_local_model_path(normalized)
     if local_dir is not None:
         return str(local_dir)
     return normalized
@@ -65,9 +65,11 @@ def check_model_exists(model_id: str) -> None:
     treated as a valid local identifier. This matches the deployment layout
     where already-downloaded models live on shared storage.
     """
-    model_id = resolve_model_identifier(model_id)
+    model_id = model_id.strip()
+    if not model_id:
+        raise ValueError("Model name must not be empty.")
 
-    if Path(model_id).is_dir():
+    if _resolve_local_model_path(model_id) is not None:
         return
 
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
