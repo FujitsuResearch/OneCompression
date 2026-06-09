@@ -15,6 +15,11 @@ from typing import Optional
 import torch.nn as nn
 
 from ..model_config import ModelConfig
+from ..utils.quant_config import validate_quantized_model_config
+from ._runtime import (
+    append_post_process_metadata,
+    prepare_quantized_model_for_post_process,
+)
 
 
 @dataclass
@@ -26,7 +31,7 @@ class PostQuantizationProcess(metaclass=ABCMeta):
     on CPU (with quantized inference layers such as ``GPTQLinear``)
     and may modify it in-place.
 
-    Subclasses must implement ``run()`` method.
+    Subclasses must implement ``_run()`` method.
     ``name`` is automatically set to the class name if not provided.
 
     Args:
@@ -55,7 +60,6 @@ class PostQuantizationProcess(metaclass=ABCMeta):
         if self.name is None:
             self.name = type(self).__name__
 
-    @abstractmethod
     def run(
         self,
         quantized_model: nn.Module,
@@ -63,10 +67,58 @@ class PostQuantizationProcess(metaclass=ABCMeta):
     ) -> None:
         """Execute the post-quantization process.
 
-        The model is provided on CPU.  Implementations may move it to
+        The model is moved to CPU and validated before the subclass
+        implementation runs. Implementations may move it to
         GPU for computation, but **must move it back to CPU before
         returning** so that subsequent processes and ``Runner`` methods
         (e.g. evaluation, saving) can work without device assumptions.
+        Successful runs append audit metadata to
+        ``model.config.quantization_config["onecomp_post_processes"]``.
+        Failed runs move the model back to CPU but do not append metadata.
+
+        Args:
+            quantized_model (nn.Module):
+                The quantized model on CPU.  Linear layers that were
+                quantized have already been replaced with quantized
+                inference layers (e.g. ``GPTQLinear``, ``DoubleBinaryLinear``).
+                The process may modify the model in-place.
+            model_config (ModelConfig):
+                The model configuration (provides access to tokenizer,
+                model id/path, device, etc.).
+        """
+        context = f"{type(self).__name__}.run"
+        quantized_model = prepare_quantized_model_for_post_process(
+            quantized_model,
+            model_config,
+            context,
+        )
+
+        try:
+            self._run(quantized_model, model_config)
+        finally:
+            if hasattr(quantized_model, "eval"):
+                quantized_model.eval()
+            if hasattr(quantized_model, "cpu"):
+                quantized_model.cpu()
+
+        quant_config = validate_quantized_model_config(quantized_model, context)
+        append_post_process_metadata(quant_config, [self.build_metadata()])
+
+    @abstractmethod
+    def _run(
+        self,
+        quantized_model: nn.Module,
+        model_config: ModelConfig,
+    ) -> None:
+        """Run the post-process algorithm body (implemented by subclasses).
+
+        Called by :meth:`run` after the input model has been moved to CPU and
+        its ``quantization_config`` validated.  Implementations may move the
+        model to GPU for computation and modify it in-place; :meth:`run`
+        restores it to ``eval()`` on CPU afterwards (even if this method
+        raises), so subclasses do not need to normalise the device themselves.
+
+        Subclasses implement this method, not :meth:`run`.
 
         Args:
             quantized_model (nn.Module):

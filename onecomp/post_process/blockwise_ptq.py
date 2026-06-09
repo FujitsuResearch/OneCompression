@@ -106,7 +106,7 @@ class BlockWisePTQ(PostQuantizationProcess):
     # Calibration (qep-dev: cfg.dataset / cfg.nsamples via get_loaders())
     calibration_config: CalibrationConfig = None
 
-    def run(
+    def _run(
         self,
         quantized_model: nn.Module,
         model_config: ModelConfig,

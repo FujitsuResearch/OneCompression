@@ -871,7 +871,7 @@ class PostProcessLoraSFT(PostQuantizationProcess):
             )
         logger.info("Saved LoRA adapter to %s", self.output_dir)
 
-    def run(
+    def _run(
         self,
         quantized_model: nn.Module,
         model_config: ModelConfig,
