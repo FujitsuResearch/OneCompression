@@ -21,7 +21,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 
 Usage:
-    python example/post_process/example_lora_sft_knowledge_save_load_hf_format.py
+    python example/post_process/example_lora_sft_knowledge.py
 """
 
 from pathlib import Path

@@ -7,7 +7,8 @@ End-to-end demonstration of the LoRA SFT post-process workflow:
     3. Evaluate PPL (original vs quantized+LoRA)
     4. Save via save_quantized_model() - writes HF-compatible safetensors
        plus a PEFT-format LoRA adapter sidecar
-       (``adapter_model.safetensors`` + ``adapter_config.json``)
+       (``lora_adapter/adapter_model.safetensors`` +
+       ``lora_adapter/adapter_config.json``)
     5. Load via load_quantized_model() - the sidecar is auto-detected and
        matching GPTQLinear layers are re-wrapped with LoRAGPTQLinear
     6. Generate text with the loaded model to verify it works
@@ -114,8 +115,8 @@ runner.save_quantized_model(SAVE_DIR)
 print(f"Model saved to: {SAVE_DIR}")
 print(
     "  - model.safetensors / config.json : base GPTQ model (HF-compatible)\n"
-    "  - adapter_model.safetensors       : PEFT-format LoRA adapter\n"
-    "  - adapter_config.json             : PEFT-format adapter config"
+    "  - lora_adapter/adapter_model.safetensors : PEFT-format LoRA adapter\n"
+    "  - lora_adapter/adapter_config.json       : PEFT-format adapter config"
 )
 
 del runner

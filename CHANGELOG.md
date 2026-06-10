@@ -9,20 +9,17 @@
   - Resolves adapter layers by exact match or `layers.{idx}.*` suffix when module prefixes differ (via the shared `_resolve_name_by_layer_suffix()` helper, also used by quantized-layer state_dict loading), logging resolved mappings at INFO
   - Raises `ValueError` when not all adapter layers are applied, reporting applied/expected/skipped counts and pointing to the WARNING logs for skipped layer names and reasons
 
-### Examples
-
-- Added `example/post_process/example_lora_sft_save_load_hf_format.py`: end-to-end GPTQ + LoRA SFT workflow covering save/load in HF format and before/after generation comparison
-- Added `example/post_process/example_lora_sft_knowledge_save_load_hf_format.py`: knowledge-injection LoRA SFT example using `onecomp_knowledge.jsonl`, including save/load round-trip and output comparison
-- Added `example/post_process/example_lora_sft_knowledge_save_load_hf_format_jointq.py`: JointQ counterpart of the knowledge-injection LoRA SFT workflow
-- Added `example/post_process/example_lora_gptq_vllm_inference.py`: end-to-end GPTQ + LoRA SFT workflow validating vLLM inference with saved LoRA adapters, including GPTQ-only vs GPTQ+LoRA output comparison
-
-### Examples: renamed files
+### Examples: legacy backups
 
 - Renamed `example/post_process/example_lora_sft.py` -> `example/post_process/example_lora_sft_legacy.py`
 - Renamed `example/post_process/example_lora_sft_knowledge.py` -> `example/post_process/example_lora_sft_knowledge_legacy.py`
-- Renamed `example/post_process/example_lora_sft_save_load_hf_format.py` -> `example/post_process/example_lora_sft.py`
-- Renamed `example/post_process/example_lora_sft_knowledge_save_load_hf_format.py` -> `example/post_process/example_lora_sft_knowledge.py`
-- Renamed `example/post_process/example_lora_sft_knowledge_save_load_hf_format_jointq.py` -> `example/post_process/example_lora_sft_knowledge_jointq.py`
+
+### Examples
+
+- Updated `example/post_process/example_lora_sft.py`: end-to-end GPTQ + LoRA SFT workflow using HF-compatible save/load with a PEFT LoRA adapter sidecar, PPL evaluation, and loaded-model generation check
+- Updated `example/post_process/example_lora_sft_knowledge.py`: knowledge-injection LoRA SFT example using `onecomp_knowledge.jsonl`, including save/load round-trip and output comparison
+- Added `example/post_process/example_lora_sft_knowledge_jointq.py`: JointQ counterpart of the knowledge-injection LoRA SFT workflow
+- Added `example/post_process/example_lora_gptq_vllm_inference.py`: end-to-end GPTQ + LoRA SFT workflow validating vLLM inference with saved LoRA adapters, including GPTQ-only vs GPTQ+LoRA output comparison
 
 ### Tests
 
