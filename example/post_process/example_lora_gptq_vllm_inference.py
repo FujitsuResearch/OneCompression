@@ -108,6 +108,8 @@ def main():
         dtype="float16",
         enforce_eager=True,
         gpu_memory_utilization=0.78,
+        enable_lora=True,
+        max_lora_rank=16,
     )
 
     lora_request = LoRARequest(
