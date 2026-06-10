@@ -1901,12 +1901,26 @@ class Runner:
     def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
         """Save the quantized model to the specified directory
 
+        If ``self.quantized_model`` is already set (e.g. after
+        ``run_post_processes()``, or after loading a checkpoint and assigning it
+        for a load -> post-process -> re-save flow), that model is saved as-is so
+        post-process results are preserved: its ``quantization_config`` is
+        validated, any recorded ``onecomp_post_processes`` history is persisted to
+        ``config.json``, and ``model_config`` is required (for the tokenizer).  In
+        that case ``pack_weights`` is **ignored** — the weights keep whatever
+        packing layout they were built with, so set ``pack_weights`` on
+        ``create_quantized_model()`` *before* post-processing if a packed,
+        loadable checkpoint is needed.  Otherwise the quantized model is built
+        from ``quantizer.results`` honouring ``pack_weights``.
+
         Args:
             save_directory (str):
                 The path to save the quantized model.
             pack_weights (bool):
                 Whether to pack quantized weights for more memory/storage-efficient
-                representation.
+                representation.  Only applies when building from
+                ``quantizer.results``; ignored when ``self.quantized_model`` is
+                already set.
 
         Examples:
             Single quantizer mode:
