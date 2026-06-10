@@ -83,7 +83,7 @@ post_process = PostProcessLoraSFT(
 runner = Runner(
     model_config=model_config,
     quantizer=gptq,
-    calibration_config=CalibrationConfig(max_length=128, num_calibration_samples=16, batch_size=8),
+    calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
     post_processes=[post_process],
 )
 runner.run()

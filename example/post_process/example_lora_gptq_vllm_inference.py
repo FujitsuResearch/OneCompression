@@ -11,6 +11,18 @@ Performs the following steps:
 Requirements:
   pip install vllm
 
+Note:
+  vLLM runs a DeepGEMM (FP8) kernel warmup at engine startup even for
+  non-FP8 quantization such as GPTQ. If ``deep_gemm`` is not installed this
+  fails with ``RuntimeError: DeepGEMM backend is not available or outdated``.
+  OneComp-quantized models do not need DeepGEMM, so disable the FP8 path
+  before running this script::
+
+      export VLLM_USE_DEEP_GEMM=0
+      export VLLM_DEEP_GEMM_WARMUP=skip
+
+  See docs/user-guide/vllm-inference.md (Troubleshooting) for details.
+
 Copyright 2025-2026 Fujitsu Ltd.
 
 Author: Keiji Kimura
@@ -23,48 +35,10 @@ import os
 
 import torch
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase as _PTBase
+from vllm import LLM, SamplingParams
+from vllm.lora.request import LoRARequest
 
 from onecomp import GPTQ, CalibrationConfig, ModelConfig, PostProcessLoraSFT, Runner, setup_logger
-
-try:
-    from vllm import LLM, SamplingParams
-    from vllm.lora.request import LoRARequest
-except ImportError as e:
-    raise SystemExit(
-        "This example requires vllm to be installed. " "Install with: uv sync --extra vllm"
-    ) from e
-
-if not hasattr(_PTBase, "all_special_tokens_extended"):
-    _PTBase.all_special_tokens_extended = property(lambda self: list(self.all_special_tokens))
-
-
-def _ensure_fast_tokenizer_class(save_dir: str) -> None:
-    """Rewrite tokenizer_config.json so vLLM loads the fast tokenizer."""
-    tok_json = os.path.join(save_dir, "tokenizer.json")
-    tok_cfg = os.path.join(save_dir, "tokenizer_config.json")
-    if not (os.path.isfile(tok_json) and os.path.isfile(tok_cfg)):
-        return
-
-    with open(tok_cfg, "r", encoding="utf-8") as f:
-        cfg = json.load(f)
-
-    current = cfg.get("tokenizer_class")
-    if current and current.endswith("Fast"):
-        return
-
-    slow_to_fast = {
-        "LlamaTokenizer": "LlamaTokenizerFast",
-        "CodeLlamaTokenizer": "CodeLlamaTokenizerFast",
-    }
-    replacement = slow_to_fast.get(current, "LlamaTokenizerFast")
-    cfg["tokenizer_class"] = replacement
-
-    with open(tok_cfg, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
-    print(
-        f"Patched {tok_cfg}: tokenizer_class {current!r} -> {replacement!r} "
-        "(forces vLLM to use the fast tokenizer)"
-    )
 
 
 def main():
@@ -91,9 +65,7 @@ def main():
         lora_alpha=32,
         logging_steps=5,
     )
-    calibration_config = CalibrationConfig(
-        max_length=128, num_calibration_samples=16, batch_size=8
-    )
+    calibration_config = CalibrationConfig(max_length=512, num_calibration_samples=128)
     runner = Runner(
         model_config=model_config,
         quantizer=quantizer,
@@ -125,18 +97,17 @@ def main():
     gc.collect()
     torch.cuda.empty_cache()
 
-    # Step 3: Load the quantized model with vLLM and enable LoRA
-    # _ensure_fast_tokenizer_class(save_dir)
+    # Step 3: Load the quantized model with vLLM and enable LoRA.
+    # gpu_memory_utilization=0.78 leaves headroom for the residual
+    # quantizer process (~16 GiB) on a UMA 121.7 GiB device (e.g. DGX
+    # Spark / GB200). The vLLM default 0.92 cgroup-OOMs on shared-memory
+    # GPUs.
     llm = LLM(
         model=save_dir,
         max_model_len=512,
         dtype="float16",
         enforce_eager=True,
-        gpu_memory_utilization=0.55,
-        max_num_batched_tokens=512,
-        enable_prefix_caching=False,
-        enable_lora=True,
-        max_lora_rank=16,
+        gpu_memory_utilization=0.78,
     )
 
     lora_request = LoRARequest(

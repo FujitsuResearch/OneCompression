@@ -30,8 +30,6 @@ Author: Keiji Kimura
 """
 
 import gc
-import json
-import os
 
 import torch
 from vllm import LLM, SamplingParams
@@ -47,11 +45,11 @@ def main():
 
     model_config = ModelConfig(
         model_id="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-        device="cuda:0",
     )
     quantizer = GPTQ(wbits=4, groupsize=128)
     calibration_config = CalibrationConfig(
-        max_length=128, num_calibration_samples=16, batch_size=8
+        num_calibration_samples=128,
+        max_length=512,
     )
     runner = Runner(
         model_config=model_config,
@@ -76,7 +74,6 @@ def main():
 
     # Step 2: Save the quantized model
     runner.save_quantized_model(save_dir)
-    print(f"\nSaved GPTQ model to: {save_dir}")
 
     # Free GPU memory used by quantization before loading vLLM
     del runner
@@ -88,8 +85,6 @@ def main():
     # quantizer process (~16 GiB) on a UMA 121.7 GiB device (e.g. DGX
     # Spark / GB200). The vLLM default 0.92 cgroup-OOMs on shared-memory
     # GPUs.
-    _ensure_fast_tokenizer_class(save_dir)
-
     llm = LLM(
         model=save_dir,
         max_model_len=512,
