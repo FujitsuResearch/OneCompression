@@ -18,6 +18,7 @@ from logging import getLogger
 from pathlib import Path
 
 import torch
+import torch.nn as nn
 
 from .__version__ import __version__
 from .calibration import CalibrationConfig, prepare_calibration_dataset
@@ -1660,11 +1661,10 @@ class Runner:
         fp32_had = getattr(self.model_config, "fp32_had", False)
         if self.model_config.has_additional_data():
             from .pre_process.rotation_utils import register_online_hadamard_hooks
-            import torch.nn as nn
             quantized_down_proj_types = list({
-                type(m)
-                for n, m in model.named_modules()
-                if "down_proj" in n and isinstance(model, nn.Linear)
+                type(module)
+                for name, module in model.named_modules()
+                if "down_proj" in name and isinstance(module, nn.Linear)
             })
 
             if quantized_down_proj_types:
@@ -1674,23 +1674,10 @@ class Runner:
                     fp32_had=fp32_had,
                 )
                 self.logger.info(
-                    "Re-registered Hadamard pre-hooks on %d down_proj layers (fp32_had=%s)",
+                    "Re-registered Hadamard pre-hooks on %d quantized layers (fp32_had=%s)",
                     len(hooks),
                     fp32_had,
                 )
-                
-
-            # sample_layer = next(
-            #     (m for n, m in model.named_modules() if "down_proj" in n),
-            #     None,
-            # )
-            # if sample_layer is not None:
-            #     hooks = register_online_hadamard_hooks(
-            #         model,
-            #         layers_cls=[type(sample_layer)],
-            #         fp32_had=fp32_had,
-            #     )
-
 
         # Build modules_in_block_to_quantize from actually-quantized layer names.
         quantized_names = sorted(quantizer.results.keys())
