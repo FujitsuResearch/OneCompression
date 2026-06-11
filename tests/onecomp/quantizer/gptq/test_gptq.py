@@ -8,6 +8,7 @@ Author: Keiji Kimura
 import logging
 import os
 import sys
+import pytest
 import torch
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -112,6 +113,37 @@ class TestGPTQ(BaseQuantizeSpec):
         """Instantiate GPTQ with unpacked quantize_layer results by default."""
         merged = {**self.default_parameter_for_test, **params}
         return self.quantizer_cls(**merged)
+
+    @pytest.mark.parametrize("wbits", [2, 3, 4, 8])
+    def test_bitpack_supported_wbits_pass(self, wbits):
+        """GPTQ bitpacking accepts the packer-supported bit widths."""
+        self.make_quantizer(wbits=wbits, bitpack_on_quantize=True).validate_params()
+
+    @pytest.mark.parametrize("wbits", [1, 5, 7, 9, 63])
+    def test_bitpack_unsupported_wbits_raise(self, wbits):
+        """GPTQ bitpacking rejects valid GPTQ widths that the packer cannot store."""
+        q = self.make_quantizer(wbits=wbits, bitpack_on_quantize=True)
+
+        with pytest.raises(ValueError, match="bitpack_on_quantize=True"):
+            q.validate_params()
+
+    def test_bitpack_disabled_allows_pack_unsupported_wbits(self):
+        """Unpacked GPTQ keeps the existing wider wbits validation range."""
+        self.make_quantizer(wbits=5, bitpack_on_quantize=False).validate_params()
+
+    @pytest.mark.parametrize(
+        "override_params",
+        [
+            {"mlp_wbits": 5},
+            {"module_wbits": {"model.layers.0.mlp.down_proj": 5}},
+        ],
+    )
+    def test_bitpack_unsupported_override_wbits_raise(self, override_params):
+        """Mixed-bit overrides are also pack widths when bitpacking is enabled."""
+        q = self.make_quantizer(wbits=4, bitpack_on_quantize=True, **override_params)
+
+        with pytest.raises(ValueError, match="bitpack_on_quantize=True"):
+            q.validate_params()
 
     def check_quantize_layer(
         self,

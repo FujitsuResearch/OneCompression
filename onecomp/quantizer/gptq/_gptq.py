@@ -6,6 +6,7 @@ Author: Yuma Ichikawa, Keiji Kimura
 
 """
 
+import gc
 from dataclasses import dataclass
 import logging
 import re
@@ -13,7 +14,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-import gc
+GPTQ_PACK_SUPPORTED_BITS = frozenset((2, 3, 4, 8))
 
 import torch
 from torch import nn
@@ -268,6 +269,7 @@ class GPTQ(Quantizer):
             blocksize: int >= 1
             percdamp: float >= 3.95e-4
             wbits: int, 1 <= wbits <= 63
+              - one of 2, 3, 4, 8 when bitpack_on_quantize=True
             groupsize: int, -1 or >= 1
             q_grid: int >= 1 (when mse=True)
             q_norm: float > 0 (when mse=True)
@@ -344,6 +346,27 @@ class GPTQ(Quantizer):
                 f"Invalid GPTQ parameter 'bitpack_on_quantize': {self.bitpack_on_quantize!r} "
                 f"(expected bool)."
             )
+        elif self.bitpack_on_quantize:
+            supported_bits = sorted(GPTQ_PACK_SUPPORTED_BITS)
+
+            def check_pack_supported(param_name: str, bits: Any, max_bits: int) -> None:
+                if (
+                    isinstance(bits, int)
+                    and 1 <= bits <= max_bits
+                    and bits not in GPTQ_PACK_SUPPORTED_BITS
+                ):
+                    bad.append(
+                        f"Invalid GPTQ parameter '{param_name}': {bits!r} cannot be used "
+                        f"with bitpack_on_quantize=True (expected one of {supported_bits})."
+                    )
+
+            check_pack_supported("wbits", self.wbits, 63)
+            if self.mlp_wbits is not None:
+                check_pack_supported("mlp_wbits", self.mlp_wbits, 64)
+            if isinstance(self.module_wbits, dict):
+                for layer_name, bits in self.module_wbits.items():
+                    if isinstance(layer_name, str):
+                        check_pack_supported(f"module_wbits[{layer_name!r}]", bits, 64)
 
         if bad:
             raise ValueError("; ".join(bad))
