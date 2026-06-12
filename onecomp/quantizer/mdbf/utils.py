@@ -80,13 +80,14 @@ def rank_from_bpw(
     P: int = 2,
     min_rank: int = 1,
     rounding: Literal["floor", "ceil", "round"] = "floor",
+    scale_bits: int = 16,
 ) -> int:
     """
     Calculate rank r from target BPW
 
-    # b_eff = P * [r(n+m) + 16*l*(n+m+2r)] / (nm)
+    # b_eff = P * [r(n+m) + scale_bits*l*(n+m+2r)] / (nm)
     # Solving for r:
-    # r = (b_target * nm / P - 16*l*(n+m)) / ((n+m) + 32*l)
+    # r = (b_target * nm / P - scale_bits*l*(n+m)) / ((n+m) + 2*scale_bits*l)
 
     Args:
         n: Number of rows (output dimension)
@@ -99,13 +100,13 @@ def rank_from_bpw(
             - "floor": Round down (ensure b_target is not exceeded)
             - "ceil": Round up (prioritize approximation accuracy)
             - "round": Round to nearest (balance)
+        scale_bits: Bits per stored scale element (default FP16 = 16). Must match
+            the value passed to bpw_from_rank() so that the rank-selection and the
+            reported BPW stay consistent.
 
     Returns:
         Calculated rank r
     """
-    # Note: scale_bits=0 is the mode where BPW is calculated only for binary matrices
-    # To include FP16 scales, change scale_bits to 16
-    scale_bits = 0
     numerator = (b_target * n * m / P) - scale_bits * l * (n + m)
     denominator = (n + m) + 2 * scale_bits * l
 
@@ -136,11 +137,18 @@ def rank_from_bpw(
     return max(r, min_rank)
 
 
-def bpw_from_rank(n: int, m: int, r: int, l: int = 1, P: int = 2) -> float:
+def bpw_from_rank(
+    n: int,
+    m: int,
+    r: int,
+    l: int = 1,
+    P: int = 2,
+    scale_bits: int = 16,
+) -> float:
     """
     # Calculate effective BPW from rank r
 
-    b_eff = P * [r(n+m) + 16*l*(n + m + 2*r)] / (nm)
+    b_eff = P * [r(n+m) + scale_bits*l*(n + m + 2*r)] / (nm)
 
     Args:
         n: Number of rows (output dimension)
@@ -148,12 +156,12 @@ def bpw_from_rank(n: int, m: int, r: int, l: int = 1, P: int = 2) -> float:
         r: Rank
         l: Multi-scale rank
         P: Number of paths
+        scale_bits: Bits per stored scale element (default FP16 = 16). Must match
+            the value passed to rank_from_bpw().
 
     Returns:
         Effective BPW
     """
-    scale_bits = 16  # FP16
-
     bits_binary = r * (n + m)
     bits_scale = scale_bits * l * (n + m + 2 * r)
 
