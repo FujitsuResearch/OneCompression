@@ -1117,7 +1117,7 @@ class Runner:
                     model.to("cpu")
                     del tokenizer
                 else:
-                    model, tokenizer = self.create_quantized_model(quantizer=quantizer)
+                    model, tokenizer = self.create_quantized_model(quantizer=quantizer, use_gemlite=False)
                     model.to(self.model_config.device)
                     quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
                     del model, tokenizer
@@ -1599,7 +1599,7 @@ class Runner:
                 )
                 logger.debug("Updated the model weights for layer: %s", name)
 
-    def create_quantized_model(self, pack_weights: bool = True, quantizer=None, use_gemlite=False):
+    def create_quantized_model(self, pack_weights: bool = True, quantizer=None, use_gemlite=None):
         """Create a quantized model from quantization results.
 
         Loads the base model on CPU, replaces Linear layers with quantized
@@ -1664,7 +1664,7 @@ class Runner:
             quantized_down_proj_types = list({
                 type(module)
                 for name, module in model.named_modules()
-                if "down_proj" in name and isinstance(module, nn.Linear)
+                if "down_proj" in name and not isinstance(module, nn.Linear)
             })
 
             if quantized_down_proj_types:
