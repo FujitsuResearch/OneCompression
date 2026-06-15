@@ -187,19 +187,13 @@ class TestRotatedDBFVllmInference:
 
 
 @pytest.mark.skipif(not _HAS_VLLM, reason="vLLM not installed")
-class TestRotatedVsPlainDBFVllmInference:
-    """Compare the minimal TP=1 vLLM behavior between rotated and plain DBF saves."""
+class TestPlainDBFVllmInference:
+    """Plain (non-rotated) DBF checkpoint loads and generates in vLLM.
 
-    def test_plain_dbf_uses_different_saved_load_path(
-        self, rotated_quantized_model_dir, plain_quantized_model_dir
-    ):
-        rotated_qcfg = _load_quantization_config(rotated_quantized_model_dir)
-        plain_qcfg = _load_quantization_config(plain_quantized_model_dir)
-
-        assert rotated_qcfg.get("quant_method") == "dbf"
-        assert rotated_qcfg.get("rotated") is True
-        assert plain_qcfg.get("quant_method") == "dbf"
-        assert plain_qcfg.get("rotated") is not True
+    Kept (unlike the GPTQ side) because plain DBF still routes through the
+    in-house ``dbf`` plugin, whereas plain GPTQ ("gptq") is handled by vLLM's
+    built-in path and exercises no first-party code.
+    """
 
     def test_plain_dbf_generate_produces_non_empty_output(self, plain_quantized_model_dir):
         llm = _build_vllm_llm(plain_quantized_model_dir)

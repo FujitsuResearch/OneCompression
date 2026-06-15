@@ -89,27 +89,6 @@ def rotated_quantized_model_dir(tmp_path_factory):
     return save_dir
 
 
-@pytest.fixture(scope="module")
-def plain_quantized_model_dir(tmp_path_factory):
-    """Build one plain GPTQ-quantized checkpoint for comparison tests."""
-    runner = Runner(
-        model_config=ModelConfig(model_id=SMALL_MODEL_ID, device="cuda:0"),
-        quantizer=GPTQ(wbits=4, groupsize=128),
-        calibration_config=CalibrationConfig(num_calibration_samples=8, max_length=512),
-        qep=False,
-    )
-    runner.run()
-
-    save_dir = str(tmp_path_factory.mktemp("plain_gptq_vllm"))
-    runner.save_quantized_model(save_dir)
-
-    del runner
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    return save_dir
-
-
 class TestRotatedGPTQQuantizeSave:
     """Verify the saved config is routed through the vLLM plugin path."""
 
@@ -181,30 +160,3 @@ class TestRotatedGPTQVllmInference:
         gc.collect()
         torch.cuda.empty_cache()
 
-
-@pytest.mark.skipif(not _HAS_VLLM, reason="vLLM not installed")
-class TestRotatedVsPlainGPTQVllmInference:
-    """Compare the minimal TP=1 vLLM behavior between rotated and plain GPTQ saves."""
-
-    def test_plain_gptq_uses_different_saved_load_path(self, rotated_quantized_model_dir, plain_quantized_model_dir):
-        rotated_qcfg = _load_quantization_config(rotated_quantized_model_dir)
-        plain_qcfg = _load_quantization_config(plain_quantized_model_dir)
-
-        assert rotated_qcfg.get("quant_method") == "mixed_gptq"
-        assert rotated_qcfg.get("rotated") is True
-        assert plain_qcfg.get("quant_method") == "gptq"
-        assert plain_qcfg.get("rotated") is not True
-
-    def test_plain_gptq_generate_produces_non_empty_output(self, plain_quantized_model_dir):
-        llm = _build_vllm_llm(plain_quantized_model_dir)
-
-        outputs = llm.generate(
-            ["Fujitsu is"],
-            SamplingParams(max_tokens=16, temperature=0.0),
-        )
-
-        _assert_non_empty_outputs(outputs, expected_count=1)
-
-        del llm
-        gc.collect()
-        torch.cuda.empty_cache()
