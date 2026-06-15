@@ -1,5 +1,5 @@
 """
-MDBF (Multi-scale Double Binary Factorization) Layer implementation
+MDBF (Multi-Envelope Double Binary Factorization) Layer implementation
 
 Constructs an efficient inference layer from MDBF parameters.
 Based on the DBF implementation, achieves bit-packing and memory efficiency.

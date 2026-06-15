@@ -1,5 +1,5 @@
 """
-MDBF-ADMM: ADMM optimization using Multi-Scale SVID (Phase 2)
+MDBF-ADMM: ADMM optimization over Multi-Scale SVID parameters (Phase 2)
 
 Using the MDBFParams initialized in Phase 1 as the initial values,
 minimize the residual W - Σ_{p≠p'} W^p for each path p'.

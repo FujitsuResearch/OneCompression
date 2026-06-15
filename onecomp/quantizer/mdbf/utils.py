@@ -1,5 +1,5 @@
 """
-Dual-(M)SVID utility functions
+MDBF (Multi-Envelope Double Binary Factorization) utility functions
 
 - Calculate rank r from BPW (Bits Per Weight)
 - Reconstruct weight matrix

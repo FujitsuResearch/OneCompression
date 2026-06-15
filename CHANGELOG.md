@@ -8,7 +8,7 @@
 
 ## [v1.1.1+feature/mdbf] 2026-05-28
 
-### New Feature: MDBF (Matrix-extended Double Binary Factorization) Quantizer
+### New Feature: MDBF (Multi-Envelope Double Binary Factorization) Quantizer
 
 - Added `onecomp/quantizer/mdbf/` sub-package implementing the MDBF quantizer that approximates weight matrices as a sum of multi-path double binary factorizations: W ≈ Σ_{p=1}^{P} F^(p) @ G^(p) where each path decomposes into sign matrices and multi-scale amplitude factors
   - `_mdbf.py`: `MDBF` quantizer dataclass with configurable `target_bits`, `l` (multi-scale rank), `P` (number of passes, 1 or 2), `svd_mode`, `act_init`, ADMM options (`use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`), gradient refinement options, and activation-aware mode; `MDBFResult` dataclass with per-path tensor storage and `compute_dequantized_weight()` reconstruction

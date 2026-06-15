@@ -1,4 +1,4 @@
-"""MDBF (Matrix-extended Double Binary Factorization) quantization module.
+"""MDBF (Multi-Envelope Double Binary Factorization) quantization module.
 
 Provides layer-wise MDBF quantization and result data structures.
 
@@ -169,7 +169,7 @@ class MDBFResult(QuantizationResult):
 class MDBF(Quantizer):
     """MDBF quantizer.
 
-    Runs MDBF (Matrix-extended Double Binary Factorization) quantization per layer.
+    Runs MDBF (Multi-Envelope Double Binary Factorization) quantization per layer.
 
     Attributes:
         flag_calibration (bool): Calibration mode flag.

@@ -1,5 +1,5 @@
 """
-MDBF (Dual-(M)SVID) OneComp wrapper
+MDBF (Multi-Envelope Double Binary Factorization) OneComp wrapper
 
 Convert QEP-DEV's run_MDBF() to match OneComp's calling convention.
 
