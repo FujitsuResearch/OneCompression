@@ -237,7 +237,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 self.save_strategy,
             )
 
-    def run(
+    def _run(
         self,
         quantized_model: nn.Module,
         model_config: ModelConfig,

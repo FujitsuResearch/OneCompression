@@ -125,7 +125,7 @@ class GlobalPTQ(PostQuantizationProcess):
                 f"{self.calibration_config.num_calibration_samples}"
             )
 
-    def run(
+    def _run(
         self,
         quantized_model: nn.Module,
         model_config: ModelConfig,
