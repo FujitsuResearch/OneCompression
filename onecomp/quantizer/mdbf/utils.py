@@ -24,6 +24,12 @@ import torch
 
 logger = getLogger(__name__)
 
+# Default bit-width used to *account* for the FP16 amplitude scales when sizing
+# the rank and reporting BPW. This is an accounting parameter only: it does NOT
+# change the actual dtype the scales are stored in (they remain FP16). 0 counts
+# the binary matrices alone (binary-only estimate / backward comparison).
+DEFAULT_SCALE_BITS = 16
+
 
 def cleanup_gpu_memory() -> None:
     """Release GPU memory"""
@@ -80,7 +86,7 @@ def rank_from_bpw(
     P: int = 2,
     min_rank: int = 1,
     rounding: Literal["floor", "ceil", "round"] = "floor",
-    scale_bits: int = 16,
+    scale_bits: int = DEFAULT_SCALE_BITS,
 ) -> int:
     """
     Calculate rank r from target BPW
@@ -100,7 +106,10 @@ def rank_from_bpw(
             - "floor": Round down (ensure b_target is not exceeded)
             - "ceil": Round up (prioritize approximation accuracy)
             - "round": Round to nearest (balance)
-        scale_bits: Bits per stored scale element (default FP16 = 16). Must match
+        scale_bits: Bit-width used to *account* for the FP16 amplitude scales.
+            Defaults to DEFAULT_SCALE_BITS (16, FP16). Accounting only — does not
+            change the dtype the scales are stored in. Set to 0 to size the rank
+            from the binary matrices only, ignoring the scale overhead. Must match
             the value passed to bpw_from_rank() so that the rank-selection and the
             reported BPW stay consistent.
 
@@ -138,12 +147,7 @@ def rank_from_bpw(
 
 
 def bpw_from_rank(
-    n: int,
-    m: int,
-    r: int,
-    l: int = 1,
-    P: int = 2,
-    scale_bits: int = 16,
+    n: int, m: int, r: int, l: int = 1, P: int = 2, scale_bits: int = DEFAULT_SCALE_BITS
 ) -> float:
     """
     # Calculate effective BPW from rank r
@@ -156,7 +160,9 @@ def bpw_from_rank(
         r: Rank
         l: Multi-scale rank
         P: Number of paths
-        scale_bits: Bits per stored scale element (default FP16 = 16). Must match
+        scale_bits: Bit-width of the FP16 amplitude scales, for accounting only
+            (does not change the stored dtype). Defaults to DEFAULT_SCALE_BITS
+            (16, FP16). Set to 0 to count only the binary matrices. Must match
             the value passed to rank_from_bpw().
 
     Returns:

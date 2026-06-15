@@ -28,6 +28,7 @@ from onecomp.utils.quant_config import get_quant_param
 
 from .initialize import MDBFParams
 from .mdbf_impl import run_mdbf
+from .utils import DEFAULT_SCALE_BITS
 
 
 @dataclass
@@ -48,6 +49,9 @@ class MDBFResult(QuantizationResult):
         gradient_lr (float): Gradient refinement learning rate.
         activation_aware (bool): Whether activation-aware mode was used.
         act_init (str): Activation initialization mode.
+        scale_bits (int): Bit-width used to account for the FP16 amplitude scales
+            when sizing the rank and reporting BPW (accounting only; does not
+            change the stored dtype). 16 = FP16, 0 = binary-only.
         actual_bpw (float): Achieved BPW.
         r (int): Rank used.
         is_mdbf_quantized (bool): Whether MDBF quantization was applied.
@@ -75,6 +79,7 @@ class MDBFResult(QuantizationResult):
     gradient_lr: float = None
     activation_aware: bool = None
     act_init: str = None
+    scale_bits: int = None
     actual_activation_aware: bool = None
     actual_bpw: float = None
     r: int = None
@@ -187,6 +192,9 @@ class MDBF(Quantizer):
         gradient_lr (float): Gradient refinement learning rate.
         activation_aware (bool): Whether to use activation-aware mode (P=1 only).
         act_init (str): Activation initialization mode.
+        scale_bits (int): Bit-width used to account for the FP16 amplitude scales
+            when sizing the rank and reporting BPW (accounting only; does not
+            change the stored dtype). 16 = FP16, 0 = binary-only.
         mlp_target_bits (float, optional): BPW override for MLP layers.
         module_target_bits (dict, optional): Per-layer BPW override.
 
@@ -212,6 +220,7 @@ class MDBF(Quantizer):
     gradient_lr: float = 0.01
     activation_aware: bool = False
     act_init: str = "osvd"
+    scale_bits: int = DEFAULT_SCALE_BITS
     mlp_target_bits: Optional[float] = None
     module_target_bits: Optional[dict[str, float]] = None
 
@@ -263,6 +272,11 @@ class MDBF(Quantizer):
 
         if self.P not in {1, 2}:
             bad.append(f"Invalid MDBF parameter 'P': {self.P!r} (expected 1 or 2).")
+
+        if not (isinstance(self.scale_bits, int) and self.scale_bits >= 0):
+            bad.append(
+                f"Invalid MDBF parameter 'scale_bits': {self.scale_bits!r} (expected int >= 0)."
+            )
 
         if not (isinstance(self.admm_reg, (int, float)) and self.admm_reg >= 0):
             bad.append(
@@ -376,6 +390,7 @@ class MDBF(Quantizer):
             activation_aware=self.activation_aware,
             act_init=self.act_init,
             nsamples=nsamples,
+            scale_bits=self.scale_bits,
         )
 
         params_list = weight_results["mdbf_params"]
@@ -397,6 +412,7 @@ class MDBF(Quantizer):
             gradient_lr=self.gradient_lr,
             activation_aware=self.activation_aware,
             act_init=self.act_init,
+            scale_bits=self.scale_bits,
             actual_bpw=weight_results["actual_bpw"],
             r=weight_results["r"],
             # Weight reconstruction data
@@ -433,6 +449,7 @@ class MDBF(Quantizer):
             "gradient_lr": self.gradient_lr,
             "activation_aware": self.activation_aware,
             "act_init": self.act_init,
+            "scale_bits": self.scale_bits,
         }
         if self.mlp_target_bits is not None:
             result["mlp_target_bits"] = self.mlp_target_bits
@@ -468,6 +485,7 @@ class MDBF(Quantizer):
             "gradient_lr": get_quant_param(quant_config, "gradient_lr", default=0.01),
             "activation_aware": get_quant_param(quant_config, "activation_aware", default=False),
             "act_init": get_quant_param(quant_config, "act_init", default="osvd"),
+            "scale_bits": get_quant_param(quant_config, "scale_bits", default=DEFAULT_SCALE_BITS),
         }
 
         layer_modules: dict[int, dict[str, Any]] = {}

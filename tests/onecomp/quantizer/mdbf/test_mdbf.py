@@ -55,6 +55,10 @@ class TestMDBF(BaseQuantizeSpec):
         {"act_init": "none"},        # first valid value
         {"act_init": "osvd"},        # second valid value
         {"act_init": "svd_llm"},     # third valid value
+        # scale_bits: int >= 0
+        {"scale_bits": 0},           # lower boundary (binary-only accounting)
+        {"scale_bits": 16},          # default value (FP16)
+        {"scale_bits": 32},          # large value
         # admm_reg: float >= 0 (always validated)
         {"admm_reg": 0.0},           # lower boundary (0.0 is valid)
         {"admm_reg": 100.0},         # large value
@@ -103,6 +107,7 @@ class TestMDBF(BaseQuantizeSpec):
             "target_bits": 1.0,
             "l": 1,
             "P": 1,
+            "scale_bits": 0,
             "admm_reg": 0.0,
             "admm_iters": 1,
             "admm_inner_iters": 1,
@@ -122,6 +127,7 @@ class TestMDBF(BaseQuantizeSpec):
             "gradient_lr": 0.01,
             "activation_aware": False,
             "act_init": "osvd",
+            "scale_bits": 16,
         },
         # all minimum (use_admm=False, use_gradient_refine=False skips condition-guarded validation)
         {
@@ -138,6 +144,7 @@ class TestMDBF(BaseQuantizeSpec):
             "gradient_lr": 0.0,
             "activation_aware": False,
             "act_init": "none",
+            "scale_bits": 0,
         },
         # all maximum
         {
@@ -156,6 +163,7 @@ class TestMDBF(BaseQuantizeSpec):
             "act_init": "svd_llm",
             "mlp_target_bits": 100.0,
             "module_target_bits": {"model.layers.0.self_attn.q_proj": 100.0},
+            "scale_bits": 32,
         },
     ]
 
@@ -169,6 +177,8 @@ class TestMDBF(BaseQuantizeSpec):
         # P: in {1, 2}
         {"P": 0},                # not in {1, 2} (below range)
         {"P": 3},                # not in {1, 2} (above range)
+        # scale_bits: int >= 0
+        {"scale_bits": -1},      # below lower boundary (scale_bits >= 0)
         # admm_reg: float >= 0
         {"admm_reg": -0.01},     # below lower boundary (admm_reg >= 0)
         # admm_iters: int >= 1 (validated when use_admm=True)

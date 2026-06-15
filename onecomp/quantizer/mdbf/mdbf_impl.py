@@ -26,7 +26,7 @@ import transformers
 logger = getLogger(__name__)
 
 from .initialize import MDBFParams, initialize_MDBF
-from .utils import bpw_from_rank, cleanup_gpu_memory, rank_from_bpw
+from .utils import DEFAULT_SCALE_BITS, bpw_from_rank, cleanup_gpu_memory, rank_from_bpw
 
 
 def _move_MDBF_params_to_cpu(params_list: List[MDBFParams]) -> List[MDBFParams]:
@@ -62,6 +62,7 @@ def run_mdbf(
     activation_aware: bool = False,
     act_init: Literal["none", "osvd", "svd_llm"] = "osvd",
     nsamples: Optional[int] = None,
+    scale_bits: int = DEFAULT_SCALE_BITS,
 ) -> dict:
     """
     Run MDBF quantization (OneComp convention)
@@ -88,6 +89,9 @@ def run_mdbf(
         activation_aware: Activation-aware mode (P=1 only)
         act_init: Initialization mode
         nsamples: Number of tokens used for Hessian calculation. If None, fallback to 1.
+        scale_bits: Bit-width used to account for the FP16 amplitude scales when
+            sizing the rank and reporting BPW (accounting only; does not change
+            the stored dtype). Defaults to DEFAULT_SCALE_BITS (16, FP16).
 
     Returns:
         dict with keys:
@@ -147,8 +151,8 @@ def run_mdbf(
         act_X = inp.reshape(-1, m).to(device=device, dtype=torch.float32)
 
     # Rank calculation
-    r = rank_from_bpw(n, m, target_bits, l, P)
-    actual_bpw = bpw_from_rank(n, m, r, l, P)
+    r = rank_from_bpw(n, m, target_bits, l, P, scale_bits=scale_bits)
+    actual_bpw = bpw_from_rank(n, m, r, l, P, scale_bits=scale_bits)
 
     logger.debug(f"[MDBF] n={n}, m={m}, target_bpw={target_bits:.2f}, actual_bpw={actual_bpw:.2f}")
     logger.debug(f"[MDBF] r={r}, l={l}, P={P}, mode={svd_mode}, use_admm={use_admm}")
@@ -213,7 +217,7 @@ def run_mdbf(
 
         actual_r = all_params[0].A_sign.shape[1]
         actual_P = len(all_params)
-        actual_bpw = bpw_from_rank(n, m, actual_r, l, actual_P)
+        actual_bpw = bpw_from_rank(n, m, actual_r, l, actual_P, scale_bits=scale_bits)
         r = actual_r
         P = actual_P
 
