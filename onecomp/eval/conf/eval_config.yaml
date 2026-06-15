@@ -1,0 +1,69 @@
+# Single Hydra config for the evaluation harness.
+#
+# All runtime settings live in this file. schema.py dataclass fields provide
+# structured validation and fill any omitted keys at startup.
+#
+# Examples:
+#   onecomp-eval model.path=/path/to/model
+#   onecomp-eval model.path=... evals.mt_bench.judge_model=gpt-4o-2024-08-06
+
+inference:
+  mode: vllm_server
+  host: 127.0.0.1
+  port: 0
+  api_key: EMPTY
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.85
+  max_model_len: 4096
+  dtype: auto
+  quantization: null
+  enforce_eager: false
+  startup_timeout_sec: 600
+  trust_remote_code: true
+  request_timeout_sec: 600
+  extra_args: []
+
+model:
+  path: ???
+  name: null
+
+evals:
+  mt_bench:
+    enabled: true
+    data_dir: ""
+    judge_model: gpt-4o-2024-08-06
+    judge_api_base: ""
+    max_new_tokens: 1024
+    request_timeout_sec: 600
+    plot: true
+    chart_path: ""
+    subprocess_timeout_sec: 7200
+
+  throughput:
+    enabled: false
+    prompt_tokens: 512
+    max_tokens: 512
+    num_warmup: 2
+    num_trials: 5
+    temperature: 0.0
+    save_responses: true
+    save_warmup_responses: false
+    min_completion_tokens: 32
+    request_timeout_sec: 600
+    subprocess_timeout_sec: 1800
+
+summary:
+  include: null
+  formats: [json, csv]
+
+output_dir: ./output/eval
+log_level: INFO
+
+hydra:
+  run:
+    dir: ${output_dir}/_hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: ${output_dir}/_hydra_sweeps/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+  job:
+    chdir: false

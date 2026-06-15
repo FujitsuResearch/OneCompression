@@ -41,6 +41,7 @@ Full documentation is available at **[https://FujitsuResearch.github.io/OneCompr
 - **Block-wise PTQ**: Post-quantization block-wise distillation that minimises intermediate-representation MSE against an FP16 teacher model at Transformer-block granularity. Includes Phase 1 (greedy per-block optimisation) and Phase 2 CBQ (cross-block sliding-window optimisation). Supports GPTQ, DBF, and OneBit quantizers.
 - **LoRA SFT Post-Process**: Fine-tune quantized models with LoRA adapters for accuracy recovery or domain-specific knowledge injection. Supports SFT loss, teacher distillation, and intermediate block alignment.
 - **Rotation Preprocessing**: SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Rotation/scaling matrices are absorbed into model weights, with online Hadamard hooks automatically registered at load time. Supports Llama and Qwen3 architectures.
+- **Web Dashboard (HPC)**: A browser-based dashboard for launching quantization jobs, deploying models, and validating chat-based inference in HPC environments. See [dashboard/README.md](dashboard/README.md) for details.
 - (TBD)
 
 ## 🤖 Supported Models
@@ -99,12 +100,42 @@ import torch
 print(torch.cuda.is_available())
 ```
 
+#### ✅ macOS (MPS)
+
+On macOS, install PyTorch from PyPI (default wheels include MPS support). You do **not** need the CUDA index URLs above.
+
+```bash
+pip install torch torchvision torchaudio
+```
+
+Verify MPS:
+```python
+import torch
+print(torch.backends.mps.is_available())
+```
+
+Then install OneComp from PyPI (see step 2 below). GPTQ quantization and Hugging Face `generate()` inference on MPS are supported; vLLM serving requires Linux with an NVIDIA GPU. An editable install from a git clone is **not** required for MPS use — see [for developers (pip)](#for-developers-pip) only if you are contributing to OneComp.
+
+> **MPS device placement (GPTQ vs QEP)**  
+> With `device="mps"`, calibration and model forward passes can run on the GPU. The bottleneck is usually not missing Cholesky ops on MPS (recent PyTorch builds implement them); the implementation splits work as follows:
+>
+> - GPTQ (`run_gptq`): Hessian and weights are moved to CPU for the full column-wise loop (including inverse-Hessian Cholesky). If that loop stayed on MPS, `quantize()` would call `maxq.item()` once per column; each call triggers **per-column host sync** (wait for pending MPS ops, then read one scalar—not a full Hessian/weight copy every column)—often several times slower than CPU on Apple Silicon (e.g. ~4× in internal benchmarks with PyTorch 2.12). Keeping GPTQ on CPU avoids that overhead. With `mse=True`, `find_params` also calls `quantize()` in a grid loop and benefits from the same CPU placement.
+> - QEP weight correction (`adjust_weight`, when QEP correction runs—typically `qep=True` with error propagation enabled): Per-layer work stays on MPS (e.g. `weight @ delta_hatX`, diagonal damping). Only the Cholesky solve uses CPU via `_safe_cholesky_and_solve` (one solve per layer, not per column); moving all of QEP to CPU does not materially improve speed. The subsequent GPTQ step still uses the CPU path above.
+>
+> DBF-based AutoBit fallback and multi-GPU quantization are not supported on MPS.
+
 #### 2. Install `onecomp`
 
 Once PyTorch is installed, you can install `onecomp`:
 
 ```bash
 pip install onecomp
+```
+
+To enable multi-GPU training features (DeepSpeed), install with the `distributed` extra:
+
+```bash
+pip install "onecomp[distributed]"
 ```
 
 ### for developers (uv : recommended)
@@ -121,26 +152,42 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 git clone https://github.com/FujitsuResearch/OneCompression.git
 cd OneCompression
-uv sync --extra cu128 --extra dev --extra visualize
 ```
 
 The `uv sync` command creates a Python virtual environment and installs all dependent libraries.
+
+#### Linux (CUDA quantization / vLLM)
+
+```bash
+uv sync --extra cu128 --extra dev --extra visualize
+```
 
 The `--extra cu128` option installs the CUDA-enabled version of PyTorch (along with `torchvision` from the same CUDA index).
 Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
 PyTorch will be automatically downloaded by `uv`, so you do not need to install it beforehand.
 
-Adding `--extra dev` installs development tools (black, pytest, pylint).
+#### macOS (development / MPS inference)
+
+```bash
+uv sync --extra mps --extra dev --extra visualize
+```
+
+On macOS, use `--extra mps` only. CUDA extras (`cu118`–`cu130`), `--extra cpu` (Linux-only), and `--extra vllm` are not supported on macOS.
+After `uv sync`, you can run GPTQ quantization and Hugging Face `generate()` inference on MPS; vLLM serving still requires Linux with an NVIDIA GPU.
+See the **MPS device placement (GPTQ vs QEP)** note under [macOS (MPS)](#macos-mps) above for why GPTQ runs on CPU while QEP correction uses MPS.
+
+Adding `--extra dev` installs development tools (black, pre-commit, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
+Adding `--extra distributed` installs DeepSpeed for multi-GPU training.
 Adding `--extra hydra` installs `hydra-core` for the example scripts and `model_validation/` runners that use Hydra-based configuration.
 
-To use vLLM for serving quantized models, add `--extra vllm` together with `--extra cu130`:
+To use vLLM for serving quantized models on Linux, add `--extra vllm` together with `--extra cu130`:
 
 ```bash
 uv sync --extra cu130 --extra dev --extra visualize --extra vllm
 ```
 
-> **Note:** `--extra vllm` is only compatible with `--extra cu130`. Recent vLLM releases require `torch>=2.10`, whose wheels are only published for the `cu130` index. Combining `--extra vllm` with `cpu` / `cu118` / `cu121` / `cu124` / `cu126` / `cu128` is rejected by `uv` at lock time.
+> **Note:** `--extra vllm` is only compatible with `--extra cu130`. Recent vLLM releases require `torch>=2.10`, whose wheels are only published for the `cu130` index. Combining `--extra vllm` with `cpu` / `mps` / `cu118` / `cu121` / `cu124` / `cu126` / `cu128` is rejected by `uv` at lock time.
 
 > **Note:** `--extra vllm` may take a long time on the first run if a pre-built `xformers` wheel is not available for your Python/CUDA combination (e.g. Python 3.13). Using Python 3.12 typically avoids this.
 
@@ -167,6 +214,8 @@ black --check onecomp/
 
 ### for developers (pip)
 
+> **Note:** The editable install below is for developing OneComp from a local clone. **macOS users who only want MPS inference or quantization should use the [for users (pip)](#for-users-pip) flow** (`pip install torch` then `pip install onecomp` from PyPI); `pip install -e` is not needed for MPS.
+
 ```bash
 git clone <git repository URL>
 cd OneCompression
@@ -179,11 +228,47 @@ pip install -e ".[dev]"
 
 Replace `cu128` with the appropriate variant for your environment: `cpu`, `cu118`, `cu121`, `cu124`, `cu126`, `cu128`, or `cu130`.
 
+#### Pre-commit
+
+After installing development dependencies (`--extra dev` with uv, or `pip install -e ".[dev]"` with pip), register the Git hooks once:
+
+```bash
+pre-commit install
+```
+
+On every `git commit`, the following checks run automatically:
+
+| Hook | Description |
+|------|-------------|
+| **black** | Code formatting (line length 99) |
+| **isort** | Import sorting |
+| **no-japanese** | Forbid Japanese characters in text files (`.md` and `.gitignore` are excluded) |
+| **copyright-header** | Verify the Fujitsu copyright header in Python files |
+| **no-email-address** | Forbid email addresses in Python files |
+
+Common commands:
+
+```bash
+# Run hooks on staged files only
+pre-commit run
+
+# Run hooks on all files (useful after first install or config changes)
+pre-commit run --all-files
+
+# Run a specific hook
+pre-commit run black --all-files
+
+# With uv (no activation needed)
+uv run pre-commit run --all-files
+```
+
 
 ### Building Documentation Locally
 
+`--extra docs` alone is sufficient (no PyTorch `mps` / `cu*` extra required):
+
 ```bash
-uv sync --extra cu128 --extra dev --extra docs
+uv sync --extra docs
 uv run mkdocs serve
 ```
 
@@ -207,11 +292,12 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 | | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
 | | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
+| | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
 
 ## 🔌 vLLM Inference
 
-OneComp-quantized models can be served with [vLLM](https://docs.vllm.ai/) via built-in plugins (DBF, Mixed-GPTQ).
+OneComp-quantized models can be served with [vLLM](https://docs.vllm.ai/): GPTQ, JointQ, and RTN models use vLLM's built-in GPTQ plugin, while DBF and Mixed-GPTQ models are served via OneComp's own plugins.
 Combined with [Open WebUI](https://github.com/open-webui/open-webui), you can chat with your quantized model through a ChatGPT-like browser interface — entirely on your local machine.
 
 ```bash

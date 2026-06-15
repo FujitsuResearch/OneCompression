@@ -10,12 +10,12 @@ Author: Keiji Kimura
 import time
 from dataclasses import dataclass
 from logging import getLogger
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
-from onecomp.quantizer.jointq.core import quantize_advanced
 from onecomp.quantizer.jointq._jointq import JointQResult
+from onecomp.quantizer.jointq.core import quantize_advanced
 from onecomp.utils import capture_input_activations
 
 

@@ -22,13 +22,7 @@ Usage:
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from onecomp import (
-    CalibrationConfig,
-    JointQ,
-    ModelConfig,
-    Runner,
-    setup_logger,
-)
+from onecomp import CalibrationConfig, JointQ, ModelConfig, Runner, setup_logger
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="validate")
@@ -38,8 +32,7 @@ def main(cfg: DictConfig):
 
     if cfg.model_id is None and cfg.model_path is None:
         raise ValueError(
-            "Either model_id or model_path must be provided "
-            "(e.g. model_path=/path/to/model)"
+            "Either model_id or model_path must be provided " "(e.g. model_path=/path/to/model)"
         )
     if cfg.model_id is not None and cfg.model_path is not None:
         raise ValueError("Specify only one of model_id or model_path")
@@ -53,9 +46,7 @@ def main(cfg: DictConfig):
             device="cuda:0",
         ),
         quantizer=quantizer,
-        calibration_config=CalibrationConfig(
-            max_length=512, num_calibration_samples=128
-        ),
+        calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=False,
     )
 

@@ -12,7 +12,7 @@ import logging
 
 import pytest
 
-from onecomp.calibration.custom import load_custom_texts, _find_text_column
+from onecomp.calibration.custom import _find_text_column, load_custom_texts
 
 LOGGER = logging.getLogger(__name__)
 

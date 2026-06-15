@@ -23,13 +23,8 @@ Usage:
 import os
 
 import torch
-from onecomp import (
-    CalibrationConfig,
-    GPTQ,
-    ModelConfig,
-    Runner,
-    setup_logger,
-)
+
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, Runner, setup_logger
 
 setup_logger()
 
