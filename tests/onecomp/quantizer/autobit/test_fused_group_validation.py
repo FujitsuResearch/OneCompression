@@ -74,19 +74,34 @@ def test_bitpack_flag_propagates_to_supported_gptq():
     assert q4.bitpack_on_quantize is True
 
 
-def test_bitpack_flag_disables_unsupported_gptq_before_child_validation():
-    """Unsupported GPTQ wbits are left unpacked when AutoBit bitpack is enabled."""
+def test_bitpack_flag_raises_for_unsupported_gptq_wbits():
+    """Unsupported GPTQ wbits raise when AutoBit bitpack is enabled."""
     q4 = GPTQ(wbits=4, bitpack_on_quantize=False)
-    q5 = GPTQ(wbits=5, bitpack_on_quantize=True)
+    q5 = GPTQ(wbits=5, bitpack_on_quantize=False)
     ab = _make_quantizer(
         bitpack_on_quantize=True,
         enable_fused_groups=False,
         quantizers=[q4, q5],
     )
 
-    ab.validate_params()
+    with pytest.raises(ValueError, match="bitpack_on_quantize=True"):
+        ab.validate_params()
 
     assert q4.bitpack_on_quantize is True
+    assert q5.bitpack_on_quantize is True
+
+
+def test_bitpack_disabled_allows_unsupported_gptq_wbits():
+    """Unsupported GPTQ wbits are allowed when AutoBit bitpack is disabled."""
+    q5 = GPTQ(wbits=5, bitpack_on_quantize=True)
+    ab = _make_quantizer(
+        bitpack_on_quantize=False,
+        enable_fused_groups=False,
+        quantizers=[q5],
+    )
+
+    ab.validate_params()
+
     assert q5.bitpack_on_quantize is False
 
 

@@ -263,13 +263,14 @@ class AutoBitQuantizer(Quantizer):
             raise ValueError("; ".join(bad))
 
     def _sync_gptq_bitpack_on_quantize(self):
-        """Propagate AutoBit bitpack mode to GPTQ candidates before validation."""
-        supported_bits = {2, 3, 4, 8}
+        """Propagate AutoBit bitpack mode to GPTQ candidates before validation.
+
+        Unsupported GPTQ pack wbits are intentionally not downgraded here;
+        GPTQ.validate_params() raises a clear error for those candidates.
+        """
         for q in self.quantizers:
             if isinstance(q, GPTQ):
-                q.bitpack_on_quantize = (
-                    self.bitpack_on_quantize and q.wbits in supported_bits
-                )
+                q.bitpack_on_quantize = self.bitpack_on_quantize
 
     def setup(self, model):
         self.validate_params()

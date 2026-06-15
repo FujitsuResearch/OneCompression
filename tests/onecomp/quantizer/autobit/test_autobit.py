@@ -65,6 +65,7 @@ def test_autobit_small_model_ilp():
     quantizer = AutoBitQuantizer(
         assignment_strategy="activation_aware",
         target_bit=target_bit,
+        bitpack_on_quantize=False,
         quantizers=CANDIDATES,
         enable_fused_groups=False,
     )
@@ -86,6 +87,7 @@ def test_autobit_small_model_dbf():
         assignment_strategy="activation_aware",
         target_bit=target_bit,
         dbf_iters=10,
+        bitpack_on_quantize=False,
         quantizers=CANDIDATES,
         enable_fused_groups=False,
     )
@@ -111,6 +113,7 @@ def test_autobit_small_model_error():
     quantizer = AutoBitQuantizer(
         assignment_strategy="activation_aware",
         target_bit=target_bit,
+        bitpack_on_quantize=False,
         quantizers=CANDIDATES,
         enable_fused_groups=False,
     )
@@ -131,6 +134,7 @@ def test_autobit_large_model():
     quantizer = AutoBitQuantizer(
         assignment_strategy="activation_aware",
         target_bit=target_bit,
+        bitpack_on_quantize=False,
         quantizers=CANDIDATES,
         enable_fused_groups=False,
     )
