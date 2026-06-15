@@ -1117,7 +1117,7 @@ class Runner:
                     model.to("cpu")
                     del tokenizer
                 else:
-                    model, tokenizer = self.create_quantized_model(quantizer=quantizer, use_gemlite=False)
+                    model, tokenizer = self.create_quantized_model(quantizer=quantizer)
                     model.to(self.model_config.device)
                     quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
                     del model, tokenizer
