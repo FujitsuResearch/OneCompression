@@ -15,6 +15,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 GPTQ_PACK_SUPPORTED_BITS = frozenset((2, 3, 4, 8))
+GPTQ_MAX_BITS = 15
 
 import torch
 from torch import nn
@@ -180,7 +181,7 @@ class GPTQ(Quantizer):
             Larger values may improve quality but increase memory usage. Default is 128.
         percdamp (float): Percentage of the Hessian diagonal average added for
             numerical stability (dampening). Default is 0.01.
-        wbits (int): Quantization bit width (1-8). Default is 4.
+        wbits (int): Quantization bit width (1-15). Default is 4.
         groupsize (int): Number of columns sharing the same scale/zero-point.
             -1 means per-channel (no grouping). Must be -1 or in 1..blocksize. Default is -1.
         actorder (bool): If True, reorder columns by decreasing activation magnitude
@@ -268,7 +269,7 @@ class GPTQ(Quantizer):
         Validated ranges:
             blocksize: int >= 1
             percdamp: float >= 3.95e-4
-            wbits: int, 1 <= wbits <= 63
+            wbits: int, 1 <= wbits <= 15
               - one of 2, 3, 4, 8 when bitpack_on_quantize=True
             groupsize: int, -1 or >= 1
             q_grid: int >= 1 (when mse=True)
@@ -287,8 +288,11 @@ class GPTQ(Quantizer):
                 f"Invalid GPTQ parameter 'percdamp': {self.percdamp!r} (expected numeric >= 3.95e-4)."
             )
 
-        if not (isinstance(self.wbits, int) and 1 <= self.wbits <= 63):
-            bad.append(f"Invalid GPTQ parameter 'wbits': {self.wbits!r} (expected int in 1..63).")
+        if not (isinstance(self.wbits, int) and 1 <= self.wbits <= GPTQ_MAX_BITS):
+            bad.append(
+                f"Invalid GPTQ parameter 'wbits': {self.wbits!r} "
+                f"(expected int in 1..{GPTQ_MAX_BITS})."
+            )
 
         if not (isinstance(self.groupsize, int) and (self.groupsize == -1 or self.groupsize >= 1)):
             bad.append(
@@ -310,9 +314,12 @@ class GPTQ(Quantizer):
                 )
 
         if self.mlp_wbits is not None:
-            if not (isinstance(self.mlp_wbits, int) and 1 <= self.mlp_wbits <= 64):
+            if not (
+                isinstance(self.mlp_wbits, int) and 1 <= self.mlp_wbits <= GPTQ_MAX_BITS
+            ):
                 bad.append(
-                    f"Invalid GPTQ parameter 'mlp_wbits': {self.mlp_wbits!r} (expected int in 1..64)"
+                    f"Invalid GPTQ parameter 'mlp_wbits': {self.mlp_wbits!r} "
+                    f"(expected int in 1..{GPTQ_MAX_BITS})"
                 )
 
         if self.mlp_groupsize is not None:
@@ -336,9 +343,10 @@ class GPTQ(Quantizer):
                         bad.append(
                             "Invalid GPTQ parameter 'module_wbits': keys must be layer name strings."
                         )
-                    elif not (isinstance(bits, int) and 1 <= bits <= 64):
+                    elif not (isinstance(bits, int) and 1 <= bits <= GPTQ_MAX_BITS):
                         bad.append(
-                            f"Invalid GPTQ parameter 'module_wbits[{layer_name!r}]': {bits!r} (expected int in 1..64)"
+                            f"Invalid GPTQ parameter 'module_wbits[{layer_name!r}]': "
+                            f"{bits!r} (expected int in 1..{GPTQ_MAX_BITS})"
                         )
 
         if not isinstance(self.bitpack_on_quantize, bool):
@@ -360,13 +368,15 @@ class GPTQ(Quantizer):
                         f"with bitpack_on_quantize=True (expected one of {supported_bits})."
                     )
 
-            check_pack_supported("wbits", self.wbits, 63)
+            check_pack_supported("wbits", self.wbits, GPTQ_MAX_BITS)
             if self.mlp_wbits is not None:
-                check_pack_supported("mlp_wbits", self.mlp_wbits, 64)
+                check_pack_supported("mlp_wbits", self.mlp_wbits, GPTQ_MAX_BITS)
             if isinstance(self.module_wbits, dict):
                 for layer_name, bits in self.module_wbits.items():
                     if isinstance(layer_name, str):
-                        check_pack_supported(f"module_wbits[{layer_name!r}]", bits, 64)
+                        check_pack_supported(
+                            f"module_wbits[{layer_name!r}]", bits, GPTQ_MAX_BITS
+                        )
 
         if bad:
             raise ValueError("; ".join(bad))
@@ -395,6 +405,19 @@ class GPTQ(Quantizer):
             self.groupsize,
             self.mlp_groupsize,
         )
+
+        if not (isinstance(resolved_wbits, int) and 1 <= resolved_wbits <= GPTQ_MAX_BITS):
+            raise ValueError(
+                f"Invalid GPTQ resolved wbits for layer {layer_name!r}: {resolved_wbits!r} "
+                f"(expected int in 1..{GPTQ_MAX_BITS})."
+            )
+
+        if self.bitpack_on_quantize and resolved_wbits not in GPTQ_PACK_SUPPORTED_BITS:
+            supported_bits = tuple(sorted(GPTQ_PACK_SUPPORTED_BITS))
+            raise ValueError(
+                f"bitpack_on_quantize=True supports only wbits in {supported_bits}; "
+                f"got {resolved_wbits}. Use bitpack_on_quantize=False for unpacked GPTQ results."
+            )
 
         # Quantize the layer
         result_dict = run_gptq(
@@ -613,7 +636,7 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
     layer: torch.nn.Module,
     blocksize: int = 128,
     percdamp: float = 0.01,
-    wbits: int = 16,
+    wbits: int = GPTQ_MAX_BITS,
     groupsize: int = -1,
     actorder: bool = False,
     mse: bool = False,

@@ -15,6 +15,7 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from onecomp.quantizer.gptq._gptq import GPTQ, GPTQResult
+from onecomp.quantizer.gptq.config import resolve_gptq_layer_wbits
 
 from test_module import BaseQuantizeSpec
 
@@ -33,9 +34,9 @@ class TestGPTQ(BaseQuantizeSpec):
         # percdamp: float >= 3.95e-4 (validated by validate_params), no explicit upper
         {"percdamp": 3.95e-4},  # percdamp lower boundary
         {"percdamp": 1.0},  # percdamp large value (no explicit upper bound)
-        # wbits: int in 1..63 (validated by validate_params)
+        # wbits: int in 1..15 (validated by validate_params)
         {"wbits": 1},  # wbits lower boundary
-        {"wbits": 63},  # wbits upper boundary (2**63-1 = INT64_MAX)
+        {"wbits": 15},  # wbits upper boundary
         # groupsize: -1 or >=1 (validated by validate_params), no explicit upper
         {"groupsize": -1},  # groupsize (no grouping)
         {"groupsize": 1},  # groupsize positive lower boundary
@@ -88,7 +89,7 @@ class TestGPTQ(BaseQuantizeSpec):
         {
             "blocksize": 1024,
             "percdamp": 1.0,
-            "wbits": 63,
+            "wbits": 15,
             "groupsize": 1024,
             "actorder": True,
             "mse": True,
@@ -101,7 +102,7 @@ class TestGPTQ(BaseQuantizeSpec):
         {"blocksize": 0},  # below lower boundary (blocksize >= 1)
         {"percdamp": 0.0},  # below lower boundary (percdamp >= 3.95e-4)
         {"wbits": 0, "sym": True},  # below lower boundary (wbits >= 1)
-        {"wbits": 64},  # above upper boundary (wbits <= 63, INT64 overflow)
+        {"wbits": 16},  # above upper boundary (wbits <= 15)
         {"groupsize": 0},  # between -1 and 1 (invalid)
         {"groupsize": -2},  # just below -1
         {"q_grid": 0, "mse": True},  # below lower boundary (q_grid >= 1)
@@ -119,7 +120,7 @@ class TestGPTQ(BaseQuantizeSpec):
         """GPTQ bitpacking accepts the packer-supported bit widths."""
         self.make_quantizer(wbits=wbits, bitpack_on_quantize=True).validate_params()
 
-    @pytest.mark.parametrize("wbits", [1, 5, 7, 9, 63])
+    @pytest.mark.parametrize("wbits", [1, 5, 7, 9, 15])
     def test_bitpack_unsupported_wbits_raise(self, wbits):
         """GPTQ bitpacking rejects valid GPTQ widths that the packer cannot store."""
         q = self.make_quantizer(wbits=wbits, bitpack_on_quantize=True)
@@ -128,8 +129,57 @@ class TestGPTQ(BaseQuantizeSpec):
             q.validate_params()
 
     def test_bitpack_disabled_allows_pack_unsupported_wbits(self):
-        """Unpacked GPTQ keeps the existing wider wbits validation range."""
+        """Unpacked GPTQ allows valid GPTQ widths unsupported by the packer."""
         self.make_quantizer(wbits=5, bitpack_on_quantize=False).validate_params()
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"wbits": 15},
+            {"mlp_wbits": 15},
+            {"module_wbits": {"model.layers.0.mlp.down_proj": 15}},
+        ],
+    )
+    def test_wbits_upper_boundary_passes(self, params):
+        """wbits, mlp_wbits, and module_wbits accept the shared 15-bit upper bound."""
+        self.make_quantizer(bitpack_on_quantize=False, **params).validate_params()
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"wbits": 16},
+            {"mlp_wbits": 16},
+            {"module_wbits": {"model.layers.0.mlp.down_proj": 16}},
+        ],
+    )
+    def test_wbits_above_upper_boundary_raise(self, params):
+        """wbits, mlp_wbits, and module_wbits reject 16 bits and above."""
+        q = self.make_quantizer(bitpack_on_quantize=False, **params)
+
+        with pytest.raises(ValueError, match="1\\.\\.15"):
+            q.validate_params()
+
+    @pytest.mark.parametrize(
+        "quant_config",
+        [
+            {"bits": 16},
+            {"bits": 4, "mlp_wbits": 16},
+            {
+                "bits": 4,
+                "module_wbits": {"model.layers.0.mlp.down_proj": 16},
+            },
+            {
+                "bits": 4,
+                "quantization_bits": [
+                    {"mlp.down_proj": {"bits": 16, "method": "gptq"}},
+                ],
+            },
+        ],
+    )
+    def test_resolve_gptq_layer_wbits_rejects_above_15(self, quant_config):
+        """Saved GPTQ quantization_config uses the same 15-bit upper bound."""
+        with pytest.raises(ValueError, match="1\\.\\.15"):
+            resolve_gptq_layer_wbits("model.layers.0.mlp.down_proj", quant_config)
 
     @pytest.mark.parametrize(
         "override_params",
