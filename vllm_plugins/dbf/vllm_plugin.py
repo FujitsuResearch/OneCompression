@@ -36,6 +36,29 @@ def _parse_bool_env(name: str, default: bool = False) -> bool:
 
 _USE_NAIVE = _parse_bool_env("ONECOMP_DBF_NAIVE_LINEAR", default=False)
 
+# GemLite failure (e.g. the triton autotune disk-cache bug under vLLM) is a
+# deterministic environment incompatibility: if one layer fails, every other
+# layer fails identically. So on the first failure we disable GemLite
+# process-wide and warn once, rather than re-attempting (and re-crashing) the
+# expensive autotune on every remaining layer.
+_GEMLITE_RUNTIME_DISABLED = False
+
+
+def _disable_gemlite_runtime(exc: Exception) -> None:
+    global _GEMLITE_RUNTIME_DISABLED
+    if _GEMLITE_RUNTIME_DISABLED:
+        return
+    _GEMLITE_RUNTIME_DISABLED = True
+    logger.warning(
+        "[DBF] GemLite inference path failed (%s: %s). Disabling GemLite and "
+        "falling back to the naive linear path for the remainder of this run. "
+        "To run with GemLite, relaunch with TRITON_CACHE_AUTOTUNING=0 (works "
+        "around the triton autotune disk-cache bug). To skip GemLite from the "
+        "start, set ONECOMP_DBF_NAIVE_LINEAR=1.",
+        type(exc).__name__,
+        exc,
+    )
+
 
 def _try_import_gemlite():
     try:
@@ -311,24 +334,16 @@ class DBFLinearMethod(LinearMethodBase):
             x = x.to(dtype=input_dtype)
         return x
 
-    def apply(
+    def _compute_parts(
         self,
         layer: torch.nn.Module,
         x: torch.Tensor,
-        bias: torch.Tensor | None = None,
+        meta: dict,
+        use_gemlite: bool,
+        group_size: int,
     ) -> torch.Tensor:
-        meta = getattr(layer, "_dbf_meta", None)
-        if meta is None:
-            raise RuntimeError("DBF meta not initialized on layer.")
-
-        part_count = meta["part_count"]
         outputs = []
-
-        use_gemlite = getattr(layer, "_dbf_use_gemlite", False)
-        gemlite = _try_import_gemlite() if use_gemlite else None
-        group_size = gemlite[1] if gemlite is not None else 128
-
-        for idx in range(part_count):
+        for idx in range(meta["part_count"]):
             if layer.scaling0.ndim == 2:
                 scaling0 = layer.scaling0[idx]
             else:
@@ -340,10 +355,8 @@ class DBFLinearMethod(LinearMethodBase):
             scaling4 = layer.scaling4.narrow(
                 0, meta["scaling4_offsets"][idx], meta["out_sizes"][idx]
             )
-            bp1 = layer.bp1.narrow(0, meta["bp1_offsets"][idx], meta["bp1_sizes"][idx])
-            bp3 = layer.bp3.narrow(0, meta["bp3_offsets"][idx], meta["bp3_sizes"][idx])
 
-            if use_gemlite and hasattr(layer, "_dbf_gemlite_parts"):
+            if use_gemlite:
                 binary1, binary3 = layer._dbf_gemlite_parts[idx]
                 out = self._apply_gemlite(
                     x,
@@ -357,6 +370,8 @@ class DBFLinearMethod(LinearMethodBase):
                     meta["out_sizes"][idx],
                 )
             else:
+                bp1 = layer.bp1.narrow(0, meta["bp1_offsets"][idx], meta["bp1_sizes"][idx])
+                bp3 = layer.bp3.narrow(0, meta["bp3_offsets"][idx], meta["bp3_sizes"][idx])
                 out = self._apply_naive(
                     x,
                     scaling0,
@@ -370,7 +385,41 @@ class DBFLinearMethod(LinearMethodBase):
                 )
             outputs.append(out)
 
-        out = outputs[0] if len(outputs) == 1 else torch.cat(outputs, dim=-1)
+        return outputs[0] if len(outputs) == 1 else torch.cat(outputs, dim=-1)
+
+    def apply(
+        self,
+        layer: torch.nn.Module,
+        x: torch.Tensor,
+        bias: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        meta = getattr(layer, "_dbf_meta", None)
+        if meta is None:
+            raise RuntimeError("DBF meta not initialized on layer.")
+
+        use_gemlite = (
+            not _GEMLITE_RUNTIME_DISABLED
+            and getattr(layer, "_dbf_use_gemlite", False)
+            and hasattr(layer, "_dbf_gemlite_parts")
+        )
+
+        if use_gemlite:
+            gemlite = _try_import_gemlite()
+            group_size = gemlite[1] if gemlite is not None else 128
+
+            try:
+                out = self._compute_parts(layer, x, meta, True, group_size)
+            except torch.cuda.OutOfMemoryError:
+                # The naive path needs more memory than GemLite, so falling back
+                # on OOM would only hide a real resource problem. Surface it.
+                raise
+            except Exception as exc:  # noqa: BLE001 - graceful degradation to naive
+                _disable_gemlite_runtime(exc)
+                layer._dbf_use_gemlite = False
+                out = self._compute_parts(layer, x, meta, False, group_size)
+        else:
+            out = self._compute_parts(layer, x, meta, False, 128)
+
         if bias is not None:
             out = out + bias
         return out
