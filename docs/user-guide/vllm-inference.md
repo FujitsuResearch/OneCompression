@@ -219,6 +219,38 @@ Select the model from the dropdown at the top of the chat screen and start a con
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ONECOMP_DBF_NAIVE_LINEAR` | `0` | Set to `1` to force the naive (non-GemLite) kernel for DBF inference. Useful for debugging or when GemLite is unavailable. |
+| `TRITON_CACHE_AUTOTUNING` | `1` | Set to `0` to disable Triton's autotune disk-cache. Recommended when GemLite fails at inference time due to the Triton autotune disk-cache bug (see below). |
+
+### GemLite Automatic Fallback
+
+The DBF plugin automatically falls back to the naive linear kernel if GemLite fails during inference.
+When this happens, a `WARNING` is logged:
+
+```
+WARNING [...] [DBF] GemLite inference path failed (ErrorType: detail).
+Disabling GemLite and falling back to the naive linear path for the remainder of this run.
+To run with GemLite, relaunch with TRITON_CACHE_AUTOTUNING=0 (works around the triton autotune disk-cache bug).
+To skip GemLite from the start, set ONECOMP_DBF_NAIVE_LINEAR=1.
+```
+
+The fallback is **process-wide**: once GemLite fails on any layer, all subsequent layers use the naive path for the rest of the process lifetime.
+Inference continues and produces correct output, but throughput may be lower than with GemLite.
+
+If the WARNING appears, try the following in order:
+
+1. **Set `TRITON_CACHE_AUTOTUNING=0`** — works around the Triton autotune disk-cache bug that is the most common cause of GemLite failures under vLLM:
+
+    ```bash
+    TRITON_CACHE_AUTOTUNING=0 vllm serve ./your-quantized-model
+    # or
+    TRITON_CACHE_AUTOTUNING=0 python your_vllm_script.py
+    ```
+
+2. **Set `ONECOMP_DBF_NAIVE_LINEAR=1`** — skips GemLite entirely from startup. Use this if the issue persists after step 1 or if you do not need GemLite performance:
+
+    ```bash
+    ONECOMP_DBF_NAIVE_LINEAR=1 vllm serve ./your-quantized-model
+    ```
 
 ## Troubleshooting
 
