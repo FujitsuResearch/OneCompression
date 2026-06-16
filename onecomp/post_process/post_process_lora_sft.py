@@ -295,9 +295,11 @@ class PostProcessLoraSFT(PostQuantizationProcess):
         4. Replace each target module with ``LoRAGPTQLinear``, which keeps the
            original GPTQ layer as the frozen base path and adds trainable LoRA
            low-rank updates.
-        5. Optimize the LoRA parameters with SFT loss and, optionally, an
+        5. Temporarily unpack GPTQ base weights for faster training, then
+           restore the incoming pack state before returning.
+        6. Optimize the LoRA parameters with SFT loss and, optionally, an
            additional teacher distillation loss against an FP teacher model.
-        6. Move the post-processed model back to CPU at the end so it can be
+        7. Move the post-processed model back to CPU at the end so it can be
            reused by ``Runner`` for perplexity / accuracy evaluation.
 
     Training objective:
@@ -314,6 +316,8 @@ class PostProcessLoraSFT(PostQuantizationProcess):
         - Pass this class to ``Runner(post_processes=[...])`` after GPTQ
           quantization, or call ``run()`` directly on a previously saved
           quantized model loaded with ``torch.load(..., weights_only=False)``.
+          ``Runner`` supplies a packed CPU model; direct callers may pass an
+          unpacked model and it will stay unpacked on return.
 
     LoRA implementations:
         - ``PostProcessLoraSFT``:

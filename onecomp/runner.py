@@ -132,9 +132,12 @@ class Runner:
             post_processes (list[PostQuantizationProcess] or None):
                 Optional list of post-quantization processes to execute
                 after the main quantization step.  Each process receives
-                a quantized model on CPU (built via
-                ``create_quantized_model``) and may modify it in-place.
-                Processes are executed in order.  Default is None.
+                a packed quantized model on CPU (built via
+                ``create_quantized_model(pack_weights=True, use_gemlite=False)``)
+                and may modify it in-place.  Processes preserve the
+                incoming pack state, so the final ``self.quantized_model``
+                remains packed in the production path.  Processes are
+                executed in order.  Default is None.
             report_progress (bool):
                 When ``True`` (default), emit ``[progress]`` log lines with
                 completed steps, elapsed time, and a linear ETA estimate
@@ -1672,9 +1675,16 @@ class Runner:
 
             With post-process:
 
-            >>> model, tokenizer = runner.create_quantized_model(pack_weights=False)
+            >>> model, tokenizer = runner.create_quantized_model(
+            ...     pack_weights=True,
+            ...     use_gemlite=False,
+            ... )
             >>> post_process = PostProcessLoraSFT(data_files="train.jsonl")
             >>> post_process.run(model, runner.model_config)
+
+            Post-processes preserve the incoming pack state.  Use
+            ``pack_weights=False`` only when intentionally debugging an
+            unpacked-buffer path.
         """
         if quantizer is None:
             quantizer = self.quantizer
