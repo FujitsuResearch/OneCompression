@@ -901,6 +901,16 @@ class Runner:
 
         Uses ``self.quantized_model`` when one has already been assigned;
         otherwise builds a quantized model on CPU from ``quantizer.results``.
+        In the latter case, this method builds the model with
+        ``create_quantized_model(pack_weights=True, use_gemlite=False)`` by
+        default.  If an unpacked layout is required, either change that
+        internal ``create_quantized_model`` call to ``pack_weights=False`` for
+        the workflow, or explicitly build the model before calling this method
+        and assign it to ``runner.quantized_model``:
+        ``runner.quantized_model, _ = runner.create_quantized_model(
+        pack_weights=False, use_gemlite=False)``.  Direct
+        ``post_process.run(model, runner.model_config)`` execution can use the
+        same explicitly built model.
         The model is passed to each :class:`PostQuantizationProcess` in order.
         Each process records its own metadata in
         ``model.config.quantization_config["onecomp_post_processes"]`` when it
@@ -920,10 +930,10 @@ class Runner:
         elif self.quantizer is not None:
             logger.info("Building quantized model for post-quantization processes...")
             # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
-            # LoRA SFT runs with bfloat16 autocast.  Plain buffers (qweight/scales) are
-            # needed so training can call base_layer.forward() without dtype mismatch.
+            # LoRA SFT runs with bfloat16 autocast. Keep plain PyTorch inference
+            # layers while preserving the default packed quantized-buffer layout.
             quantized_model, _ = self.create_quantized_model(
-                pack_weights=False,
+                pack_weights=True,
                 use_gemlite=False,
             )
         else:
@@ -1678,10 +1688,32 @@ class Runner:
             >>> runner.run()
             >>> model, tokenizer = runner.create_quantized_model()
 
-            With post-process:
+            With post-process (manual single-process run; ``run_post_processes()``
+            builds the model with ``pack_weights=True`` by default).  The same
+            packed model can be passed directly to post-processes that preserve
+            quantized layer structure, such as ``BlockWisePTQ`` or ``GlobalPTQ``:
 
-            >>> model, tokenizer = runner.create_quantized_model(pack_weights=False)
+            >>> model, tokenizer = runner.create_quantized_model()
+            >>> post_process = BlockWisePTQ()
+            >>> post_process.run(model, runner.model_config)
+            >>> post_process = GlobalPTQ()
+            >>> post_process.run(model, runner.model_config)
+
+            LoRA SFT also accepts the model directly, but it introduces custom
+            wrapper modules and should be saved with ``save_quantized_model_pt``:
+
+            >>> model, tokenizer = runner.create_quantized_model()
             >>> post_process = PostProcessLoraSFT(data_files="train.jsonl")
+            >>> post_process.run(model, runner.model_config)
+
+            If a workflow requires unpacked quantized buffers, build the model
+            explicitly with ``pack_weights=False`` before direct execution:
+
+            >>> model, tokenizer = runner.create_quantized_model(
+            ...     pack_weights=False,
+            ...     use_gemlite=False,
+            ... )
+            >>> post_process = BlockWisePTQ()
             >>> post_process.run(model, runner.model_config)
         """
         if quantizer is None:
@@ -1944,10 +1976,10 @@ class Runner:
         validated, any recorded ``onecomp_post_processes`` history is persisted to
         ``config.json``, and ``model_config`` is required (for the tokenizer).  In
         that case ``pack_weights`` is **ignored** — the weights keep whatever
-        packing layout they were built with, so set ``pack_weights`` on
-        ``create_quantized_model()`` *before* post-processing if a packed,
-        loadable checkpoint is needed.  Otherwise the quantized model is built
-        from ``quantizer.results`` honouring ``pack_weights``.
+        packing layout they were built with.  ``run_post_processes()`` builds
+        packed quantized buffers by default when it creates the model itself.
+        Otherwise the quantized model is built from ``quantizer.results``
+        honouring ``pack_weights``.
 
         Args:
             save_directory (str):
