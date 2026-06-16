@@ -252,6 +252,11 @@ If the WARNING appears, try the following in order:
     ONECOMP_DBF_NAIVE_LINEAR=1 vllm serve ./your-quantized-model
     ```
 
+!!! note "Out-of-memory errors are not caught"
+    `torch.cuda.OutOfMemoryError` is re-raised immediately and does **not** trigger the fallback.
+    The naive path requires more memory than GemLite, so falling back on OOM would make the situation worse rather than better.
+    If you see an OOM error, reduce `--gpu-memory-utilization` or the model's context length.
+
 ## Troubleshooting
 
 ### `RuntimeError: DeepGEMM backend is not available or outdated`
