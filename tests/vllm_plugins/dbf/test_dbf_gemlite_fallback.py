@@ -1,6 +1,5 @@
 """Copyright 2025-2026 Fujitsu Ltd."""
 
-import logging
 import pytest
 import torch
 from unittest.mock import MagicMock, patch
@@ -88,6 +87,27 @@ def layer():
     return _make_layer()
 
 
+@pytest.fixture
+def warning_spy(monkeypatch):
+    """Capture WARNING messages by patching the module logger directly.
+
+    More robust than caplog: it does not depend on the vLLM logger keeping
+    propagate=True, so the assertions survive a future logger reconfiguration.
+    """
+    records: list[str] = []
+    real_logger = _plugin_module.logger
+
+    class _SpyLogger:
+        def warning(self, msg, *args, **kwargs):
+            records.append(msg % args if args else msg)
+
+        def __getattr__(self, name):
+            return getattr(real_logger, name)
+
+    monkeypatch.setattr(_plugin_module, "logger", _SpyLogger())
+    return records
+
+
 class TestGemliteFallback:
     """Verify the GemLite → naive fallback behaviour in DBFLinearMethod.apply()."""
 
@@ -113,7 +133,7 @@ class TestGemliteFallback:
         assert gemlite_tries == 1
         assert torch.equal(result, naive_ref)
 
-    def test_fallback_warning_contains_env_vars(self, method, layer, caplog):
+    def test_fallback_warning_contains_env_vars(self, method, layer, warning_spy):
         """The fallback warning must mention both env var names."""
         x = torch.randn(_BATCH, _IN_F)
 
@@ -124,10 +144,9 @@ class TestGemliteFallback:
             with patch.object(
                 method, "_compute_parts", side_effect=_parts_side_effect_raise_on_gemlite
             ):
-                with caplog.at_level(logging.WARNING):
-                    method.apply(layer, x, bias=None)
+                method.apply(layer, x, bias=None)
 
-        combined = " ".join(r.getMessage() for r in caplog.records)
+        combined = " ".join(warning_spy)
         assert "ONECOMP_DBF_NAIVE_LINEAR" in combined
         assert "TRITON_CACHE_AUTOTUNING" in combined
 
@@ -162,17 +181,15 @@ class TestGemliteFallback:
 
         assert layer._dbf_use_gemlite is False
 
-    def test_disable_gemlite_runtime_logs_once(self, caplog):
+    def test_disable_gemlite_runtime_logs_once(self, warning_spy):
         """_disable_gemlite_runtime() emits exactly one WARNING across multiple calls and sets the flag to True."""
         exc = RuntimeError("error")
-        with caplog.at_level(logging.WARNING):
-            _disable_gemlite_runtime(exc)
-            _disable_gemlite_runtime(exc)
-            _disable_gemlite_runtime(exc)
+        _disable_gemlite_runtime(exc)
+        _disable_gemlite_runtime(exc)
+        _disable_gemlite_runtime(exc)
 
-        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert len(warning_records) == 1
-        message = warning_records[0].getMessage()
+        assert len(warning_spy) == 1
+        message = warning_spy[0]
         assert "ONECOMP_DBF_NAIVE_LINEAR" in message
         assert "TRITON_CACHE_AUTOTUNING" in message
         assert _plugin_module._GEMLITE_RUNTIME_DISABLED is True
@@ -195,12 +212,14 @@ class TestGemliteFallback:
             with patch.object(method, "_apply_gemlite", side_effect=_gemlite_raises):
                 with patch.object(method, "_apply_naive", return_value=naive_ref):
                     method.apply(layer, x, bias=None)  # first call: fallback triggered
-                    method.apply(layer, x, bias=None)  # second call: goes straight to naive via process-wide flag
+                    method.apply(
+                        layer, x, bias=None
+                    )  # second call: goes straight to naive via process-wide flag
 
         # GemLite was tried only on the first call; second call bypasses it via the process-wide flag
         assert gemlite_tries == 1
 
-    def test_oom_is_not_caught(self, method, layer, caplog):
+    def test_oom_is_not_caught(self, method, layer, warning_spy):
         """OOM is re-raised: GemLite is more memory-efficient than naive, so falling back on OOM would make things worse."""
         x = torch.randn(_BATCH, _IN_F)
 
@@ -209,17 +228,16 @@ class TestGemliteFallback:
             return_value=_MOCK_GEMLITE_IMPORT,
         ):
             with patch.object(
-                method, "_apply_gemlite",
+                method,
+                "_apply_gemlite",
                 side_effect=torch.cuda.OutOfMemoryError("OOM"),
             ):
-                with caplog.at_level(logging.WARNING):
-                    with pytest.raises(torch.cuda.OutOfMemoryError):
-                        method.apply(layer, x, bias=None)
+                with pytest.raises(torch.cuda.OutOfMemoryError):
+                    method.apply(layer, x, bias=None)
 
         assert _plugin_module._GEMLITE_RUNTIME_DISABLED is False
         assert layer._dbf_use_gemlite is True  # OOM must not touch the per-layer flag
-        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert len(warning_records) == 0  # OOM must not emit a WARNING
+        assert len(warning_spy) == 0  # OOM must not emit a WARNING
 
     def test_naive_direct_when_use_gemlite_false(self, method):
         """A layer with _dbf_use_gemlite=False bypasses GemLite entirely and goes straight to naive (else branch)."""
@@ -251,3 +269,72 @@ class TestGemliteFallback:
         assert torch.equal(result, gemlite_result)
         assert _plugin_module._GEMLITE_RUNTIME_DISABLED is False
         assert layer._dbf_use_gemlite is True
+
+    def test_fused_fallback_matches_real_naive(self, method):
+        """fused (part_count>1) fallback runs the REAL naive path and concatenates parts correctly.
+
+        Exercises torch.cat(outputs, dim=-1), the per-part offset slicing of
+        scaling/bp tensors, and the real _apply_naive numerics (only _apply_gemlite
+        is forced to fail). This is the production-critical path: the layer that
+        crashes under vLLM is the fused qkv_proj.
+        """
+        part_count = 3
+        layer = _make_layer(part_count=part_count)
+
+        # All sign bits set -> unpack_sign_bits yields +1 everywhere, so the
+        # binary weight matrices are ones(mid, in) and ones(out, mid).
+        layer.bp1 = torch.full_like(layer.bp1, 0xFF)
+        layer.bp3 = torch.full_like(layer.bp3, 0xFF)
+        # Distinct, non-unit per-part scalings to exercise offset slicing and to
+        # catch a scaling/offset bug (uniform 1.0 would hide it). scaling0 is 2D
+        # (part_count, in_features) as fused layers are built, so this also covers
+        # the `scaling0.ndim == 2` per-part-index branch in _compute_parts().
+        layer.scaling0 = torch.stack(
+            [
+                torch.linspace(0.5, 1.5, _IN_F, dtype=torch.float16) * (1.0 + 0.1 * p)
+                for p in range(part_count)
+            ]
+        )
+        layer.scaling2 = torch.linspace(0.5, 1.5, _MID_F * part_count, dtype=torch.float16)
+        layer.scaling4 = torch.linspace(0.5, 1.5, _OUT_F * part_count, dtype=torch.float16)
+
+        x = torch.randn(_BATCH, _IN_F)
+
+        with patch(
+            "vllm_plugins.dbf.vllm_plugin._try_import_gemlite",
+            return_value=_MOCK_GEMLITE_IMPORT,
+        ):
+            with patch.object(method, "_apply_gemlite", side_effect=RuntimeError("kernel error")):
+                result = method.apply(layer, x, bias=None)
+
+        # Independent reference: +1 weight matrices, computed per part then concatenated.
+        w1 = torch.ones(_MID_F, _IN_F)
+        w3 = torch.ones(_OUT_F, _MID_F)
+        expected_parts = []
+        for p in range(part_count):
+            s0 = layer.scaling0[p].float()
+            s2 = layer.scaling2[p * _MID_F : (p + 1) * _MID_F].float()
+            s4 = layer.scaling4[p * _OUT_F : (p + 1) * _OUT_F].float()
+            h = (x * s0) @ w1.t()
+            h = h * s2
+            o = (h @ w3.t()) * s4
+            expected_parts.append(o)
+        expected = torch.cat(expected_parts, dim=-1)
+
+        assert result.shape == (_BATCH, _OUT_F * part_count)
+        assert torch.allclose(result, expected, atol=1e-2, rtol=1e-2)
+        # Fallback still flips both the process-wide and the per-layer flags.
+        assert _plugin_module._GEMLITE_RUNTIME_DISABLED is True
+        assert layer._dbf_use_gemlite is False
+
+    def test_bias_is_added_to_output(self, method):
+        """apply() adds bias to the computed output."""
+        layer = _make_layer(use_gemlite=False)  # else branch: naive only, no GemLite import
+        x = torch.randn(_BATCH, _IN_F)
+        base = torch.randn(_BATCH, _OUT_F)
+        bias = torch.randn(_OUT_F)
+
+        with patch.object(method, "_apply_naive", return_value=base):
+            result = method.apply(layer, x, bias=bias)
+
+        assert torch.allclose(result, base + bias)
