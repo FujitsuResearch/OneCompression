@@ -234,6 +234,50 @@ def _compute_intermediate_block_loss(
     return total / count
 
 
+# ---------------------------------------------------------------------------
+# GPTQLinear pack-state helpers (packed-in / packed-out)
+# ---------------------------------------------------------------------------
+
+
+def _iter_gptq_linears(model: nn.Module):
+    """Yield GPTQLinear modules, including ``LoRAGPTQLinear.base_layer``."""
+    for name, module in model.named_modules():
+        if isinstance(module, GPTQLinear):
+            yield name, module
+
+
+def _capture_gptq_pack_state(model: nn.Module) -> dict[str, bool]:
+    """Snapshot each GPTQLinear's ``_weight_is_packed`` flag, keyed by name."""
+    return {
+        name: bool(getattr(module, "_weight_is_packed", False))
+        for name, module in _iter_gptq_linears(model)
+    }
+
+
+def _unpack_gptq_linears_in_place(model: nn.Module) -> int:
+    """Unpack packed GPTQLinear layers in place and return the changed count."""
+    count = 0
+    for _name, module in _iter_gptq_linears(model):
+        if getattr(module, "_weight_is_packed", False):
+            module.unpack_in_place()
+            count += 1
+    return count
+
+
+def _restore_gptq_pack_state(model: nn.Module, pack_state: dict[str, bool]) -> int:
+    """Restore the input pack state and return how many layers were re-packed.
+
+    Layers unpacked on input stay unpacked; ``pack_in_place`` handles
+    non-packable wbits as a no-op.
+    """
+    count = 0
+    for name, module in _iter_gptq_linears(model):
+        if pack_state.get(name, False) and not getattr(module, "_weight_is_packed", True):
+            module.pack_in_place()
+            count += 1
+    return count
+
+
 @dataclass
 class PostProcessLoraSFT(PostQuantizationProcess):
     """LoRA-based SFT post-process on a GPTQ-quantized model.
@@ -876,7 +920,12 @@ class PostProcessLoraSFT(PostQuantizationProcess):
         quantized_model: nn.Module,
         model_config: ModelConfig,
     ) -> None:
-        """Run LoRA SFT on the GPTQ-quantized model in-place."""
+        """Run LoRA SFT on the GPTQ-quantized model in-place.
+
+        Training temporarily unpacks base GPTQLinear weights for speed, then
+        restores the input pack state (packed-in -> packed-out; unpacked stays
+        unpacked).
+        """
         if self.epochs <= 0:
             raise ValueError(f"`epochs` must be > 0, but got {self.epochs}.")
         if self.batch_size <= 0:
@@ -926,6 +975,19 @@ class PostProcessLoraSFT(PostQuantizationProcess):
             param.requires_grad_(False)
 
         replaced_layers = self._inject_lora_layers(quantized_model)
+
+        # Snapshot after LoRA injection so base_layer names are stable. Training
+        # runs on unpacked GPTQ weights (including wrapped bases) to avoid
+        # per-step unpacking; the input pack state is restored in finally.
+        gptq_pack_state = _capture_gptq_pack_state(quantized_model)
+        num_unpacked = _unpack_gptq_linears_in_place(quantized_model)
+        if num_unpacked:
+            logger.info(
+                "Unpacked %d GPTQLinear layer(s) for LoRA SFT training "
+                "(incoming pack state restored after training).",
+                num_unpacked,
+            )
+
         trainable_parameters = [
             param for param in quantized_model.parameters() if param.requires_grad
         ]
@@ -1240,6 +1302,15 @@ class PostProcessLoraSFT(PostQuantizationProcess):
                 del teacher_model
             quantized_model.eval()
             quantized_model.to("cpu")
+            # Restore packed-in -> packed-out while leaving unpacked inputs
+            # unpacked, even when training exits with an error.
+            num_repacked = _restore_gptq_pack_state(quantized_model, gptq_pack_state)
+            if num_repacked:
+                logger.info(
+                    "Re-packed %d GPTQLinear layer(s) to restore the incoming "
+                    "pack state.",
+                    num_repacked,
+                )
             self._save_adapter(quantized_model)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()

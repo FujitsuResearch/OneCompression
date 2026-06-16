@@ -895,8 +895,12 @@ class Runner:
     def run_post_processes(self):
         """Execute post-quantization processes.
 
-        Builds a quantized model on CPU from ``quantizer.results`` and
-        passes it to each :class:`PostQuantizationProcess` in order.
+        Builds a packed quantized model on CPU from ``quantizer.results``
+        and passes it to each :class:`PostQuantizationProcess` in order. Each
+        process preserves the incoming pack state (packed-in -> packed-out), so
+        ``self.quantized_model`` stays packed for memory-efficient eval reuse.
+        Processes that train (e.g. :class:`PostProcessLoraSFT`) unpack the base
+        weights internally for the duration of training and re-pack on exit.
 
         Raises:
             ValueError: If ``self.quantizer`` is ``None``
@@ -911,11 +915,13 @@ class Runner:
             )
 
         logger.info("Building quantized model for post-quantization processes...")
+        # Pass a packed model to post-processes; each one keeps the incoming
+        # pack state (packed-in -> packed-out) so the result stays packed.
         # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
         # LoRA SFT runs with bfloat16 autocast.  Plain buffers (qweight/scales) are
         # needed so training can call base_layer.forward() without dtype mismatch.
         quantized_model, _ = self.create_quantized_model(
-            pack_weights=False,
+            pack_weights=True,
             use_gemlite=False,
         )
 
