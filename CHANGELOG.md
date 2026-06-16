@@ -4,6 +4,10 @@
 
 (TODO: Add changelog for v1.3.0)
 
+### Bug Fix
+- Fixed VLM (e.g. Gemma3) quantized model save/load: safetensors key prefixes from `save_pretrained` (`model.language_model.model.layers.*`) did not match the `from_config` model (`model.language_model.layers.*`), so `load_state_dict(..., assign=True)` left `qweight` / `scales` / `qzeros` at zero and generation degraded (`onecomp/quantized_model_loader.py`)
+  - Added `_remap_state_dict_keys()` to normalize checkpoint keys before `_replace_quantized_layers`; `_apply_known_state_dict_key_rewrites()` rewrites `.language_model.model.` → `.language_model.` (pattern-based, without requiring keys to exist in the empty model yet)
+
 ## [v1.2.0] 2026-06-08
 
 ### Save/Load Support for JointQ, RTN, and OneBit Quantizers
