@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from safetensors.torch import load_file
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
 from .quantizer.dbf.config import resolve_dbf_layer_bits
@@ -140,6 +140,8 @@ class QuantizedModelLoader:
                 converted,
             )
 
+        cls._load_generation_config(model, save_directory)
+
         # Register Hadamard hooks for rotation-preprocessed models
         if quant_config.get("rotated", False):
             from .pre_process.rotation_utils import register_online_hadamard_hooks
@@ -248,6 +250,21 @@ class QuantizedModelLoader:
         )
 
         return model, tokenizer
+
+    @staticmethod
+    def _load_generation_config(model: torch.nn.Module, save_directory: str) -> None:
+        """Attach ``generation_config.json`` when present in the save directory.
+
+        ``AutoModel*.from_config`` builds an empty model without the
+        checkpoint's generation defaults.  Multimodal Gemma 4 models rely on
+        fields such as ``suppress_tokens`` to block modality delimiter tokens
+        during text-only ``generate()``.
+        """
+        gen_config_path = os.path.join(save_directory, "generation_config.json")
+        if not os.path.isfile(gen_config_path):
+            return
+        model.generation_config = GenerationConfig.from_pretrained(save_directory)
+        logger.info("Loaded generation_config.json from %s", save_directory)
 
     @staticmethod
     def _load_config_and_quant_config(save_directory: str) -> Tuple[Dict, Dict]:
