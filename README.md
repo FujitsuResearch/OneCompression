@@ -286,9 +286,14 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 | | [example_auto_run.py](./example/example_auto_run.py) | AutoBit with automatic VRAM estimation |
 | Calibration | [example_custom_calibration.py](./example/example_custom_calibration.py) | Custom calibration dataset with CalibrationConfig |
 | Save / Load | [example_save_load.py](./example/example_save_load.py) | Save and load quantized models |
+| | [example_reload_post_process_resave.py](./example/post_process/example_reload_post_process_resave.py) | Reload, post-process, and re-save a quantized checkpoint |
 | Rotation Preprocessing | [example_llama_preprocess_rtn.py](./example/pre_process/example_llama_preprocess_rtn.py) | Rotation preprocessing + RTN (TinyLlama) |
 | | [example_preprocess_save_load.py](./example/pre_process/example_preprocess_save_load.py) | Save and load rotation-preprocessed quantized models |
-| Post-Process | [example_blockwise_ptq.py](./example/post_process/example_blockwise_ptq.py) | Block-wise PTQ (GPTQ + Phase 1 & CBQ) |
+| Post-Process | [example_blockwise_ptq.py](./example/post_process/example_blockwise_ptq.py) | Block-wise PTQ via Runner.run() with packed buffers (default) |
+| | [example_blockwise_ptq_unpacked.py](./example/post_process/example_blockwise_ptq_unpacked.py) | Block-wise PTQ with explicit unpacked buffers |
+| | [example_global_ptq.py](./example/post_process/example_global_ptq.py) | Global PTQ with packed buffers (default), with safetensors and .pt save |
+| | [example_global_ptq_unpacked.py](./example/post_process/example_global_ptq_unpacked.py) | Global PTQ with explicit unpacked buffers |
+| | [example_global_ptq_distributed.py](./example/post_process/example_global_ptq_distributed.py) | Global PTQ with DeepSpeed multi-GPU |
 | | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
 | | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |

@@ -54,8 +54,11 @@ class QuantizedModelLoader:
         config.json and quantized layers are reconstructed directly from the safetensors
         state_dict. No quantization_results.pt is needed.
 
-        For models saved with post-processing modifications (e.g. LoRA adapters),
-        use :meth:`load_quantized_model_pt` instead.
+        Structure-preserving post-processes such as ``BlockWisePTQ``,
+        ``GlobalPTQ``, and ``GlobalPTQDistributed`` remain loadable through
+        this safetensors path.  For models whose post-process introduces
+        custom module types (for example LoRA adapters from
+        ``PostProcessLoraSFT``), use :meth:`load_quantized_model_pt` instead.
 
         Args:
             save_directory: Path to the saved model directory.
@@ -67,6 +70,16 @@ class QuantizedModelLoader:
 
         Returns:
             (model, tokenizer)
+
+        Raises:
+            FileNotFoundError: If ``save_directory`` or its ``config.json``
+                is missing.
+            ValueError: If ``quantization_config`` is missing or not a dict, or
+                lacks the required ``quant_method`` /
+                ``modules_in_block_to_quantize`` keys.  Validated by the same
+                :func:`onecomp.utils.quant_config.validate_quant_config` used by
+                the save path, so saving and loading enforce identical required
+                keys and raise the same exception type.
 
         Example:
             >>> model, tokenizer = QuantizedModelLoader.load_quantized_model("./tinyllama_gptq3")

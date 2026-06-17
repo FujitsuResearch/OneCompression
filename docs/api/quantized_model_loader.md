@@ -18,9 +18,12 @@ The top-level aliases provide shortcuts for both formats:
 ```python
 from onecomp import load_quantized_model, load_quantized_model_pt
 
-# Load a safetensors model (standard quantized, no LoRA)
+# Load a safetensors model, including BlockWisePTQ / GlobalPTQ / GlobalPTQDistributed outputs
 model, tokenizer = load_quantized_model("./saved_model")
 
-# Load a PyTorch .pt model (post-processed, e.g. LoRA-applied)
+# Keep the loaded model on CPU before running additional post-processes
+model, tokenizer = load_quantized_model("./saved_model", device_map=None)
+
+# Load a PyTorch .pt model with custom modules, e.g. LoRA-applied
 model, tokenizer = load_quantized_model_pt("./saved_model_lora")
 ```

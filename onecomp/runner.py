@@ -903,10 +903,9 @@ class Runner:
         otherwise builds a quantized model on CPU from ``quantizer.results``.
         In the latter case, this method builds the model with
         ``create_quantized_model(pack_weights=True, use_gemlite=False)`` by
-        default.  If an unpacked layout is required, either change that
-        internal ``create_quantized_model`` call to ``pack_weights=False`` for
-        the workflow, or explicitly build the model before calling this method
-        and assign it to ``runner.quantized_model``:
+        default.  If an unpacked layout is required, explicitly build the
+        model before calling this method and assign it to
+        ``runner.quantized_model``:
         ``runner.quantized_model, _ = runner.create_quantized_model(
         pack_weights=False, use_gemlite=False)``.  Direct
         ``post_process.run(model, runner.model_config)`` execution can use the
@@ -2052,14 +2051,15 @@ class Runner:
     def save_quantized_model_pt(self, save_directory: str):
         """Save the quantized model as a PyTorch .pt file.
 
-        Use this method to save models that include post-processing
-        modifications (e.g. LoRA adapters from ``PostProcessLoraSFT``).
-        The entire model object is serialized with ``torch.save``,
-        preserving custom module types such as ``LoRAGPTQLinear``.
+        Use this method when the model contains custom module types that
+        cannot be reconstructed from the HF-compatible safetensors format,
+        such as LoRA adapters from ``PostProcessLoraSFT``.  The entire model
+        object is serialized with ``torch.save``, preserving custom modules
+        such as ``LoRAGPTQLinear``.
 
-        For models without post-processing, prefer
-        ``save_quantized_model`` which uses the HF-compatible
-        safetensors format.
+        For standard quantized models, and for post-processes that keep the
+        quantized layer structure (for example ``BlockWisePTQ``, ``GlobalPTQ``,
+        and ``GlobalPTQDistributed``), prefer ``save_quantized_model``.
 
         The saved directory contains:
         - ``model.pt``: The model (``torch.save``)
