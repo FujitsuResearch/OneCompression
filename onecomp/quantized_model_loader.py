@@ -15,7 +15,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from safetensors.torch import load_file
-from torch import nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
@@ -134,18 +133,15 @@ class QuantizedModelLoader:
 
         # Register Hadamard hooks for rotation-preprocessed models
         if quant_config.get("rotated", False):
-            from .pre_process.rotation_utils import register_online_hadamard_hooks
+            from .pre_process.rotation_utils import (
+                collect_down_proj_types,
+                register_online_hadamard_hooks,
+            )
             fp32_had = quant_config.get("fp32_had", False)
-            down_proj_types = list({
-                type(module)
-                for name, module in model.named_modules()
-                if "down_proj" in name 
-            })
-            
+            down_proj_types = collect_down_proj_types(model)
 
             hooks = register_online_hadamard_hooks(
                 model,
-                # layers_cls=layers_cls,
                 layers_cls=down_proj_types,
                 fp32_had=fp32_had,
             )

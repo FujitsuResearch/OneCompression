@@ -1660,12 +1660,11 @@ class Runner:
         # which discards hooks registered by RotatedModelConfig.load_model().
         fp32_had = getattr(self.model_config, "fp32_had", False)
         if self.model_config.has_additional_data():
-            from .pre_process.rotation_utils import register_online_hadamard_hooks
-            quantized_down_proj_types = list({
-                type(module)
-                for name, module in model.named_modules()
-                if "down_proj" in name and not isinstance(module, nn.Linear)
-            })
+            from .pre_process.rotation_utils import (
+                collect_quantized_down_proj_types,
+                register_online_hadamard_hooks,
+            )
+            quantized_down_proj_types = collect_quantized_down_proj_types(model)
 
             if quantized_down_proj_types:
                 hooks = register_online_hadamard_hooks(

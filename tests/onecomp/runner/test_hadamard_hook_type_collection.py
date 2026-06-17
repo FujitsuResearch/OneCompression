@@ -1,37 +1,46 @@
-"""Regression tests for Hadamard hook target-type collection changes.
+"""Regression tests for Hadamard hook target-type collection on this branch.
 
-Pins the behaviour of two bugs fixed on this branch:
+Three bugs are pinned:
+  Bug 1 (runner.py): old ``next(...)`` sampled only the first ``down_proj``;
+    now collect all distinct non-``nn.Linear`` types.
+  Bug 2 (runner.py): a leading ``nn.Linear`` down_proj caused duplicate hooks on
+    every ``nn.Linear`` and no hooks on ``GPTQLinear``; the filter prevents this.
+  Bug 3 (quantized_model_loader.py): an unknown ``quant_method`` string yielded
+    ``layers_cls=None`` (hooks silently disabled); now types come from the model.
 
-Bug 1 — Hadamard hooks registered on nn.Linear down_proj layers (runner.py):
-  Before: ``next(m for n,m in model.named_modules() if 'down_proj' in n)``
-          sampled only the FIRST ``down_proj`` layer and passed its type to
-          ``register_online_hadamard_hooks``.
-  After:  collect ALL distinct non-``nn.Linear`` ``down_proj`` types; only
-          quantized layers receive hooks.
+Test layering:
+  - The collection logic lives in the pure helpers
+    ``onecomp.pre_process.rotation_utils.collect_quantized_down_proj_types`` /
+    ``collect_down_proj_types`` (co-located with their sole consumer
+    ``register_online_hadamard_hooks``); the helper tests import and call them
+    directly for sharp, fast branch coverage (Bug 1/2 and the loader's no-filter
+    behaviour).
+  - The integration tests drive the real ``load_quantized_model`` /
+    ``create_quantized_model`` to pin that the call sites actually use the
+    helpers — i.e. Bug 3 (the loader no longer derives types from the
+    ``quant_method`` string) and that the runner passes the collected types to
+    ``register_online_hadamard_hooks``.  These cannot be covered by the helper
+    tests alone.
 
-Bug 2 — Duplicate hooks on nn.Linear and missing hooks on GPTQLinear when the first down_proj is nn.Linear (runner.py):
-  When the FIRST ``down_proj`` was ``nn.Linear`` (unquantized), the old code
-  registered hooks on every ``nn.Linear`` in the model (duplicate hooks) while
-  ``GPTQLinear`` down_proj layers received no hooks at all (missing hooks).
-  The fix collects from the full module tree, skipping ``nn.Linear``.
-
-Bug 3 — Hooks silently disabled when quant_method string is unknown (quantized_model_loader.py):
-  Before: derive hook target class from ``quant_method`` string
-          (``"gptq"`` → ``GPTQLinear``, ``"dbf"`` → ``DoubleBinaryLinear``,
-          anything else → ``None``).  An unknown method silently disabled hooks.
-  After:  collect types from ``model.named_modules()`` directly.
-
-All tests are CPU-only and do not require downloaded weights.
+CPU-only: helper tests use stub modules; the runner integration test mocks
+model/quantizer; the loader integration test builds a tiny in-memory Llama.
 
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
 import json
-from unittest.mock import patch
+import logging
+import types
+from unittest.mock import MagicMock, patch
 
 import torch
 import torch.nn as nn
 from safetensors.torch import save_file
+
+from onecomp.pre_process.rotation_utils import (
+    collect_down_proj_types,
+    collect_quantized_down_proj_types,
+)
 
 
 # ── stub quantized layer types ─────────────────────────────────────
@@ -63,13 +72,27 @@ class _AnotherQuantLinear(nn.Module):
 
 
 def _build_model_with_down_proj(*layers):
-    """Return a tiny nn.Module whose children are named ``*_down_proj_i``."""
+    """Return a tiny nn.Module with realistic ``...mlp.down_proj`` module paths.
+
+    Each layer is nested as ``block.layers_<i>.mlp.down_proj`` so that
+    ``named_modules()`` yields paths ending in ``.down_proj`` (mirroring real
+    transformer naming like ``model.layers.0.mlp.down_proj``), exercising the
+    same substring match used in production.
+    """
+
+    class _Mlp(nn.Module):
+        def __init__(self, layer):
+            super().__init__()
+            self.add_module("down_proj", layer)
+
+        def forward(self, x):
+            return x
 
     class _Block(nn.Module):
         def __init__(self, children):
             super().__init__()
             for i, layer in enumerate(children):
-                self.add_module(f"layer_{i}_down_proj", layer)
+                self.add_module(f"layers_{i}", _Mlp(layer))
 
         def forward(self, x):
             return x
@@ -79,134 +102,179 @@ def _build_model_with_down_proj(*layers):
     return root
 
 
-def _runner_collect(model):
-    """Replicate the runner.py type-collection comprehension."""
-    return list(
-        {
-            type(module)
-            for name, module in model.named_modules()
-            if "down_proj" in name and not isinstance(module, nn.Linear)
-        }
-    )
+# ── runner.py: collect_quantized_down_proj_types unit tests ────────
 
 
-def _loader_collect(model):
-    """Replicate the quantized_model_loader.py type-collection comprehension."""
-    return list(
-        {
-            type(module)
-            for name, module in model.named_modules()
-            if "down_proj" in name
-        }
-    )
+class TestCollectQuantizedDownProjTypes:
+    """Pins Bug 1 and Bug 2 by calling the runner helper directly."""
 
-
-# ── runner.py logic tests ──────────────────────────────────────────
-
-
-class TestRunnerDownProjTypeCollection:
-    """Pins the two runner.py bugs fixed on this branch (Bug 1 and Bug 2).
-
-    Bug 1: Hadamard hooks registered on nn.Linear down_proj layers
-      → ``not isinstance(module, nn.Linear)`` filter prevents unquantized layers
-        from being collected.
-
-    Bug 2: Duplicate hooks on nn.Linear and missing hooks on GPTQLinear when the first down_proj is nn.Linear
-      → The old ``next()``-based code took only the first down_proj type.  If
-        that was ``nn.Linear``, hooks fired on every ``nn.Linear`` in the model
-        (duplicate hooks) while ``GPTQLinear`` down_proj got nothing (missing hooks).
-        The fix collects all quantized types from the full module tree.
-    """
-
-    def test_includes_custom_quantized_type(self):
-        """Bug 1 + 2: quantized types are collected; nn.Linear is excluded."""
-        model = _build_model_with_down_proj(_FakeQuantLinear(), _FakeQuantLinear())
-        result = _runner_collect(model)
+    def test_includes_quantized_excludes_linear(self):
+        """Bug 1: quantized types are collected; a co-located nn.Linear is excluded."""
+        model = _build_model_with_down_proj(_FakeQuantLinear(), nn.Linear(4, 4))
+        result = collect_quantized_down_proj_types(model)
         assert _FakeQuantLinear in result
         assert nn.Linear not in result
 
     def test_collects_all_distinct_types(self):
-        """Bug 2: all distinct quantized types are collected (detects regression to first-type-only sampling).
+        """Bug 2: all distinct quantized types are collected (not just the first).
 
-        With the old ``next()``-based code, only the type of the FIRST layer
-        would have been returned; a second distinct type would be silently lost.
+        The old ``next()``-based code returned only the first down_proj type;
+        a second distinct type would have been silently lost.
         """
         model = _build_model_with_down_proj(
             _FakeQuantLinear(),
             _AnotherQuantLinear(),
             _FakeQuantLinear(),  # duplicate → deduped by set
         )
-        result = _runner_collect(model)
+        result = collect_quantized_down_proj_types(model)
         assert set(result) == {_FakeQuantLinear, _AnotherQuantLinear}
 
     def test_first_down_proj_linear_does_not_suppress_quantized(self):
-        """Bug 2 (direct reproduction): quantized types after an initial nn.Linear are still collected.
+        """Bug 2 (direct reproduction): a leading nn.Linear does not suppress quantized types.
 
-        Reproduces the exact failure mode of Bug 2: the first down_proj is
-        nn.Linear (unquantized), the second is _FakeQuantLinear (quantized,
-        representing GPTQLinear).  The old next()-based code would have taken
-        nn.Linear as the sole target, causing:
-          - duplicate hooks: every nn.Linear in the model received hooks
-          - missing hooks: the quantized down_proj received no hooks
+        The old next()-based code would have taken the first (nn.Linear) type as
+        the sole target, causing duplicate hooks on every nn.Linear and no hooks
+        on the quantized down_proj.
         """
         model = _build_model_with_down_proj(nn.Linear(4, 4), _FakeQuantLinear())
-        result = _runner_collect(model)
-        assert _FakeQuantLinear in result, (
-            "GPTQLinear-like type must be collected even when the first down_proj is nn.Linear"
-        )
-        assert nn.Linear not in result, (
-            "nn.Linear must not receive hooks (would cause duplicate hooks on all nn.Linear in the model)"
-        )
+        result = collect_quantized_down_proj_types(model)
+        assert _FakeQuantLinear in result
+        assert nn.Linear not in result
 
-    def test_no_down_proj_returns_empty(self):
-        """Name-filter isolation: modules whose names do not contain 'down_proj' are excluded.
+    def test_no_quantized_down_proj_returns_empty(self):
+        """All-nn.Linear down_proj layers yield an empty list (hooks then skipped)."""
+        model = _build_model_with_down_proj(nn.Linear(4, 4), nn.Linear(4, 4))
+        assert collect_quantized_down_proj_types(model) == []
 
-        Uses _FakeQuantLinear so that only the name filter does the work
-        (the type filter alone would not exclude it).
-        """
+    def test_non_down_proj_names_excluded(self):
+        """Name-filter isolation: modules without 'down_proj' in the name are excluded."""
         model = nn.Module()
         model.add_module("up_proj", _FakeQuantLinear())
         model.add_module("gate_proj", _FakeQuantLinear())
-        result = _runner_collect(model)
-        assert result == []
+        assert collect_quantized_down_proj_types(model) == []
 
 
-# ── quantized_model_loader.py logic tests ─────────────────────────
+# ── quantized_model_loader.py: collect_down_proj_types unit tests ──
 
 
-class TestLoaderDownProjTypeCollection:
-    """Pins the model-derived type collection in quantized_model_loader.py.
+class TestCollectDownProjTypes:
+    """Pins the loader helper, including its intentional difference from runner."""
 
-    The key regression: with the old code, any quant_method that was neither
-    "gptq" nor "dbf" produced layers_cls=None, silently disabling Hadamard
-    hooks for the loaded model.  The new code derives types from the model
-    itself, so any method works correctly.
-    """
-
-    def test_collects_type_independently_of_quant_method_string(self):
-        """Types derived from model regardless of quant_method string (L1)."""
+    def test_collects_down_proj_types(self):
+        """down_proj types are derived from the module tree."""
         model = _build_model_with_down_proj(_FakeQuantLinear(), _FakeQuantLinear())
-        result = _loader_collect(model)
-        assert _FakeQuantLinear in result
+        assert _FakeQuantLinear in collect_down_proj_types(model)
 
-    def test_loader_includes_nn_linear_unlike_runner(self):
-        """The loader does NOT filter nn.Linear (unlike runner.py).
+    def test_does_not_filter_nn_linear(self):
+        """Unlike the runner helper, nn.Linear is NOT filtered out.
 
-        The loader receives an already-quantized model from disk, so
-        down_proj layers are quantized types.  The absence of the
-        nn.Linear filter is intentional — the test pins this difference
-        so it is not accidentally removed.
+        The loader receives an already-quantized model, so this difference is
+        intentional; the test pins it so it is not accidentally removed.
         """
         model = _build_model_with_down_proj(nn.Linear(4, 4))
-        result = _loader_collect(model)
-        assert nn.Linear in result
+        assert nn.Linear in collect_down_proj_types(model)
 
-    def test_loader_passes_actual_types_to_register_hooks(self, tmp_path):
-        """register_online_hadamard_hooks receives actual module types (L2).
 
-        Regression: the old code for an unknown quant_method would have
-        passed layers_cls=None.  The new code must pass the real types
-        derived from the loaded model.
+# ── runner.py: create_quantized_model wiring (integration) ─────────
+
+
+def _run_create_quantized_model(stub_model, *, has_additional_data=True):
+    """Drive the real ``Runner.create_quantized_model`` over a stub model.
+
+    Everything except the hook-collection block is mocked, so the real call site
+    runs on ``stub_model``.  Returns ``{"called": bool, "layers_cls": list|None}``
+    capturing what was passed to ``register_online_hadamard_hooks``.
+    """
+    from onecomp.runner import Runner
+
+    runner = Runner.__new__(Runner)  # bypass heavy __init__
+    runner.logger = logging.getLogger("test")
+
+    if not hasattr(stub_model, "config"):
+        stub_model.config = types.SimpleNamespace(num_hidden_layers=1)
+
+    quantizer = MagicMock()
+    quantizer.get_quant_config.return_value = {}
+    quantizer.results = {}
+    quantizer.finalize_quant_config_for_save.return_value = {}
+    runner.quantizer = quantizer
+
+    model_config = MagicMock()
+    model_config.load_model.return_value = stub_model
+    model_config.load_tokenizer.return_value = object()
+    model_config.has_additional_data.return_value = has_additional_data
+    model_config.fp32_had = False
+    runner.model_config = model_config
+
+    captured = {"called": False, "layers_cls": None}
+
+    def _fake_register(model, layers_cls, fp32_had):
+        captured["called"] = True
+        captured["layers_cls"] = layers_cls
+        return []
+
+    with (
+        patch("onecomp.utils.unfuse_moe.unfuse_moe_experts", return_value=False),
+        patch(
+            "onecomp.pre_process.rotation_utils.register_online_hadamard_hooks",
+            side_effect=_fake_register,
+        ),
+    ):
+        runner.create_quantized_model()
+
+    return captured
+
+
+class TestRunnerCreateQuantizedModelWiring:
+    """Pins that ``create_quantized_model`` uses the helper and feeds the hooks.
+
+    The helper tests above guarantee the collection logic; these guarantee the
+    call site still calls it and passes the result to
+    ``register_online_hadamard_hooks`` (a regression to inline ``next()`` would
+    fail here).
+    """
+
+    def test_collected_types_reach_register_hooks(self):
+        """The non-nn.Linear collected types are passed to register_online_hadamard_hooks."""
+        model = _build_model_with_down_proj(nn.Linear(4, 4), _FakeQuantLinear())
+        captured = _run_create_quantized_model(model)
+        assert captured["called"]
+        assert _FakeQuantLinear in captured["layers_cls"]
+        assert nn.Linear not in captured["layers_cls"]
+
+    def test_no_quantized_down_proj_skips_registration(self):
+        """Empty collected types → register_online_hadamard_hooks is not called."""
+        model = _build_model_with_down_proj(nn.Linear(4, 4))
+        captured = _run_create_quantized_model(model)
+        assert captured["called"] is False
+
+    def test_not_rotated_skips_registration(self):
+        """Guard: no re-registration for non-rotation-preprocessed models."""
+        model = _build_model_with_down_proj(_FakeQuantLinear())
+        captured = _run_create_quantized_model(model, has_additional_data=False)
+        assert captured["called"] is False
+
+
+# ── quantized_model_loader.py: load_quantized_model wiring (integration) ─
+
+
+class TestLoaderLoadQuantizedModelWiring:
+    """Pins Bug 3 by driving the real ``load_quantized_model``.
+
+    The old code derived the hook target from the ``quant_method`` string, so an
+    unknown method produced ``layers_cls=None`` (hooks silently disabled).  The
+    helper unit tests cannot detect that regression — only driving the real
+    loader can confirm the call site now derives types from the model.
+    """
+
+    def test_passes_model_derived_types_for_unknown_quant_method(self, tmp_path):
+        """Unknown quant_method still passes a non-None, model-derived type list.
+
+        ``modules_in_block_to_quantize`` is empty, so no layer is replaced and
+        the down_proj stays ``nn.Linear``; since the loader does not filter
+        nn.Linear, it must appear in the captured types.  This pins both the
+        unknown-method → non-None behaviour and the absence of the nn.Linear
+        filter at the real call site.
         """
         from transformers import LlamaConfig, LlamaForCausalLM
 
@@ -266,4 +334,6 @@ class TestLoaderDownProjTypeCollection:
             "(old code regression: unknown method → layers_cls=None)"
         )
         assert isinstance(captured["layers_cls"], list)
-        assert len(captured["layers_cls"]) > 0
+        assert nn.Linear in captured["layers_cls"], (
+            "loader must not filter nn.Linear (down_proj stays nn.Linear when nothing is replaced)"
+        )
