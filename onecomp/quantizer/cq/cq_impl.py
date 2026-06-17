@@ -12,13 +12,13 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 """
 
+import gc
 from logging import getLogger
 from typing import Union
 
 import torch
 import torch.nn as nn
 import transformers
-import gc
 
 logger = getLogger(__name__)
 

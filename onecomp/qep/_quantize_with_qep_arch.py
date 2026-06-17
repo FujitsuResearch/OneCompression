@@ -13,26 +13,28 @@ input activations, so they can be captured once and reused.
 
 """
 
-import math
 import copy
-from logging import getLogger
+import math
 from collections import OrderedDict
+from logging import getLogger
 
 import torch
 import torch.nn.functional as F
 from torch import nn
+
 from onecomp.calibration import CalibrationConfig, prepare_calibration_dataset
 from onecomp.model_config import ModelConfig
 from onecomp.qep._qep_config import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
 from onecomp.utils.blockwise import (
     _PER_LAYER_INPUTS_KEY,
-    prepare_block_kwargs,
-    get_blocks_and_inputs,
-    forward_input,
-    move_kwargs_to_device,
     expand_kwargs_batch,
+    forward_input,
+    get_blocks_and_inputs,
+    move_kwargs_to_device,
+    prepare_block_kwargs,
 )
+from onecomp.utils.device import empty_cache
 from onecomp.utils.quantization_progress import QuantizationProgressTracker
 
 logger = getLogger(__name__)
@@ -522,6 +524,6 @@ def run_quantize_with_qep_arch(
 
         # free memory
         block_q.cpu()
-        torch.cuda.empty_cache()
+        empty_cache(device)
 
     quantizer.execute_post_processing()

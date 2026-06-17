@@ -17,16 +17,18 @@ from transformers.models.qwen3.modeling_qwen3 import (
     Qwen3Attention,
     Qwen3Config,
     Qwen3DecoderLayer,
+)
+from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM as _BaseQwen3ForCausalLM
+from transformers.models.qwen3.modeling_qwen3 import (
     Qwen3MLP,
+)
+from transformers.models.qwen3.modeling_qwen3 import Qwen3Model as _BaseQwen3Model
+from transformers.models.qwen3.modeling_qwen3 import (
     Qwen3PreTrainedModel,
     Qwen3RMSNorm,
     Qwen3RotaryEmbedding,
-    eager_attention_forward,
     apply_rotary_pos_emb,
-)
-from transformers.models.qwen3.modeling_qwen3 import (
-    Qwen3ForCausalLM as _BaseQwen3ForCausalLM,
-    Qwen3Model as _BaseQwen3Model,
+    eager_attention_forward,
 )
 from transformers.utils import auto_docstring, can_return_tuple
 

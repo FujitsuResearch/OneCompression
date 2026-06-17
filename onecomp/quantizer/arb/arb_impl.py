@@ -12,12 +12,13 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
-from typing import Optional
 import gc
+from logging import getLogger
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import transformers
-from logging import getLogger
 
 logger = getLogger(__name__)
 

@@ -12,10 +12,11 @@ from torch import nn
 
 from onecomp.utils.blockwise import (
     backward_input,
-    get_blocks_and_inputs,
     forward_input,
+    get_blocks_and_inputs,
     move_kwargs_to_device,
 )
+from onecomp.utils.device import empty_cache, get_default_device
 
 
 def _find_head_modules(model, blocks):
@@ -87,17 +88,18 @@ def collect_activation_stats_blockwise(
         tuple[dict, dict]: (a_diag, b_diag)
     """
     from transformers import AutoTokenizer
+
     from onecomp.calibration import prepare_calibration_dataset
 
     if device is None:
-        device = torch.device("cuda")
+        device = get_default_device()
 
     original_device = next(model.parameters()).device
     if original_device.type != "cpu":
         if logger:
             logger.info("Moving model to CPU for block-wise activation collection")
         model.to("cpu")
-        torch.cuda.empty_cache()
+        empty_cache(original_device)
 
     model_id = getattr(model.config, "_name_or_path", None)
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
@@ -155,7 +157,7 @@ def collect_activation_stats_blockwise(
         for h in hooks:
             h.remove()
         block.cpu()
-        torch.cuda.empty_cache()
+        empty_cache(device)
 
     # Collect b_diag
     if use_curvature_b:
@@ -206,7 +208,7 @@ def collect_activation_stats_blockwise(
             for h in hooks:
                 h.remove()
             block.cpu()
-            torch.cuda.empty_cache()
+            empty_cache(device)
 
     a_diag = {}
     b_diag = {}
@@ -222,6 +224,7 @@ def collect_activation_stats_blockwise(
         if logger:
             logger.info("Restoring model to %s", original_device)
         model.to(original_device)
+        empty_cache(original_device)
 
     return a_diag, b_diag
 
@@ -274,6 +277,6 @@ def _compute_loss_grad(final_hidden, norm, lm_head, input_ids, device):
 
     norm.cpu()
     lm_head.cpu()
-    torch.cuda.empty_cache()
+    empty_cache(device)
 
     return torch.cat(all_grads)

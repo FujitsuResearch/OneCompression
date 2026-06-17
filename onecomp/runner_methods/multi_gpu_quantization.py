@@ -10,13 +10,13 @@ Phase 2: Quantize - Parallel quantization using multiple threads
 
 """
 
-from logging import getLogger
-import time
-from typing import Dict, List, Any, Optional
-from dataclasses import asdict
-from concurrent.futures import ThreadPoolExecutor
 import queue
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
+from logging import getLogger
+from typing import Any, Dict, List, Optional
 
 import torch
 
