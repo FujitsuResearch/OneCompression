@@ -9,7 +9,7 @@
 ---
 
 Fujitsu One Compression (OneComp) is an open-source Python library for post-training quantization of Large Language Models (LLMs).
-It implements state-of-the-art quantization algorithms including GPTQ, DBF, RTN, and the
+It implements state-of-the-art quantization algorithms including GPTQ, DBF, MDBF, RTN, and the
 research methods **Quantization Error Propagation (QEP)** and
 **Layer-Projected Coordinate Descent (LPCD)**.
 
