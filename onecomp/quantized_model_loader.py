@@ -564,8 +564,24 @@ class QuantizedModelLoader:
     def _resolve_name_by_layer_suffix(
         name: str,
         candidates: Dict[str, Any],
+        *,
+        on_ambiguous: str = "first",
     ) -> Optional[str]:
-        """Resolve *name* against *candidates* by exact or layer-suffix match."""
+        """Resolve *name* against *candidates* by exact or layer-suffix match.
+
+        ``on_ambiguous`` controls what happens when the suffix matches more than
+        one candidate:
+
+        - ``"first"`` (default): keep the quantized-layer load path best-effort
+          by preferring a single ``language_model`` hit, then falling back to
+          ``hits[0]``. This is intended for VLM tied/shared submodules that
+          point at the *same* weights.
+        - ``"error"``: raise ``ValueError``. Required for the LoRA re-wrap path,
+          where colliding candidates can be *distinct* layers (e.g. the same
+          ``layers.N.<suffix>`` under both ``language_model`` and ``vision``),
+          so ambiguity is rejected before applying the ``language_model``
+          preference.
+        """
         if name in candidates:
             return name
 
@@ -576,6 +592,18 @@ class QuantizedModelLoader:
         suffix = match.group(1)
         hits = [candidate for candidate in candidates if candidate.endswith(suffix)]
         if len(hits) > 1:
+            if on_ambiguous == "error":
+                logger.warning(
+                    "Ambiguous suffix %s for %s: %s",
+                    suffix,
+                    name,
+                    hits,
+                )
+                raise ValueError(
+                    f"Ambiguous layer-suffix match for {name!r}: suffix {suffix!r} "
+                    f"matches multiple candidates {hits}. Refusing to guess which "
+                    "layer to target."
+                )
             lang_hits = [candidate for candidate in hits if "language_model" in candidate]
             if len(lang_hits) == 1:
                 hits = lang_hits
@@ -799,9 +827,13 @@ class QuantizedModelLoader:
                     layer_path,
                 )
                 continue
+            # Fail fast on ambiguity: unlike the quantized-layer path, colliding
+            # candidates here can be distinct layers, so mis-wrapping would pass
+            # the wrapped-count check below undetected.
             resolved_layer_path = QuantizedModelLoader._resolve_name_by_layer_suffix(
                 layer_path,
                 name_to_module,
+                on_ambiguous="error",
             )
             if resolved_layer_path is None:
                 logger.warning(

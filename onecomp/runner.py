@@ -2010,15 +2010,24 @@ class Runner:
         if not lora_modules:
             return False
 
+        # Save in the base model's runtime dtype so the round-trip is a single
+        # fp32(train) -> base-dtype rounding. Hardcoding float16 would add a
+        # needless fp16 intermediate for bf16 models (fp32 -> fp16 -> bf16 in
+        # vLLM). This save path expects model_config.dtype to be a concrete
+        # "float16"/"bfloat16" that maps directly to a torch dtype; an
+        # unexpected value (e.g. "auto") is out of scope and intentionally
+        # raises via getattr rather than silently falling back.
+        save_dtype = getattr(torch, self.model_config.dtype)
+
         # PEFT convention: keys are prefixed with "base_model.model." and the
         # module path matches what we will see on the loaded HF model.
         state_dict = {}
         for name, mod in lora_modules:
             state_dict[f"base_model.model.{name}.lora_A.weight"] = (
-                mod.lora_A.weight.detach().to("cpu", torch.float16).contiguous()
+                mod.lora_A.weight.detach().to("cpu", save_dtype).contiguous()
             )
             state_dict[f"base_model.model.{name}.lora_B.weight"] = (
-                mod.lora_B.weight.detach().to("cpu", torch.float16).contiguous()
+                mod.lora_B.weight.detach().to("cpu", save_dtype).contiguous()
             )
 
         first = lora_modules[0][1]
