@@ -13,11 +13,10 @@ Author: Yuma Ichikawa
 
 """
 
+from logging import getLogger
 from typing import List, Optional, Tuple
 
 import torch
-
-from logging import getLogger
 
 logger = getLogger(__name__)
 

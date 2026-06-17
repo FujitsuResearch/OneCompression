@@ -18,12 +18,13 @@ Author: Keiji Kimura
 
 """
 
-from dataclasses import dataclass, field
 import re
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import torch
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.utils.quant_config import get_quant_param
 
 from .initialize import MDBFParams

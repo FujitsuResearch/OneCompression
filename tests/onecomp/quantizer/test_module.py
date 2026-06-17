@@ -283,9 +283,11 @@ class BaseQuantizeSpec:
         cpu_out = self._quantize_with_calculated_hessian(
             q, cpu_layer, cpu_inp
         ).compute_dequantized_weight()
-        gpu_out = self._quantize_with_calculated_hessian(
-            q, gpu_layer, gpu_inp
-        ).compute_dequantized_weight().cpu()
+        gpu_out = (
+            self._quantize_with_calculated_hessian(q, gpu_layer, gpu_inp)
+            .compute_dequantized_weight()
+            .cpu()
+        )
 
         assert torch.allclose(cpu_out, gpu_out, rtol=1, atol=1)
 

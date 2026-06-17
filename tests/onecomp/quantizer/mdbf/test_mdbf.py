@@ -16,11 +16,11 @@ import torch
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
+from test_module import BaseQuantizeSpec
+
 from onecomp.quantizer.mdbf._mdbf import MDBF, MDBFResult
 from onecomp.quantizer.mdbf.initialize import MDBFParams
 from onecomp.quantizer.mdbf.utils import reconstruct_weight
-
-from test_module import BaseQuantizeSpec
 
 
 class TestMDBF(BaseQuantizeSpec):
@@ -40,65 +40,87 @@ class TestMDBF(BaseQuantizeSpec):
 
     boundary_parameters = [
         # target_bits: float > 0
-        {"target_bits": 1e-10},      # lower boundary (near zero, positive)
-        {"target_bits": 100.0},      # large value
+        {"target_bits": 1e-10},  # lower boundary (near zero, positive)
+        {"target_bits": 100.0},  # large value
         # l: int >= 1
-        {"l": 1},                    # lower boundary
-        {"l": 5},                    # large value
+        {"l": 1},  # lower boundary
+        {"l": 5},  # large value
         # P: in {1, 2}
-        {"P": 1},                    # minimum valid value
-        {"P": 2},                    # maximum valid value
+        {"P": 1},  # minimum valid value
+        {"P": 2},  # maximum valid value
         # svd_mode: in {"svd", "svd_llm"}
-        {"svd_mode": "svd"},         # default value (explicit check)
-        {"svd_mode": "svd_llm"},     # alternate valid value
+        {"svd_mode": "svd"},  # default value (explicit check)
+        {"svd_mode": "svd_llm"},  # alternate valid value
         # act_init: in {"none", "osvd", "svd_llm"}
-        {"act_init": "none"},        # first valid value
-        {"act_init": "osvd"},        # second valid value
-        {"act_init": "svd_llm"},     # third valid value
+        {"act_init": "none"},  # first valid value
+        {"act_init": "osvd"},  # second valid value
+        {"act_init": "svd_llm"},  # third valid value
         # scale_bits: int >= 0
-        {"scale_bits": 0},           # lower boundary (binary-only accounting)
-        {"scale_bits": 16},          # default value (FP16)
-        {"scale_bits": 32},          # large value
+        {"scale_bits": 0},  # lower boundary (binary-only accounting)
+        {"scale_bits": 16},  # default value (FP16)
+        {"scale_bits": 32},  # large value
         # admm_reg: float >= 0 (always validated)
-        {"admm_reg": 0.0},           # lower boundary (0.0 is valid)
-        {"admm_reg": 100.0},         # large value
+        {"admm_reg": 0.0},  # lower boundary (0.0 is valid)
+        {"admm_reg": 100.0},  # large value
         # use_admm: bool
-        {"use_admm": True, "admm_iters": 1, "admm_inner_iters": 1},  # lower boundary combo when enabled
-        {"use_admm": False},         # disabled individually
+        {
+            "use_admm": True,
+            "admm_iters": 1,
+            "admm_inner_iters": 1,
+        },  # lower boundary combo when enabled
+        {"use_admm": False},  # disabled individually
         # admm_iters: int >= 1 (validated when use_admm=True)
-        {"use_admm": True, "admm_iters": 1},    # lower boundary
+        {"use_admm": True, "admm_iters": 1},  # lower boundary
         {"use_admm": True, "admm_iters": 100},  # large value
         # admm_inner_iters: int >= 1 (validated when use_admm=True)
-        {"use_admm": True, "admm_inner_iters": 1},   # lower boundary
+        {"use_admm": True, "admm_inner_iters": 1},  # lower boundary
         {"use_admm": True, "admm_inner_iters": 10},  # large value
         # admm_* not validated when use_admm=False
-        {"use_admm": False, "admm_iters": 0},        # admm_iters=0 allowed when admm off
+        {"use_admm": False, "admm_iters": 0},  # admm_iters=0 allowed when admm off
         {"use_admm": False, "admm_inner_iters": 0},  # admm_inner_iters=0 allowed when admm off
         # use_gradient_refine: bool
-        {"use_gradient_refine": True, "gradient_iters": 1, "gradient_lr": 1e-3},  # lower boundary combo when enabled
+        {
+            "use_gradient_refine": True,
+            "gradient_iters": 1,
+            "gradient_lr": 1e-3,
+        },  # lower boundary combo when enabled
         {"use_gradient_refine": False},  # disabled individually
         # gradient_iters: int >= 1 (validated when use_gradient_refine=True)
-        {"use_gradient_refine": True, "gradient_iters": 1},    # lower boundary
+        {"use_gradient_refine": True, "gradient_iters": 1},  # lower boundary
         {"use_gradient_refine": True, "gradient_iters": 100},  # large value
         # gradient_lr: float > 0, strict (validated when use_gradient_refine=True)
-        {"use_gradient_refine": True, "gradient_lr": 1e-10},  # lower boundary (near zero, positive)
+        {
+            "use_gradient_refine": True,
+            "gradient_lr": 1e-10,
+        },  # lower boundary (near zero, positive)
         {"use_gradient_refine": True, "gradient_lr": 100.0},  # large value
         # gradient_* not validated when use_gradient_refine=False
-        {"use_gradient_refine": False, "gradient_iters": 0},   # gradient_iters=0 allowed when refine off
-        {"use_gradient_refine": False, "gradient_lr": 0.0},    # gradient_lr=0.0 allowed when refine off
+        {
+            "use_gradient_refine": False,
+            "gradient_iters": 0,
+        },  # gradient_iters=0 allowed when refine off
+        {
+            "use_gradient_refine": False,
+            "gradient_lr": 0.0,
+        },  # gradient_lr=0.0 allowed when refine off
         # activation_aware: bool
-        {"activation_aware": True, "P": 1},   # P=1 required to exercise the activation_aware code path
-        {"activation_aware": True, "P": 2},   # P!=1 fallback (warning only, no error)
-        {"activation_aware": False},           # disabled individually
+        {
+            "activation_aware": True,
+            "P": 1,
+        },  # P=1 required to exercise the activation_aware code path
+        {"activation_aware": True, "P": 2},  # P!=1 fallback (warning only, no error)
+        {"activation_aware": False},  # disabled individually
         # mlp_target_bits: float > 0 or None
-        {"mlp_target_bits": 1e-10},   # lower boundary (near zero, positive)
-        {"mlp_target_bits": 100.0},   # large value
+        {"mlp_target_bits": 1e-10},  # lower boundary (near zero, positive)
+        {"mlp_target_bits": 100.0},  # large value
         # module_target_bits: dict[str, float>0] or None
-        {"module_target_bits": {"model.layers.0.self_attn.q_proj": 1.5}},       # single-layer override
-        {"module_target_bits": {                                                  # multi-layer override
-            "model.layers.0.self_attn.q_proj": 1.0,
-            "model.layers.0.mlp.gate_proj": 2.0,
-        }},
+        {"module_target_bits": {"model.layers.0.self_attn.q_proj": 1.5}},  # single-layer override
+        {
+            "module_target_bits": {  # multi-layer override
+                "model.layers.0.self_attn.q_proj": 1.0,
+                "model.layers.0.mlp.gate_proj": 2.0,
+            }
+        },
         # combo: all bools False
         {"use_admm": False, "use_gradient_refine": False, "activation_aware": False},
         # combo: all numerics at lower bounds
@@ -169,38 +191,44 @@ class TestMDBF(BaseQuantizeSpec):
 
     abnormal_parameters = [
         # target_bits: float > 0, strict
-        {"target_bits": 0.0},    # boundary (target_bits > 0, strict)
-        {"target_bits": -1.0},   # negative value
+        {"target_bits": 0.0},  # boundary (target_bits > 0, strict)
+        {"target_bits": -1.0},  # negative value
         # l: int >= 1
-        {"l": 0},                # below lower boundary (l >= 1)
-        {"l": -1},               # negative value
+        {"l": 0},  # below lower boundary (l >= 1)
+        {"l": -1},  # negative value
         # P: in {1, 2}
-        {"P": 0},                # not in {1, 2} (below range)
-        {"P": 3},                # not in {1, 2} (above range)
+        {"P": 0},  # not in {1, 2} (below range)
+        {"P": 3},  # not in {1, 2} (above range)
         # scale_bits: int >= 0
-        {"scale_bits": -1},      # below lower boundary (scale_bits >= 0)
+        {"scale_bits": -1},  # below lower boundary (scale_bits >= 0)
         # admm_reg: float >= 0
-        {"admm_reg": -0.01},     # below lower boundary (admm_reg >= 0)
+        {"admm_reg": -0.01},  # below lower boundary (admm_reg >= 0)
         # admm_iters: int >= 1 (validated when use_admm=True)
-        {"use_admm": True, "admm_iters": 0},   # below lower boundary (admm_iters >= 1 when use_admm=True)
+        {
+            "use_admm": True,
+            "admm_iters": 0,
+        },  # below lower boundary (admm_iters >= 1 when use_admm=True)
         {"use_admm": True, "admm_iters": -1},  # negative value
         # admm_inner_iters: int >= 1 (validated when use_admm=True)
-        {"use_admm": True, "admm_inner_iters": 0},   # below lower boundary (admm_inner_iters >= 1 when use_admm=True)
+        {
+            "use_admm": True,
+            "admm_inner_iters": 0,
+        },  # below lower boundary (admm_inner_iters >= 1 when use_admm=True)
         {"use_admm": True, "admm_inner_iters": -1},  # negative value
         # gradient_iters: int >= 1 (validated when use_gradient_refine=True)
         {"use_gradient_refine": True, "gradient_iters": 0},  # below lower boundary
         # gradient_lr: float > 0, strict (validated when use_gradient_refine=True)
-        {"use_gradient_refine": True, "gradient_lr": 0.0},   # boundary (gradient_lr > 0, strict)
+        {"use_gradient_refine": True, "gradient_lr": 0.0},  # boundary (gradient_lr > 0, strict)
         # svd_mode
         {"svd_mode": "invalid"},  # not in {"svd", "svd_llm"}
         # act_init
         {"act_init": "invalid"},  # not in {"none", "osvd", "svd_llm"}
         # mlp_target_bits: float > 0, strict
-        {"mlp_target_bits": 0.0},   # boundary (mlp_target_bits > 0, strict)
+        {"mlp_target_bits": 0.0},  # boundary (mlp_target_bits > 0, strict)
         {"mlp_target_bits": -1.0},  # negative value
         # module_target_bits
-        {"module_target_bits": "not a dict"},                                          # wrong type
-        {"module_target_bits": {"model.layers.0.self_attn.q_proj": 0.0}},   # value not > 0
+        {"module_target_bits": "not a dict"},  # wrong type
+        {"module_target_bits": {"model.layers.0.self_attn.q_proj": 0.0}},  # value not > 0
         {"module_target_bits": {"model.layers.0.self_attn.q_proj": -1.0}},  # negative value
     ]
 
@@ -292,7 +320,12 @@ class TestMDBF(BaseQuantizeSpec):
         assert error < 0.4
         assert max_error < 1.71
 
-    def check_forward_error(self, error_original_vs_dequantized, error_dequantized_vs_applied, max_error_dequantized_vs_applied):
+    def check_forward_error(
+        self,
+        error_original_vs_dequantized,
+        error_dequantized_vs_applied,
+        max_error_dequantized_vs_applied,
+    ):
         self.logger.info(
             "[MDBF forward error] "
             f"original_vs_mdbf(rel={error_original_vs_dequantized:.8f}), "
@@ -300,9 +333,9 @@ class TestMDBF(BaseQuantizeSpec):
             f"mdbf_vs_mdbfl(rel={error_dequantized_vs_applied:.8f})"
         )
 
-        assert max_error_dequantized_vs_applied < 1e-2, (
-            f"MDBF dequantized vs applied max error too large: {max_error_dequantized_vs_applied}"
-        )
+        assert (
+            max_error_dequantized_vs_applied < 1e-2
+        ), f"MDBF dequantized vs applied max error too large: {max_error_dequantized_vs_applied}"
 
     def apply_quantized_weights(self, module, result, device):
         dtype = module.weight.data.dtype
