@@ -170,6 +170,7 @@ def _make_runner_stub(model):
     runner.logger = getLogger("test_lora_save_load_roundtrip")
     runner.quantized_model = model
     runner.model_config = SimpleNamespace(
+        dtype="float32",
         load_tokenizer=lambda: _FakeTokenizer(),
         get_model_id_or_path=lambda: None,
     )

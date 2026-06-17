@@ -67,6 +67,7 @@ def _save_with_dtype(tmp_path: Path, dtype: str) -> dict:
         model_config=SimpleNamespace(dtype=dtype),
         LORA_ADAPTER_SUBDIR=Runner.LORA_ADAPTER_SUBDIR,
         logger=SimpleNamespace(info=lambda *a, **k: None),
+        _collect_lora_gptq_modules=Runner._collect_lora_gptq_modules,
     )
 
     wrote = Runner._save_lora_adapter_sidecar(stub, str(tmp_path))
