@@ -26,13 +26,21 @@ from pathlib import Path
 
 import torch
 
-from onecomp import GPTQ, CalibrationConfig, ModelConfig, PostProcessLoraSFT, Runner, setup_logger
+from onecomp import (
+    GPTQ,
+    CalibrationConfig,
+    ModelConfig,
+    PostProcessLoraSFT,
+    Runner,
+    setup_logger,
+)
 
 setup_logger()
 
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 KNOWLEDGE_DATA = str(Path(__file__).parent / "onecomp_knowledge.jsonl")
 PROMPT = "Q: What is OneCompression?\nA:"
+DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 
 def generate_text(model, tokenizer, prompt, device, max_new_tokens=128):
@@ -43,7 +51,6 @@ def generate_text(model, tokenizer, prompt, device, max_new_tokens=128):
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=False,
-            temperature=1.0,
             repetition_penalty=1.2,
         )
     generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -57,7 +64,7 @@ print("=" * 70)
 print("Step 1: Quantizing TinyLlama with GPTQ 4-bit (groupsize=128)")
 print("=" * 70)
 
-model_config = ModelConfig(model_id=MODEL_ID, device="cuda:0")
+model_config = ModelConfig(model_id=MODEL_ID, device=DEVICE)
 gptq = GPTQ(wbits=4, groupsize=128)
 
 runner = Runner(
@@ -74,8 +81,9 @@ print("\n" + "=" * 70)
 print("Step 2: Building quantized model via create_quantized_model")
 print("=" * 70)
 
+# pack_weights defaults to True (matches run_post_processes); use_gemlite=False
+# avoids GemLite's fp16-only kernels under LoRA SFT's bf16 autocast.
 model, tokenizer = runner.create_quantized_model(
-    pack_weights=False,
     use_gemlite=False,
 )
 
@@ -86,10 +94,11 @@ print("\n" + "=" * 70)
 print("Step 3: Generating text BEFORE LoRA SFT")
 print("=" * 70)
 
-model.to("cuda:0")
-before_text = generate_text(model, tokenizer, PROMPT, "cuda:0")
+model.to(DEVICE)
+before_text = generate_text(model, tokenizer, PROMPT, DEVICE)
 model.to("cpu")
-torch.cuda.empty_cache()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
 
 print(f"\nPrompt: {PROMPT}")
 print(f"Response:\n{before_text}")
@@ -121,10 +130,11 @@ print("\n" + "=" * 70)
 print("Step 5: Generating text AFTER LoRA SFT")
 print("=" * 70)
 
-model.to("cuda:0")
-after_text = generate_text(model, tokenizer, PROMPT, "cuda:0")
+model.to(DEVICE)
+after_text = generate_text(model, tokenizer, PROMPT, DEVICE)
 model.to("cpu")
-torch.cuda.empty_cache()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
 
 print(f"\nPrompt: {PROMPT}")
 print(f"Response:\n{after_text}")
@@ -136,8 +146,8 @@ print("\n" + "=" * 70)
 print("Comparison: Before vs After LoRA SFT")
 print("=" * 70)
 print(f"\nPrompt: {PROMPT}")
-print(f"\n--- BEFORE LoRA SFT ---")
+print("\n--- BEFORE LoRA SFT ---")
 print(before_text)
-print(f"\n--- AFTER LoRA SFT ---")
+print("\n--- AFTER LoRA SFT ---")
 print(after_text)
 print("=" * 70)
