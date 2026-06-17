@@ -11,23 +11,7 @@ import torch
 from onecomp.pre_process.rotation_utils import make_online_hadamard_hook
 from vllm_plugins.utils import rotation
 
-
-class _DummyLayer:
-    def __init__(
-        self,
-        *,
-        input_is_parallel: bool = False,
-        tp_size: int = 1,
-        tp_rank: int = 0,
-    ):
-        self.input_is_parallel = input_is_parallel
-        self.tp_size = tp_size
-        self.tp_rank = tp_rank
-        self.registered_hooks = []
-
-    def register_forward_pre_hook(self, hook):
-        self.registered_hooks.append(hook)
-        return MagicMock(name="hook_handle")
+from ..conftest import _DummyLayer
 
 
 def test_rotation_metadata_from_quant_config_parses_normal():

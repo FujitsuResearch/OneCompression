@@ -25,17 +25,7 @@ try:
 except ImportError:
     _HAS_VLLM = False
 
-
-class _DummyLayer:
-    def __init__(self, *, input_is_parallel=False, tp_size=1, tp_rank=0):
-        self.input_is_parallel = input_is_parallel
-        self.tp_size = tp_size
-        self.tp_rank = tp_rank
-        self.registered_hooks = []
-
-    def register_forward_pre_hook(self, hook):
-        self.registered_hooks.append(hook)
-        return MagicMock(name="hook_handle")
+from .conftest import _DummyLayer
 
 
 # ---------------------------------------------------------------------------

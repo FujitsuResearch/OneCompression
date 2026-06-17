@@ -14,10 +14,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 
 """
 
-import gc
-import json
 import os
-import tempfile
 
 import pytest
 import torch
@@ -34,12 +31,18 @@ from onecomp.quantizer.autobit._autobit import AutoBitQuantizer
 from onecomp.quantizer.gptq import GPTQ
 from onecomp.utils import estimate_wbits_from_vram
 
+from ..conftest import (
+    SMALL_MODEL_ID,
+    assert_non_empty_outputs,
+    build_vllm_llm,
+    load_quantization_config,
+    release_gpu,
+)
+
 pytestmark = [
     pytest.mark.slow,
     pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available"),
 ]
-
-SMALL_MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 
 MIXED_GS_CANDIDATES = [
     GPTQ(wbits=2, groupsize=128),
@@ -69,15 +72,13 @@ def quantized_model_dir(tmp_path_factory):
         calibration_config=CalibrationConfig(num_calibration_samples=8, max_length=512),
         qep=False,
     )
-    runner.run()
-
-    save_dir = str(tmp_path_factory.mktemp("mixed_gs_model"))
-    runner.save_quantized_model(save_dir)
-
-    del runner
-    gc.collect()
-    torch.cuda.empty_cache()
-
+    try:
+        runner.run()
+        save_dir = str(tmp_path_factory.mktemp("mixed_gs_model"))
+        runner.save_quantized_model(save_dir)
+    finally:
+        del runner
+        release_gpu()
     return save_dir
 
 
@@ -94,19 +95,16 @@ class TestMixedGroupSizeQuantizeSave:
         assert os.path.exists(config_path)
 
     def test_quant_method_is_mixed_gptq(self, quantized_model_dir):
-        with open(os.path.join(quantized_model_dir, "config.json")) as f:
-            qcfg = json.load(f).get("quantization_config", {})
+        qcfg = load_quantization_config(quantized_model_dir)
         assert qcfg.get("quant_method") == "mixed_gptq"
 
     def test_quantization_bits_not_empty(self, quantized_model_dir):
-        with open(os.path.join(quantized_model_dir, "config.json")) as f:
-            qcfg = json.load(f).get("quantization_config", {})
+        qcfg = load_quantization_config(quantized_model_dir)
         qbits = qcfg.get("quantization_bits", [])
         assert len(qbits) > 0, "quantization_bits is empty"
 
     def test_multiple_distinct_group_sizes(self, quantized_model_dir):
-        with open(os.path.join(quantized_model_dir, "config.json")) as f:
-            qcfg = json.load(f).get("quantization_config", {})
+        qcfg = load_quantization_config(quantized_model_dir)
         qbits = qcfg.get("quantization_bits", [])
 
         found_group_sizes = set()
@@ -133,35 +131,13 @@ class TestMixedGroupSizeVllmInference:
     """Load the quantized model with vLLM and verify generation works."""
 
     def test_generate_produces_non_empty_output(self, quantized_model_dir):
-        # gpu_memory_utilization is lowered from the vLLM default (0.92) to
-        # accommodate DGX Spark's 128 GB Unified Memory and the test job's
-        # SLURM cgroup limit (--mem=115G in run_test_vllm.sh):
-        #   - 0.92 (~112 GiB) trips vLLM's own startup OOM check (only ~106
-        #     GiB of UMA is free after AutoBit quantization runs in the same
-        #     process).
-        #   - 0.85 (~103 GiB) clears vLLM's check but the resulting Python
-        #     residual (~16 GiB for vllm/transformers/torch imports + pytest
-        #     state) plus 103 GiB allocation overflows the 115 GiB cgroup
-        #     and the kernel OOM-kills the process.
-        #   - 0.78 (~95 GiB) leaves ~4 GiB cgroup headroom and is the
-        #     largest value we can use without cgroup OOM.
-        llm = LLM(
-            model=quantized_model_dir,
-            max_model_len=512,
-            dtype="float16",
-            enforce_eager=True,
-            gpu_memory_utilization=0.78,
-        )
-
-        outputs = llm.generate(
-            ["The capital of France is"],
-            SamplingParams(max_tokens=16, temperature=0.0),
-        )
-
-        assert len(outputs) == 1
-        text = outputs[0].outputs[0].text
-        assert len(text) > 0, "vLLM generated empty output"
-
-        del llm
-        gc.collect()
-        torch.cuda.empty_cache()
+        llm = build_vllm_llm(quantized_model_dir)
+        try:
+            outputs = llm.generate(
+                ["The capital of France is"],
+                SamplingParams(max_tokens=16, temperature=0.0),
+            )
+            assert_non_empty_outputs(outputs, expected_count=1)
+        finally:
+            del llm
+            release_gpu()
