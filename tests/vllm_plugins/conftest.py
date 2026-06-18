@@ -13,7 +13,6 @@ import torch
 
 try:
     from vllm import LLM
-
 except ImportError:
     LLM = None  # type: ignore[assignment]
 
@@ -58,7 +57,6 @@ def build_vllm_llm(model_path: str, **kwargs) -> "LLM":
     #     largest value we can use without cgroup OOM.
     if LLM is None:
         pytest.skip("vLLM is not installed; skipping test that requires it")
-        return LLM(...) # Unreachable, but satisfies type checker
     return LLM(
         model=model_path,
         max_model_len=512,

@@ -10,6 +10,10 @@ Validates:
 To keep runtime manageable, rotation training is disabled and the test uses
 compact calibration settings for DBF.
 
+Note:
+    This file is skipped by default because DBF quantization is heavy.
+    Set RUN_DBF_INTEGRATION_TESTS=1 to enable.
+
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
