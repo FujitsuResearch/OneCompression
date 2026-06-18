@@ -4,16 +4,17 @@ Copyright 2025-2026 Fujitsu Ltd.
 """
 
 import math
+from logging import getLogger
+
 import torch
 import torch.nn.functional as F
 
 from onecomp.quantizer._quantizer import Quantizer
-from ._metric import ClosedFormSolverArgument, LpcdMetric
+
+from ..qep._quantize_with_qep_arch import compute_hessian_and_crossterm
 from ._gradient_solver import gradient_solver
 from ._lpcd_config import LPCDConfig
-from ..qep._quantize_with_qep_arch import compute_hessian_and_crossterm
-
-from logging import getLogger
+from ._metric import ClosedFormSolverArgument, LpcdMetric
 
 logger = getLogger(__name__)
 

@@ -3,9 +3,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from gemlite.core import GemLiteLinearTriton, DType
-from hqq.core.quantize import BaseQuantizeConfig, HQQLinear, HQQBackend
+from gemlite.core import DType, GemLiteLinearTriton
+from hqq.core.quantize import BaseQuantizeConfig, HQQBackend, HQQLinear
 from vllm.logger import init_logger
 
 HQQLinear.set_backend(HQQBackend.PYTORCH)

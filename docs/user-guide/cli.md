@@ -43,9 +43,9 @@ onecomp [-h] [--wbits WBITS] [--total-vram-gb GB] [--groupsize GROUPSIZE]
 | Option                    | Default      | Description                                              |
 |---------------------------|--------------|----------------------------------------------------------|
 | `--wbits WBITS`           | `None` (auto)| Target bitwidth. When omitted, estimated from VRAM       |
-| `--total-vram-gb GB`      | `None` (auto)| VRAM budget in GB for bitwidth estimation. When omitted, detected from GPU |
+| `--total-vram-gb GB`      | `None` (auto)| VRAM budget in GB for bitwidth estimation. When omitted, detected from CUDA GPU. **Required on MPS** when `--wbits` is omitted |
 | `--groupsize GROUPSIZE`   | `128`        | GPTQ group size (`-1` to disable grouping)               |
-| `--device DEVICE`         | `cuda:0`     | Device to place the model on                             |
+| `--device DEVICE`         | `cuda:0`     | Device to place the model on (`mps` on macOS)            |
 | `--no-qep`                |              | Disable QEP (enabled by default)                         |
 | `--no-eval`               |              | Skip perplexity and accuracy evaluation                  |
 | `--eval-original`         |              | Also evaluate the original (unquantized) model           |
@@ -121,6 +121,8 @@ onecomp meta-llama/Llama-2-7b-hf --eval-original
 ```bash
 onecomp meta-llama/Llama-2-7b-hf --device cuda:1
 ```
+
+See the [macOS / MPS guide](mps.md) for supported quantizers and limitations.
 
 ## Default Behavior
 

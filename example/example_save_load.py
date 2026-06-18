@@ -15,11 +15,12 @@ Author: Keiji Kimura
 """
 
 import torch
+
 from onecomp import (
+    GPTQ,
     CalibrationConfig,
     ModelConfig,
     Runner,
-    GPTQ,
     load_quantized_model,
     setup_logger,
 )
