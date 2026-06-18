@@ -520,4 +520,5 @@ class MDBF(Quantizer):
             result=result,
             bias=bias,
             device=linear_module.weight.device,
+            use_gemlite=kwargs.get("use_gemlite"),
         )

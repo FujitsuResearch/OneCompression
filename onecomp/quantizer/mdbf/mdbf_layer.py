@@ -29,6 +29,14 @@ import torch.nn.functional as F
 
 from .initialize import MDBFParams
 
+# Optional GemLite integration (mirror of dbf/dbf_layer.py)
+try:
+    from onecomp.quantizer.gemlite import create_gemlite_linear, is_gemlite_available
+
+    HAS_GEMLITE_SUPPORT = True
+except ImportError:
+    HAS_GEMLITE_SUPPORT = False
+
 # =============================================================================
 # Bit-packing/Unpacking
 # =============================================================================
@@ -91,9 +99,25 @@ class MDBFLinear(nn.Module):
           G = S_B * (Q_V_amp @ B_amp^T)
 
     Inference: y = x @ W^T = x @ G^T @ F^T
+
+    GemLite acceleration (mirror of dbf/dbf_layer.py):
+        The two heavy matmuls are against the ±1 sign matrices B_sign (r, m) and
+        A_sign (n, r). The rank-l amplitudes are separable per scale, so
+
+            y = Σ_k (((x * B_amp[:,k]) @ B_sign^T) * Q_V_amp[:,k] * Q_U_amp[:,k]) ...
+
+        i.e. each sign matmul can be replaced by a 1-bit GemLite kernel and the
+        amplitudes applied as element-wise scalings around it. GemLite is enabled
+        per sign matrix (it requires the matmul's in_features to be a multiple of
+        the group size), falling back to on-the-fly unpack otherwise.
     """
 
-    def __init__(self, params: MDBFParams):
+    def __init__(
+        self,
+        params: MDBFParams,
+        device: Optional[torch.device] = None,
+        use_gemlite: Optional[bool] = None,
+    ):
         super().__init__()
 
         n, r = params.A_sign.shape
@@ -120,6 +144,90 @@ class MDBFLinear(nn.Module):
         self.register_buffer("Q_U_amp", params.Q_U_amp.half())
         self.register_buffer("Q_V_amp", params.Q_V_amp.half())
 
+        # Optional GemLite kernels for the ±1 sign matmuls.
+        # Stored in a plain dict (not a submodule) so they stay out of state_dict,
+        # matching DoubleBinaryLinear._gemlite_layers.
+        self._gemlite_layers: dict = {}
+        # CPU stash of packed sign buffers freed from GPU once GemLite serves them
+        # (see _free_packed_sign). Plain dict -> invisible to .to()/state_dict.
+        self._packed_cpu: dict = {}
+        self.use_gemlite = False
+        self._build_gemlite(params.A_sign, params.B_sign, device, use_gemlite)
+
+    def _build_gemlite(
+        self,
+        A_sign: torch.Tensor,
+        B_sign: torch.Tensor,
+        device: Optional[torch.device],
+        use_gemlite: Optional[bool],
+    ) -> None:
+        """Build 1-bit GemLite kernels for B_sign (r, m) and A_sign (n, r).
+
+        Note on the multi-scale rank l:
+            The dense path folds the rank-l amplitude into a single (n, r)/(r, m)
+            matrix, so its cost is independent of l. The GemLite path keeps the
+            sign matrices pure ±1 and applies the l amplitude scales outside, so it
+            issues l separate 1-bit matmuls per sign matrix (cost grows ~O(l)).
+            Measured on H100 (in=out=4096, r=512): GemLite is ~1.5x faster than
+            dense at l=1 but ~0.76x (l=2) / ~0.37x (l=4), i.e. a net slowdown.
+            Therefore, in auto mode (use_gemlite=None) GemLite is only enabled for
+            l == 1. Pass use_gemlite=True to force it regardless of l.
+        """
+        forced = use_gemlite is True
+        if use_gemlite is None:
+            use_gemlite = HAS_GEMLITE_SUPPORT and is_gemlite_available()
+        if not (use_gemlite and HAS_GEMLITE_SUPPORT):
+            return
+        if self.l > 1 and not forced:
+            # Auto mode: skip GemLite for l>1 (it would be slower than dense).
+            return
+
+        device_obj = torch.device(device) if device is not None else A_sign.device
+        # Stage 1 matmul: x @ B_sign^T  (in_features = m)
+        gemlite_B = create_gemlite_linear(B_sign, nbits=1, device=device_obj)
+        # Stage 2 matmul: u @ A_sign^T  (in_features = r)
+        gemlite_A = create_gemlite_linear(A_sign, nbits=1, device=device_obj)
+        if gemlite_B is not None:
+            self._gemlite_layers["B"] = gemlite_B
+        if gemlite_A is not None:
+            self._gemlite_layers["A"] = gemlite_A
+        self.use_gemlite = len(self._gemlite_layers) > 0
+
+        # Free the redundant GPU packed-sign buffer for any matrix now served by
+        # GemLite (GemLite keeps its own 1-bit W_q), halving in-memory weight.
+        for which in self._gemlite_layers:
+            self._free_packed_sign(which)
+
+    def _free_packed_sign(self, which: str) -> None:
+        """Move a packed sign buffer off-GPU once GemLite serves that matmul.
+
+        The buffer is un-registered (so ``.to(device)`` won't pull it back to GPU)
+        and stashed on CPU; ``_save_to_state_dict`` re-emits it, so the saved
+        state_dict matches the dense layout exactly.
+        """
+        buf_name = f"{which}_sign_packed"
+        buf = self._buffers.get(buf_name)
+        if buf is not None:
+            self._packed_cpu[which] = buf.detach().to("cpu")
+            del self._buffers[buf_name]
+
+    def _packed_sign(self, which: str, device: torch.device) -> torch.Tensor:
+        """Return the packed (uint8) sign tensor on *device* (buffer or CPU stash)."""
+        buf = self._buffers.get(f"{which}_sign_packed")
+        if buf is None:
+            buf = self._packed_cpu[which]
+        return buf.to(device)
+
+    def _save_to_state_dict(self, destination, prefix, keep_vars):
+        super()._save_to_state_dict(destination, prefix, keep_vars)
+        # Re-emit any packed-sign buffers freed from GPU in GemLite mode so the
+        # on-disk format is identical to the dense (non-GemLite) layout.
+        for which in ("A", "B"):
+            key = f"{prefix}{which}_sign_packed"
+            if key not in destination and which in getattr(self, "_packed_cpu", {}):
+                v = self._packed_cpu[which]
+                destination[key] = v if keep_vars else v.detach()
+
     def _load_from_state_dict(
         self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
     ):
@@ -138,8 +246,9 @@ class MDBFLinear(nn.Module):
 
     def _get_factor_matrices(self, dtype: torch.dtype) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute factor matrices F, G (always on-the-fly unpack)"""
-        A_sign = unpack_binary(self.A_sign_packed, (self.n, self.r)).to(dtype)
-        B_sign = unpack_binary(self.B_sign_packed, (self.r, self.m)).to(dtype)
+        dev = self.A_amp.device
+        A_sign = unpack_binary(self._packed_sign("A", dev), (self.n, self.r)).to(dtype)
+        B_sign = unpack_binary(self._packed_sign("B", dev), (self.r, self.m)).to(dtype)
 
         amp_A = self.A_amp.to(dtype) @ self.Q_U_amp.to(dtype).T
         F = A_sign * amp_A
@@ -149,7 +258,55 @@ class MDBFLinear(nn.Module):
 
         return F, G
 
+    def _apply_sign(self, x: torch.Tensor, which: str) -> torch.Tensor:
+        """Multiply by a ±1 sign matrix, via GemLite when available.
+
+        which="B": x @ B_sign^T  (B_sign is (r, m))
+        which="A": x @ A_sign^T  (A_sign is (n, r))
+        """
+        gemlite = self._gemlite_layers.get(which)
+        if gemlite is not None:
+            return gemlite(x)
+        if which == "B":
+            B_sign = unpack_binary(self._packed_sign("B", x.device), (self.r, self.m)).to(x.dtype)
+            return x @ B_sign.T
+        A_sign = unpack_binary(self._packed_sign("A", x.device), (self.n, self.r)).to(x.dtype)
+        return x @ A_sign.T
+
+    def _forward_gemlite(self, x: torch.Tensor) -> torch.Tensor:
+        """Per-scale forward using GemLite 1-bit kernels for the sign matmuls.
+
+        Exact reformulation of y = x @ G^T @ F^T with
+            G = B_sign * (Q_V_amp @ B_amp^T),  F = A_sign * (A_amp @ Q_U_amp^T):
+
+            u = Σ_k ((x * B_amp[:,k]) @ B_sign^T) * Q_V_amp[:,k]
+            y = Σ_k ((u * Q_U_amp[:,k]) @ A_sign^T) * A_amp[:,k]
+        """
+        dtype = x.dtype
+        B_amp = self.B_amp.to(dtype)  # (m, l)
+        Q_V_amp = self.Q_V_amp.to(dtype)  # (r, l)
+        A_amp = self.A_amp.to(dtype)  # (n, l)
+        Q_U_amp = self.Q_U_amp.to(dtype)  # (r, l)
+
+        # Stage 1: u = x @ G^T  -> (..., r)
+        u = None
+        for k in range(self.l):
+            bk = self._apply_sign(x * B_amp[:, k], "B")
+            contrib = bk * Q_V_amp[:, k]
+            u = contrib if u is None else u + contrib
+
+        # Stage 2: y = u @ F^T  -> (..., n)
+        y = None
+        for k in range(self.l):
+            ak = self._apply_sign(u * Q_U_amp[:, k], "A")
+            contrib = ak * A_amp[:, k]
+            y = contrib if y is None else y + contrib
+
+        return y
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.use_gemlite:
+            return self._forward_gemlite(x)
         F, G = self._get_factor_matrices(x.dtype)
         y = x @ G.T
         y = y @ F.T
@@ -159,6 +316,21 @@ class MDBFLinear(nn.Module):
         """Reconstruct weight matrix"""
         F, G = self._get_factor_matrices(dtype)
         return F @ G
+
+    def enable_gemlite(
+        self, device: Optional[torch.device] = None, force: bool = False
+    ) -> bool:
+        """Build GemLite kernels from the packed sign buffers (e.g. after load).
+
+        Returns True if at least one sign matmul is GemLite-accelerated.
+        """
+        if self.use_gemlite and self._gemlite_layers:
+            return True
+        dev = self.A_amp.device
+        A_sign = unpack_binary(self._packed_sign("A", dev), (self.n, self.r))
+        B_sign = unpack_binary(self._packed_sign("B", dev), (self.r, self.m))
+        self._build_gemlite(A_sign, B_sign, device, True if force else None)
+        return self.use_gemlite
 
 
 # =============================================================================
@@ -174,6 +346,7 @@ class MultipathMDBFLinear(nn.Module):
         params_list: List[MDBFParams],
         bias: Optional[torch.Tensor] = None,
         device=None,
+        use_gemlite: Optional[bool] = None,
     ):
         super().__init__()
 
@@ -184,7 +357,9 @@ class MultipathMDBFLinear(nn.Module):
         self.n = params_list[0].A_sign.shape[0]
         self.m = params_list[0].B_sign.shape[1]
 
-        self.paths = nn.ModuleList([MDBFLinear(params) for params in params_list])
+        self.paths = nn.ModuleList(
+            [MDBFLinear(params, device=device, use_gemlite=use_gemlite) for params in params_list]
+        )
 
         if bias is not None:
             self.register_buffer("bias", bias.clone().to(torch.float16))
@@ -211,12 +386,26 @@ class MultipathMDBFLinear(nn.Module):
             W = W + self.paths[i].get_weight(dtype)
         return W
 
+    def enable_gemlite(
+        self, device: Optional[torch.device] = None, force: bool = False
+    ) -> bool:
+        """Enable GemLite on every path (e.g. after ``from_saved_state``).
+
+        Returns True if any path ended up GemLite-accelerated.
+        """
+        enabled = False
+        for path in self.paths:
+            if path.enable_gemlite(device=device, force=force):
+                enabled = True
+        return enabled
+
     @classmethod
     def from_quantization_result(
         cls,
         result,
         bias=None,
         device=None,
+        use_gemlite=None,
     ) -> "MultipathMDBFLinear":
         """Build MultipathMDBFLinear from MDBFResult.
 
@@ -224,12 +413,13 @@ class MultipathMDBFLinear(nn.Module):
             result: MDBFResult from quantizer.
             bias: Optional bias tensor (from original Linear).
             device: Device to place the layer on.
+            use_gemlite: GemLite acceleration (None=auto, True/False=force).
 
         Returns:
             MultipathMDBFLinear instance.
         """
         params_list = result.get_MDBF_params_list()
-        return cls(params_list=params_list, bias=bias, device=device)
+        return cls(params_list=params_list, bias=bias, device=device, use_gemlite=use_gemlite)
 
     @classmethod
     def from_saved_state(
@@ -313,6 +503,12 @@ class MultipathMDBFLinear(nn.Module):
             path_layer.register_buffer("Q_V_amp", _t(f"{path_prefix}Q_V_amp"))
 
             path_layer.l = path_layer.A_amp.shape[1]
+
+            # GemLite disabled on load (mirror DoubleBinaryLinear.from_saved_state);
+            # can be enabled later via enable_gemlite().
+            path_layer.use_gemlite = False
+            path_layer._gemlite_layers = {}
+            path_layer._packed_cpu = {}
 
             paths.append(path_layer)
 
