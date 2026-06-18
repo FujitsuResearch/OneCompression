@@ -21,8 +21,8 @@ Some methods are served by vLLM's **built-in** GPTQ plugin, while others use the
     [`load_quantized_model()`](examples.md#load-a-saved-quantized-model),
     but not served through vLLM.
 
-!!! warning "Rotation-preprocessed models are not supported"
-    Models quantized after rotation preprocessing (`prepare_rotated_model`) cannot be served with vLLM. vLLM kernels do not apply the online Hadamard transform on `down_proj` inputs that rotation-preprocessed models require for correct inference.
+!!! note "Rotation-preprocessed models"
+    Models quantized after rotation preprocessing (`prepare_rotated_model`) are supported with the `mixed_gptq` and `dbf` plugins: the plugins reproduce the online Hadamard transform on `down_proj` inputs at inference time. The `dbf` plugin currently supports rotation only with `tensor_parallel_size=1`; `mixed_gptq` supports `tensor_parallel_size>1`.
 
 ## Installation
 
