@@ -1,11 +1,21 @@
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+
+# Run merge request pipelines (lint/test/security + enforcement on the MR), web
+# (manual) pipelines, and push pipelines on integration branches (export/*) so the
+# SAST baseline keeps being published. Plain feature-branch pushes create no
+# pipeline, which also avoids duplicate branch + MR pipelines.
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^export\//
 
 stages:
   - lint
   - test
+  - security-gate
   - deploy
 
 variables:
@@ -29,10 +39,11 @@ lint:format:
     - uvx isort@8.0.1 --check-only onecomp/ vllm_plugins/
     - uvx black@26.5.1 --check onecomp/ vllm_plugins/
 
-# Skip jobs when this push is docs/markdown-only (**/*.md, docs/**).
+# Skip jobs when the merge request changes docs/markdown only (**/*.md, docs/**).
 # GitLab changes has no negated globs, so we whitelist non-doc paths instead.
-# MR follow-up pushes compare against $CI_COMMIT_BEFORE_SHA (this push only).
-# First push on a new branch falls back to the full MR diff vs target.
+# Always compare the whole MR diff against the target branch: comparing against
+# $CI_COMMIT_BEFORE_SHA breaks when it is the all-zero SHA (first MR pipeline),
+# because GitLab validates every rule's compare_to ref at pipeline creation.
 .skip_docs_only_paths: &skip_docs_only_paths
   - onecomp/**/*
   - tests/**/*
@@ -46,16 +57,9 @@ lint:format:
   rules:
     - if: $CI_PIPELINE_SOURCE == "web"
       when: on_success
-    - if: >-
-        $CI_PIPELINE_SOURCE == "merge_request_event"
-        && $CI_COMMIT_BEFORE_SHA == "0000000000000000000000000000000000000000"
-      changes:
-        compare_to: 'refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME'
-        paths: *skip_docs_only_paths
-      when: on_success
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
-        compare_to: '$CI_COMMIT_BEFORE_SHA'
+        compare_to: 'refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME'
         paths: *skip_docs_only_paths
       when: on_success
     - when: never
@@ -145,6 +149,129 @@ test:onecomp:
         PYTEST_TARGET: "tests/onecomp/runner/ tests/onecomp/post_process/ tests/onecomp/utils/ tests/onecomp/test_make_grouped_module.py tests/onecomp/test_runner_check.py tests/onecomp/test_eval_quantized_vs_dequantized.py tests/onecomp/test_qep_general_consistency.py tests/onecomp/test_cumulative_error_regression.py tests/onecomp/test_qep_gptq_regression.py"
       - JOB_LABEL: vllm
         PYTEST_TARGET: "tests/vllm_plugins/"
+
+# Ensure the security jobs run in merge request pipelines and on export/* pushes
+# (the managed templates' default rules are branch-oriented). Overrides only the
+# rules; security scans intentionally run regardless of docs-only changes.
+.security_rules:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH =~ /^export\//
+
+# Surface analyzer infra errors instead of silently passing.
+secret_detection:
+  allow_failure: false
+  rules: !reference [.security_rules, rules]
+
+semgrep-sast:
+  allow_failure: false
+  rules: !reference [.security_rules, rules]
+
+# Fail the pipeline when secret detection reports any finding.
+# The analyzer exits 0 even on findings, so we gate on its report.
+secret-detection-gate:
+  stage: security-gate
+  rules: !reference [.security_rules, rules]
+  needs:
+    - job: secret_detection
+      artifacts: true
+  image: alpine:3
+  before_script:
+    - apk add --no-cache jq
+  script:
+    - test -f gl-secret-detection-report.json || { echo "secret detection report not found"; exit 1; }
+    - count=$(jq '[.vulnerabilities[]] | length' gl-secret-detection-report.json)
+    - echo "secret detection findings=$count"
+    - >
+      if [ "$count" -gt 0 ]; then
+        echo "Secrets detected. Failing the pipeline.";
+        jq -r '.vulnerabilities[] | "- \(.message) (\(.location.file):\(.location.start_line))"' gl-secret-detection-report.json;
+        exit 1;
+      fi
+
+# Fail only when this branch introduces NEW High/Critical SAST findings,
+# compared with the baseline branch's latest SAST report.
+# Signature for matching: severity + semgrep rule id + file (line-shift tolerant).
+#
+# Baseline ref is resolved dynamically (no hard-coded branch name):
+#   1. the merge request target branch (CI_MERGE_REQUEST_TARGET_BRANCH_NAME), else
+#   2. an explicit override (SAST_BASELINE_REF), else
+#   3. none -> enforcement skipped (report only).
+# A direct push build of an integration branch (matching SAST_BASELINE_GLOB,
+# e.g. export/*) is informational, so it stays green and keeps publishing a
+# baseline report for future merge requests.
+sast-gate:
+  stage: security-gate
+  rules: !reference [.security_rules, rules]
+  needs:
+    - job: semgrep-sast
+      artifacts: true
+  image: alpine:3
+  variables:
+    # Integration branches (shell glob) that only publish a baseline on push.
+    SAST_BASELINE_GLOB: "export/*"
+    # Optional explicit baseline ref for non-MR pipelines (empty = none).
+    SAST_BASELINE_REF: ""
+  before_script:
+    - apk add --no-cache jq curl
+  script:
+    - |
+      set -eu
+      test -f gl-sast-report.json || { echo "sast report not found"; exit 1; }
+
+      SIG='[.vulnerabilities[] | select(.severity=="High" or .severity=="Critical") | (.severity + "|" + ((.identifiers[0].value // "?")|tostring) + "|" + (.location.file // "?"))] | unique'
+
+      total=$(jq '[.vulnerabilities[] | select(.severity=="High" or .severity=="Critical")] | length' gl-sast-report.json)
+      echo "current High/Critical total=${total} (this ref=${CI_COMMIT_REF_NAME})"
+
+      # Direct push build of an integration branch (not a merge request):
+      # only publish the baseline, do not enforce.
+      case "${CI_COMMIT_REF_NAME}" in
+        ${SAST_BASELINE_GLOB})
+          if [ -z "${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-}" ]; then
+            echo "On integration branch ${CI_COMMIT_REF_NAME}; gate is informational. Not failing."
+            exit 0
+          fi
+          ;;
+      esac
+
+      BASE_REF="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${SAST_BASELINE_REF}}"
+      if [ -z "${BASE_REF}" ]; then
+        echo "No baseline ref (not an MR pipeline and SAST_BASELINE_REF unset). Skipping new-only enforcement."
+        exit 0
+      fi
+      echo "baseline ref=${BASE_REF}"
+
+      url="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/jobs/artifacts/${BASE_REF}/raw/gl-sast-report.json?job=semgrep-sast"
+      http=$(curl -s -o baseline.json -w '%{http_code}' --header "JOB-TOKEN: ${CI_JOB_TOKEN}" "${url}" || echo "000")
+      echo "baseline fetch HTTP=${http}"
+
+      if [ "${http}" != "200" ] || ! jq -e . baseline.json >/dev/null 2>&1; then
+        echo "No usable baseline report on ${BASE_REF} (bootstrap). Skipping new-only enforcement."
+        exit 0
+      fi
+
+      jq "${SIG}" baseline.json > base_sigs.json
+      jq --slurpfile base base_sigs.json '
+        [.vulnerabilities[]
+         | select(.severity=="High" or .severity=="Critical")
+         | {severity, name,
+            file: (.location.file // "?"),
+            line: (.location.start_line // 0),
+            sig: (.severity + "|" + ((.identifiers[0].value // "?")|tostring) + "|" + (.location.file // "?"))}]
+        | map(select((.sig) as $s | ($base[0] | index($s)) | not))
+      ' gl-sast-report.json > new_findings.json
+
+      new_count=$(jq 'length' new_findings.json)
+      echo "NEW High/Critical findings=${new_count}"
+      jq -r '.[] | "- [\(.severity)] \(.name) (\(.file):\(.line))"' new_findings.json
+
+      if [ "${new_count}" -gt 0 ]; then
+        echo "New High/Critical SAST findings introduced by this branch. Failing the pipeline."
+        exit 1
+      fi
+      echo "No new High/Critical findings vs baseline. Passing."
 
 pages:
   image: python:3.11
