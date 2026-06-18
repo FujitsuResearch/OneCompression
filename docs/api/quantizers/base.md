@@ -16,13 +16,13 @@ by each quantizer to enable these features.
 | `GPTQ`             | Yes                | Yes                      | Yes  | Yes               |
 | `DBF`              | Yes                | Yes                      | Yes  | Yes               |
 | `AutoBitQuantizer` | Yes                | Yes                      | Yes  | Yes               |
-| `RTN`              | —                  | —                        | No   | No (fallback)     |
-| `JointQ`           | —                  | —                        | No   | No (fallback)     |
+| `JointQ`           | Yes                | Yes                      | Yes  | Yes               |
+| `RTN`              | Yes                | Yes                      | Yes  | Yes               |
+| `Onebit`           | Yes                | Yes                      | Yes  | Yes               |
 | `QUIP`             | —                  | —                        | No   | No (fallback)     |
 | `CQ`               | —                  | —                        | No   | No (fallback)     |
 | `ARB`              | —                  | —                        | No   | No (fallback)     |
 | `QBB`              | —                  | —                        | No   | No (fallback)     |
-| `Onebit`           | —                  | —                        | No   | No (fallback)     |
 
 For quantizers without support:
 
@@ -31,6 +31,21 @@ For quantizers without support:
   No error is raised.
 - **Saving**: use `save_dequantized_model()` (FP16) or `save_quantization_results()`
   to persist results.
+
+### Saved `quant_method` and vLLM compatibility
+
+`get_quant_config()` determines the `quant_method` written to the saved `config.json`,
+which in turn decides how the model can be served:
+
+| Quantizer | `quant_method` | vLLM serving |
+|-----------|----------------|--------------|
+| `GPTQ` (uniform bits), `JointQ`, `RTN` | `gptq` | vLLM built-in GPTQ plugin |
+| `GPTQ` (mixed bits), `AutoBitQuantizer` | `mixed_gptq` | OneComp Mixed-GPTQ plugin |
+| `DBF` | `dbf` | OneComp DBF plugin |
+| `Onebit` | `onebit` | Not vLLM-servable; load with `load_quantized_model()` |
+
+All of the above are loadable with OneComp's own `load_quantized_model()`. See
+[vLLM Inference](../../user-guide/vllm-inference.md) for serving details.
 
 ::: onecomp.quantizer._quantizer.Quantizer
     options:

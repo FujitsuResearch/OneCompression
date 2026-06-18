@@ -27,13 +27,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .helpers import layer_kwargs_to_device
 from .dbf_block_optimizer import (
-    _smooth_sign_ste,
     _find_dbf_modules,
-    _layer_output,
     _get_binary_parts,
+    _layer_output,
+    _smooth_sign_ste,
 )
+from .helpers import layer_kwargs_to_device
 
 logger = getLogger(__name__)
 

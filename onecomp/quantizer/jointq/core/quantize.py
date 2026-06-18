@@ -11,9 +11,9 @@ import time
 
 import torch
 
+from .__version__ import __version__
 from .quantizer import Quantizer
 from .solution import Solution
-from .__version__ import __version__
 
 
 # pylint: disable=too-many-arguments,too-many-positional-arguments, too-many-locals

@@ -13,14 +13,15 @@ Author: Yuma Ichikawa
 """
 
 import gc
+
 import torch
 import torch.nn as nn
 import transformers
 
 from .quant_quip import QuantizerQFN
-from .vector_balance import quantize_weight_vecbal
 from .utils import rand_ortho_butterfly_noblock
-from .utils_had import RHT_H, RHT_W, REVERSE_RHT_W
+from .utils_had import REVERSE_RHT_W, RHT_H, RHT_W
+from .vector_balance import quantize_weight_vecbal
 
 
 def run_quip(

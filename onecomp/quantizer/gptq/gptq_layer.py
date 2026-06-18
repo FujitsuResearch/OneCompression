@@ -10,11 +10,12 @@ Author: Yuma Ichikawa
 
 """
 
+from logging import getLogger
+from typing import Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Union, Tuple
-from logging import getLogger
 
 logger = getLogger(__name__)
 
@@ -231,7 +232,7 @@ class GPTQLinear(nn.Module):
         zero: torch.Tensor,  # FP16
         perm: Optional[torch.Tensor] = None,  # INT64
         bias: Optional[torch.Tensor] = None,
-        device: str = "cuda",
+        device: Union[str, torch.device] = "cuda",
         pack_weights: bool = True,  # Pack INT weights for memory efficiency
         use_gemlite: Optional[bool] = None,  # GemLite flag
         weight_is_packed: bool = False,
@@ -435,11 +436,9 @@ class GPTQLinear(nn.Module):
         # Cast dequantized weight to input dtype (e.g. float32 -> float16)
         weight = weight.to(x.dtype)
 
-        # Cast dequantized weight to input dtype (e.g. float32 -> float16)
-        weight = weight.to(x.dtype)
-
-        # Linear op
-        weight = weight.to(x.dtype)
+        # MPS F.linear produces incorrect results on non-contiguous tensors.
+        if weight.device.type == "mps":
+            weight = weight.contiguous()
         bias = self.bias.to(x.dtype) if self.bias is not None else None
         output = F.linear(x, weight, bias)
 
@@ -537,7 +536,9 @@ class GPTQLinear(nn.Module):
         self.groupsize = groupsize
         self.actorder = actorder
         self.checkpoint_format = checkpoint_format
-        self._weight_is_packed = True
+        # JointQ wbits=1 is saved with pack_weights=False
+        # (GPTQLinear packing does not support 1-bit), so load it unpacked as well.
+        self._weight_is_packed = wbits != 1
 
         def _t(k):
             t = layer_state_dict[k]

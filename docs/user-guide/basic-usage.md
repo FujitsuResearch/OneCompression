@@ -60,9 +60,14 @@ model_config = ModelConfig(
 | `model_id` | Hugging Face Hub model ID          | —            |
 | `path`     | Local path to a saved model         | —            |
 | `dtype`    | Data type (`"float16"`, `"float32"`)| `"float16"`  |
-| `device`   | Device (`"cpu"`, `"cuda"`, `"auto"`)| `"auto"`     |
+| `device`   | Device (`"cpu"`, `"cuda"`, `"mps"`, `"auto"`)| `"auto"`     |
 
 You must provide either `model_id` or `path`.
+
+!!! tip "macOS (Apple Silicon)"
+    Use `device="mps"` for quantization on Mac. `Runner.auto_run` defaults to
+    `cuda:0`; pass `device="mps"` and `total_vram_gb` explicitly. See the
+    [macOS / MPS guide](mps.md).
 
 ## Step 2: Choose a Quantizer
 
@@ -122,8 +127,9 @@ print(f"Quantized: {quantized_ppl:.2f}")
 !!! note
     - Evaluating the original or dequantized model requires loading the full model on GPU.
     - Quantized-model evaluation (`quantized_model=True`) is supported only for quantizers
-      that implement `create_quantized_model()` (**GPTQ**, **DBF**, **AutoBitQuantizer**).
-      For other quantizers, evaluation automatically falls back to the dequantized (FP16) model.
+      that implement `create_quantized_model()` (**GPTQ**, **DBF**, **AutoBitQuantizer**,
+      **JointQ**, **RTN**, **OneBit**). For other quantizers, evaluation automatically falls
+      back to the dequantized (FP16) model.
 
 ### Zero-shot Accuracy
 
@@ -151,20 +157,24 @@ runner.save_quantized_model("./output/quantized")
 !!! note "Quantizer feature support"
     `save_quantized_model()`, `create_quantized_model()`, and quantized-model PPL/ACC evaluation
     require the quantizer to implement `get_quant_config()` and `create_inference_layer()`.
-    Currently only **GPTQ**, **DBF**, and **AutoBitQuantizer** support these features.
+    **GPTQ**, **DBF**, **AutoBitQuantizer**, **JointQ**, **RTN**, and **OneBit** support these features.
 
-    | Quantizer          | Save | Quantized PPL/ACC | Fallback                  |
-    |--------------------|:----:|:-----------------:|---------------------------|
-    | `GPTQ`             | Yes  | Yes               | —                         |
-    | `DBF`              | Yes  | Yes               | —                         |
-    | `AutoBitQuantizer` | Yes  | Yes               | —                         |
-    | `RTN`              | —    | —                 | Dequantized (FP16) model  |
-    | `JointQ`           | —    | —                 | Dequantized (FP16) model  |
-    | `QUIP`             | —    | —                 | Dequantized (FP16) model  |
-    | `CQ`               | —    | —                 | Dequantized (FP16) model  |
-    | `ARB`              | —    | —                 | Dequantized (FP16) model  |
-    | `QBB`              | —    | —                 | Dequantized (FP16) model  |
-    | `Onebit`           | —    | —                 | Dequantized (FP16) model  |
+    | Quantizer          | Save | Quantized PPL/ACC | `quant_method` | Fallback                  |
+    |--------------------|:----:|:-----------------:|----------------|---------------------------|
+    | `GPTQ`             | Yes  | Yes               | `gptq` / `mixed_gptq` | —                  |
+    | `DBF`              | Yes  | Yes               | `dbf`          | —                         |
+    | `AutoBitQuantizer` | Yes  | Yes               | `mixed_gptq`   | —                         |
+    | `JointQ`           | Yes  | Yes               | `gptq`         | —                         |
+    | `RTN`              | Yes  | Yes               | `gptq`         | —                         |
+    | `Onebit`           | Yes  | Yes               | `onebit`       | —                         |
+    | `QUIP`             | —    | —                 | —              | Dequantized (FP16) model  |
+    | `CQ`               | —    | —                 | —              | Dequantized (FP16) model  |
+    | `ARB`              | —    | —                 | —              | Dequantized (FP16) model  |
+    | `QBB`              | —    | —                 | —              | Dequantized (FP16) model  |
+
+    Models saved with `quant_method="gptq"` (GPTQ uniform, JointQ, RTN), `mixed_gptq`, or
+    `dbf` can be served with [vLLM](vllm-inference.md); `onebit` models are loadable only
+    with `load_quantized_model()`.
 
     For unsupported quantizers:
 

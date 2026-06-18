@@ -84,11 +84,13 @@ nav:
       - Quick Start: getting-started/quickstart.md
   - User Guide:
       - Basic Usage: user-guide/basic-usage.md
+      - macOS / MPS: user-guide/mps.md
       - CLI: user-guide/cli.md
       - Configuration: user-guide/configuration.md
       - Pre-Process (Rotation): user-guide/pre-process.md
-      - Post-Process (Block-wise PTQ / LoRA SFT): user-guide/post-process.md
+      - Post-Process (Global PTQ / Block-wise PTQ / LoRA SFT): user-guide/post-process.md
       - vLLM Inference: user-guide/vllm-inference.md
+      - Evaluation: user-guide/evaluation.md
       - Examples: user-guide/examples.md
   - Algorithms:
       - Overview: algorithms/overview.md
@@ -117,6 +119,7 @@ nav:
       - QuantizedModelLoader: api/quantized_model_loader.md
       - Pre-Process: api/pre_process.md
       - Post-Process: api/post_process.md
+      - Evaluation: api/eval.md
       - Utilities: api/utilities.md
   - Contributing: contributing.md
   - Changelog: changelog.md

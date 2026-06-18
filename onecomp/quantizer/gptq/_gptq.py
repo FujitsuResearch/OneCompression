@@ -7,9 +7,9 @@ Author: Yuma Ichikawa, Keiji Kimura
 """
 
 import gc
-from dataclasses import dataclass
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,8 @@ import torch
 from torch import nn
 from transformers import Conv1D
 
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
+from onecomp.utils.device import empty_cache
 from onecomp.utils.quant_config import get_quant_param
 
 
@@ -160,7 +161,7 @@ class GPTQResult(QuantizationResult):
         zero_expanded = qzeros[g_idx, :].T.to(torch.float16)  # (out_features, in_features)
         dequantized = dequantize(qweight, scale_expanded, zero_expanded, maxq=2**self.wbits - 1)
 
-        return dequantized.to(torch.float16).cpu()
+        return dequantized.to(torch.float16).cpu().contiguous()
 
 
 @dataclass
@@ -595,6 +596,11 @@ def _compute_inverse_hessian(
     Cholesky decomposition fails (non-positive-definite), progressively
     increases damping and retries up to *max_retries* times.
 
+    Note:
+        This function uses torch.linalg.cholesky / torch.cholesky_inverse
+        directly (without MPS-safe wrappers) because the caller (run_gptq)
+        moves hessian to CPU before calling this function when on MPS.
+
     Args:
         hessian: Square Hessian matrix (modified in-place).
         percdamp: Base damping as a fraction of the mean diagonal.
@@ -664,6 +670,11 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
     )
 
     matrix_W = layer.weight.data.clone()
+
+    if hessian.device.type == "mps":
+        hessian = hessian.cpu()
+        matrix_W = matrix_W.to("cpu")
+
     if isinstance(layer, nn.Conv2d):
         matrix_W = matrix_W.flatten(1)
     if isinstance(layer, Conv1D):
@@ -764,9 +775,10 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
         zero = quantizer.zero.to(dtype=torch.int32, device="cpu")
     perm = perm.cpu() if perm is not None else None
 
+    _device = hessian.device
     del hessian, Hinv, matrix_W, Q_int
     gc.collect()
-    torch.cuda.empty_cache()
+    empty_cache(_device)
 
     return {
         "qweight": quantized_weight,

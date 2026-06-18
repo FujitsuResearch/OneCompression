@@ -30,7 +30,7 @@ import time
 import torch
 
 from ..__version__ import __version__
-from ..quantize import setup, compute_batch_precomputations
+from ..quantize import compute_batch_precomputations, setup
 from ..solution import Solution
 from .quantizer_advanced import QuantizerAdvanced, SolutionLambda
 

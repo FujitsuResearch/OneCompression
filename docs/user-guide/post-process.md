@@ -1,7 +1,8 @@
-# Post-Process (Block-wise PTQ / LoRA SFT)
+# Post-Process (Global PTQ / Block-wise PTQ / LoRA SFT)
 
-OneComp supports **post-quantization processing** — additional steps applied to a quantized model to improve accuracy or inject domain-specific knowledge. Two implementations are available:
+OneComp supports **post-quantization processing** — additional steps applied to a quantized model to improve accuracy or inject domain-specific knowledge. Three implementations are available:
 
+- **Global PTQ** — Globally optimises quantization parameters (scales, zeros, scaling factors) via KL distillation from a full-precision teacher model
 - **Block-wise PTQ** — Minimises intermediate-representation MSE against an FP16 teacher model at Transformer-block granularity. No training data labelling required.
 - **LoRA SFT** — Fine-tunes quantized models using Low-Rank Adaptation (LoRA) adapters with SFT loss, optional teacher distillation, and intermediate block alignment.
 
@@ -11,8 +12,126 @@ The post-process framework integrates into the `Runner` pipeline via the `post_p
 
 ```
 Quantize ──► Build Model ──► Post-Process 1 ──► Post-Process 2 ──► Evaluate / Save
-                              (e.g. BlockWisePTQ)   (e.g. LoRA SFT)
+                              (e.g. GlobalPTQ)   (e.g. LoRA SFT)
 ```
+
+---
+
+## Global PTQ: Parameter Optimisation
+
+Global PTQ improves quantized model accuracy by globally optimising continuous quantization parameters (scales and zeros for GPTQ; scaling factors for DBF) using KL-divergence distillation from a full-precision teacher model.
+
+### Single-GPU (GlobalPTQ)
+
+```python
+from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner, GlobalPTQ, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="meta-llama/Llama-2-7b-hf",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=4, groupsize=128)
+
+global_ptq = GlobalPTQ(
+    epochs=5,
+    gptq_lr=1e-5,
+    calibration_config=CalibrationConfig(
+        num_calibration_samples=128,
+        max_length=2048,
+    ),
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    post_processes=[global_ptq],
+)
+runner.run()
+```
+
+### Multi-GPU with DeepSpeed (GlobalPTQDistributed)
+
+For large models that do not fit on a single GPU, use `GlobalPTQDistributed` with DeepSpeed ZeRO-2.
+
+!!! note "Installation"
+    Multi-GPU training requires DeepSpeed. Install it via the `distributed` extra:
+    
+    - **uv**: `uv sync --extra <cuda-extra> --extra distributed`
+    - **pip**: `pip install "onecomp[distributed]"`
+
+```python
+from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner, GlobalPTQDistributed, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="meta-llama/Llama-2-7b-hf",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=4, groupsize=128)
+
+global_ptq = GlobalPTQDistributed(
+    epochs=5,
+    gptq_lr=1e-5,
+    deepspeed_config="ds_zero2.json",
+    calibration_config=CalibrationConfig(
+        num_calibration_samples=128,
+        max_length=2048,
+    ),
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    post_processes=[global_ptq],
+)
+runner.run()
+```
+
+Launch with `torchrun`:
+
+```bash
+torchrun --nproc_per_node=2 my_script.py
+```
+
+### GlobalPTQ Key Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `epochs` | `5` | Number of distillation epochs |
+| `gptq_lr` | `1e-5` | Learning rate for GPTQ scales/zeros |
+| `dbf_lr` | `5e-5` | Learning rate for DBF scaling parameters |
+| `temperature` | `1.0` | Softmax temperature for KL divergence |
+| `calibration_config` | `CalibrationConfig(num_calibration_samples=128)` | Calibration data configuration (see [CalibrationConfig](../api/calibration_config.md)) |
+| `use_gradient_checkpointing` | `True` | Reduce GPU memory at the cost of recomputation |
+| `early_stopping_patience` | `0` | Stop early if KL does not improve for N epochs (0 = disabled) |
+| `use_mixed_precision` | `False` | Enable BF16 autocast to reduce memory |
+| `grad_accum_steps` | `1` | Gradient accumulation steps |
+
+> **Note — DBF vs GPTQ training differences:**
+> When optimising **DBF** scaling factors, Global PTQ uses plain Adam (not AdamW) without a learning-rate scheduler.
+> For **GPTQ** scales/zeros, it uses AdamW with a cosine-warmup LR schedule.
+> Adjust `dbf_lr` and `gptq_lr` independently for best results.
+
+> **Note — Mixed GPTQ + DBF models:**
+> Global PTQ currently optimises a single quantization method per run.
+> If a model contains both GPTQ and DBF layers (e.g. from AutoBit fallback), only GPTQ layers are optimised and a warning is logged.
+> Joint GPTQ + DBF optimisation is planned for a future release.
+
+### GlobalPTQDistributed Additional Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `deepspeed_config` | `None` | Path to DeepSpeed config JSON |
+| `w_distill` | `1.0` | Weight for KL distillation loss |
+| `w_ntp` | `0.0` | Weight for next-token prediction loss |
+| `bf16` | `True` | Enable bfloat16 training |
+| `per_device_train_batch_size` | `1` | Batch size per GPU |
+| `gradient_accumulation_steps` | `1` | Gradient accumulation steps |
+
+See the [API Reference](../api/post_process.md) for the full parameter list.
 
 ---
 
