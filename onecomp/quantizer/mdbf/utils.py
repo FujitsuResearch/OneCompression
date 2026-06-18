@@ -80,6 +80,7 @@ def rank_from_bpw(
     P: int = 2,
     min_rank: int = 1,
     rounding: Literal["floor", "ceil", "round"] = "floor",
+    scale_bits: int = 16,
 ) -> int:
     """
     Calculate rank r from target BPW
@@ -103,9 +104,8 @@ def rank_from_bpw(
     Returns:
         Calculated rank r
     """
-    # Note: scale_bits=0 is the mode where BPW is calculated only for binary matrices
-    # To include FP16 scales, change scale_bits to 16
-    scale_bits = 0
+    # Note: scale_bits=16 counts FP16 envelope parameters in the BPW budget.
+    # This matches the paper's formula: b = P * [r(n+m) + 16l(n+m+2r)] / (nm)
     numerator = (b_target * n * m / P) - scale_bits * l * (n + m)
     denominator = (n + m) + 2 * scale_bits * l
 

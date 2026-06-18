@@ -220,8 +220,8 @@ def lowrank_osvd(
     eig_vals = eig_vals.clamp(min=1e-12)
     sqrt_eig = torch.sqrt(eig_vals)
 
-    # W_tilde = W @ H^{1/2} = W @ Q @ diag(sqrt(λ))
-    W_tilde = W_fp32 @ eig_vecs @ torch.diag(sqrt_eig)
+    # W_tilde = W @ H^{1/2} = W @ Q @ diag(sqrt(λ)) @ Q^T
+    W_tilde = W_fp32 @ eig_vecs @ torch.diag(sqrt_eig) @ eig_vecs.T
     del H_reg
 
     # Rank-r SVD of W_tilde
