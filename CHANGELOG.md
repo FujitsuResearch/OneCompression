@@ -1,5 +1,16 @@
 # Change log
 
+## [v1.3.0(WIP)+fix/partial-quant-with-rotation-bug] 2026-06-18
+
+### Bug fix
+- Fixed Hadamard online hook registration for rotation + **partial quantization** models. Previously the `down_proj` target layer classes were derived from the recorded `quant_method` (`gptq`/`dbf`/`onebit`), or by sampling the **first** `down_proj` layer's type. When a model is only partially quantized (mixed quantized / unquantized `down_proj` layers) or contains multiple `down_proj` types, hooks were registered on the wrong classes — either missing quantized layers or firing on plain `nn.Linear` — degrading rotated-model inference (`onecomp/quantized_model_loader.py`, `onecomp/runner.py`, `onecomp/pre_process/rotation_utils.py`)
+  - Hadamard hook target types are now derived from the actual model instead of `quant_method`. Added `collect_down_proj_types()` and `collect_quantized_down_proj_types()` to `rotation_utils.py`
+  - `QuantizedModelLoader` (loading from disk) uses `collect_down_proj_types()` to collect **all** distinct `down_proj` layer types from the loaded model, **including** `nn.Linear` when present (e.g. unquantized `down_proj` in a saved partial-quantization model); it intentionally does **not** filter `nn.Linear`
+  - `Runner` hook re-registration (during a quantization run, where some `down_proj` may still be `nn.Linear`) uses `collect_quantized_down_proj_types()`, which **excludes** `nn.Linear` so unquantized `down_proj` layers do not receive hooks; skips registration entirely when no quantized `down_proj` exists
+
+### Test
+- Added regression tests for Hadamard hook target-type collection, pinning `down_proj` type discovery for both full and partial quantization (`tests/onecomp/runner/test_hadamard_hook_type_collection.py`)
+
 ## [v1.3.0] 2026-MM-DD (WIP)
 
 (TODO: Add changelog for v1.3.0)
