@@ -14,9 +14,8 @@ import torch
 try:
     from vllm import LLM
 
-    _HAS_VLLM = True
 except ImportError:
-    _HAS_VLLM = False
+    LLM = None  # type: ignore[assignment]
 
 from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner
 from onecomp.pre_process.prepare_rotated_model import prepare_rotated_model
@@ -46,9 +45,20 @@ class _DummyLayer:
 
 def build_vllm_llm(model_path: str, **kwargs) -> "LLM":
     # gpu_memory_utilization is lowered from the vLLM default (0.92) to
-    # accommodate DGX Spark's 128 GB Unified Memory and the SLURM cgroup
-    # limit (--mem=115G in run_test_vllm.sh): 0.78 (~95 GiB) leaves ~4 GiB
-    # headroom without hitting the cgroup OOM killer.
+    # accommodate DGX Spark's 128 GB Unified Memory and the test job's
+    # SLURM cgroup limit (--mem=115G in run_test_vllm.sh):
+    #   - 0.92 (~112 GiB) trips vLLM's own startup OOM check (only ~106
+    #     GiB of UMA is free after AutoBit quantization runs in the same
+    #     process).
+    #   - 0.85 (~103 GiB) clears vLLM's check but the resulting Python
+    #     residual (~16 GiB for vllm/transformers/torch imports + pytest
+    #     state) plus 103 GiB allocation overflows the 115 GiB cgroup
+    #     and the kernel OOM-kills the process.
+    #   - 0.78 (~95 GiB) leaves ~4 GiB cgroup headroom and is the
+    #     largest value we can use without cgroup OOM.
+    if LLM is None:
+        pytest.skip("vLLM is not installed; skipping test that requires it")
+        return LLM(...) # Unreachable, but satisfies type checker
     return LLM(
         model=model_path,
         max_model_len=512,

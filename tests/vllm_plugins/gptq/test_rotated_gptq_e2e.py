@@ -17,7 +17,7 @@ import pytest
 import torch
 
 try:
-    from vllm import LLM, SamplingParams
+    from vllm import SamplingParams
 
     _HAS_VLLM = True
 except ImportError:

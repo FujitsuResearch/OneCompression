@@ -19,7 +19,7 @@ import pytest
 import torch
 
 try:
-    from vllm import LLM, SamplingParams
+    from vllm import SamplingParams
 
     _HAS_VLLM = True
 except ImportError:
@@ -38,6 +38,13 @@ from ..conftest import (
 pytestmark = [
     pytest.mark.slow,
     pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available"),
+    pytest.mark.skipif(
+        not os.environ.get("RUN_DBF_INTEGRATION_TESTS"),
+        reason=(
+            "DBF integration test is heavy (rotation preprocessing + DBF quantize on TinyLlama). "
+            "Skipped by default; set RUN_DBF_INTEGRATION_TESTS=1 to enable."
+        ),
+    ),
 ]
 
 
