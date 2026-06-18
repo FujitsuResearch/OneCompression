@@ -1,3 +1,151 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+stages:
+  - lint
+  - test
+  - deploy
+
+variables:
+  UV_CACHE_DIR: "${CI_PROJECT_DIR}/.cache/uv"
+  GIT_DEPTH: "1"
+  PYTEST_MARKERS: "not slow"
+
+lint:format:
+  extends: .skip_docs_only
+  stage: lint
+  tags:
+    - lint
+  cache:
+    key: lint-uv-cache
+    paths:
+      - .cache/uv/
+    policy: pull-push
+  before_script:
+    - export PATH="${HOME}/.local/bin:${PATH}"
+  script:
+    - uvx isort@8.0.1 --check-only onecomp/ vllm_plugins/
+    - uvx black@26.5.1 --check onecomp/ vllm_plugins/
+
+# Skip jobs when this push is docs/markdown-only (**/*.md, docs/**).
+# GitLab changes has no negated globs, so we whitelist non-doc paths instead.
+# MR follow-up pushes compare against $CI_COMMIT_BEFORE_SHA (this push only).
+# First push on a new branch falls back to the full MR diff vs target.
+.skip_docs_only_paths: &skip_docs_only_paths
+  - onecomp/**/*
+  - tests/**/*
+  - vllm_plugins/**/*
+  - example/**/*
+  - scripts/**/*
+  - pyproject.toml
+  - uv.lock
+
+.skip_docs_only:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: on_success
+    - if: >-
+        $CI_PIPELINE_SOURCE == "merge_request_event"
+        && $CI_COMMIT_BEFORE_SHA == "0000000000000000000000000000000000000000"
+      changes:
+        compare_to: 'refs/heads/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME'
+        paths: *skip_docs_only_paths
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        compare_to: '$CI_COMMIT_BEFORE_SHA'
+        paths: *skip_docs_only_paths
+      when: on_success
+    - when: never
+
+.cluster_job:
+  stage: test
+  extends: .skip_docs_only
+  tags:
+    - cluster
+  before_script:
+    - |
+      for var in \
+        CI_BASTION_HOST CI_CLUSTER_HOST CI_CLUSTER_USER ONECOMP_REPO \
+        CI_SLURM_PARTITION CI_SLURM_MEM CI_SLURM_CPUS CI_SLURM_TIME CI_SLURM_GPUS \
+        CI_UV_VENV CI_TORCH_EXTRA; do
+        eval "test -n \"\${${var}:-}\" || { echo \"Set ${var} in CI/CD Variables\" >&2; exit 1; }"
+      done
+
+# Export job env safely (printf %q), then pipe cluster_test.sh to remote bash -s.
+# Runner env vars are not forwarded over SSH automatically.
+.cluster_ssh:
+  script:
+    - |
+      {
+        printf 'export ONECOMP_REPO=%q\n' "${ONECOMP_REPO}"
+        printf 'export CI_COMMIT_SHA=%q\n' "${CI_COMMIT_SHA}"
+        printf 'export CI_COMMIT_REF_NAME=%q\n' "${CI_COMMIT_REF_NAME:-}"
+        printf 'export CI_JOB_TOKEN=%q\n' "${CI_JOB_TOKEN}"
+        printf 'export CI_SERVER_HOST=%q\n' "${CI_SERVER_HOST}"
+        printf 'export CI_PROJECT_PATH=%q\n' "${CI_PROJECT_PATH}"
+        printf 'export CLUSTER_MODE=%q\n' "${CLUSTER_MODE:-test}"
+        printf 'export SKIP_UV_SYNC=%q\n' "${SKIP_UV_SYNC:-0}"
+        printf 'export JOB_LABEL=%q\n' "${JOB_LABEL:-test}"
+        printf 'export PYTEST_TARGET=%q\n' "${PYTEST_TARGET:-tests/}"
+        printf 'export PYTEST_MARKERS=%q\n' "${PYTEST_MARKERS:-}"
+        printf 'export CI_SLURM_PARTITION=%q\n' "${CI_SLURM_PARTITION}"
+        printf 'export CI_SLURM_MEM=%q\n' "${CI_SLURM_MEM}"
+        printf 'export CI_SLURM_CPUS=%q\n' "${CI_SLURM_CPUS}"
+        printf 'export CI_SLURM_TIME=%q\n' "${CI_SLURM_TIME}"
+        printf 'export CI_SLURM_GPUS=%q\n' "${CI_SLURM_GPUS}"
+        printf 'export CI_SLURM_EXCLUDE=%q\n' "${CI_SLURM_EXCLUDE:-}"
+        printf 'export CI_UV_VENV=%q\n' "${CI_UV_VENV}"
+        printf 'export CI_TORCH_EXTRA=%q\n' "${CI_TORCH_EXTRA}"
+        cat scripts/cluster_test.sh
+      } | ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+        "${CI_CLUSTER_USER}@${CI_BASTION_HOST}" \
+        "ssh -o BatchMode=yes ${CI_CLUSTER_USER}@${CI_CLUSTER_HOST} bash -s"
+
+# Lightweight connectivity check only; does not run cluster_test.sh.
+test:cluster-smoke:
+  extends: .cluster_job
+  script:
+    - |
+      ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+        "${CI_CLUSTER_USER}@${CI_BASTION_HOST}" \
+        "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new ${CI_CLUSTER_USER}@${CI_CLUSTER_HOST} bash -s" \
+        < scripts/cluster_smoke.sh
+
+# One shared env sync (CLUSTER_MODE=setup); pytest shards reuse it via SKIP_UV_SYNC=1.
+test:cluster-setup:
+  extends:
+    - .cluster_job
+    - .cluster_ssh
+  timeout: 3h
+  variables:
+    CLUSTER_MODE: setup
+    JOB_LABEL: setup
+
+test:onecomp:
+  extends:
+    - .cluster_job
+    - .cluster_ssh
+  needs:
+    - test:cluster-setup # shards wait for env sync, not for smoke
+  timeout: 13h
+  variables:
+    CLUSTER_MODE: test
+    SKIP_UV_SYNC: "1"
+  # One job definition → four parallel pytest jobs (JOB_LABEL + PYTEST_TARGET only).
+  parallel:
+    matrix:
+      - JOB_LABEL: quantizer
+        PYTEST_TARGET: "tests/onecomp/quantizer/"
+      - JOB_LABEL: pre-process
+        PYTEST_TARGET: "tests/onecomp/pre_process/ tests/onecomp/calibration/ tests/onecomp/lpcd/"
+      - JOB_LABEL: core
+        PYTEST_TARGET: "tests/onecomp/runner/ tests/onecomp/post_process/ tests/onecomp/utils/ tests/onecomp/test_make_grouped_module.py tests/onecomp/test_runner_check.py tests/onecomp/test_eval_quantized_vs_dequantized.py tests/onecomp/test_qep_general_consistency.py tests/onecomp/test_cumulative_error_regression.py tests/onecomp/test_qep_gptq_regression.py"
+      - JOB_LABEL: vllm
+        PYTEST_TARGET: "tests/vllm_plugins/"
+
 pages:
   image: python:3.11
   stage: deploy
