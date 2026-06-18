@@ -42,7 +42,6 @@ from onecomp.pre_process.rotation_utils import (
     collect_quantized_down_proj_types,
 )
 
-
 # ── stub quantized layer types ─────────────────────────────────────
 
 
@@ -334,6 +333,6 @@ class TestLoaderLoadQuantizedModelWiring:
             "(old code regression: unknown method → layers_cls=None)"
         )
         assert isinstance(captured["layers_cls"], list)
-        assert nn.Linear in captured["layers_cls"], (
-            "loader must not filter nn.Linear (down_proj stays nn.Linear when nothing is replaced)"
-        )
+        assert (
+            nn.Linear in captured["layers_cls"]
+        ), "loader must not filter nn.Linear (down_proj stays nn.Linear when nothing is replaced)"

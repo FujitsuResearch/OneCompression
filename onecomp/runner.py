@@ -1700,6 +1700,7 @@ class Runner:
                 collect_quantized_down_proj_types,
                 register_online_hadamard_hooks,
             )
+
             quantized_down_proj_types = collect_quantized_down_proj_types(model)
 
             if quantized_down_proj_types:

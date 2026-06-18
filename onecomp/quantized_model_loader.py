@@ -148,6 +148,7 @@ class QuantizedModelLoader:
                 collect_down_proj_types,
                 register_online_hadamard_hooks,
             )
+
             fp32_had = quant_config.get("fp32_had", False)
             down_proj_types = collect_down_proj_types(model)
 
@@ -497,10 +498,7 @@ class QuantizedModelLoader:
         if ".language_model.model." in ckpt_key:
             return ckpt_key.replace(".language_model.model.", ".language_model.", 1)
         if ckpt_key.startswith("language_model.model."):
-            return (
-                "model."
-                + ckpt_key.replace("language_model.model.", "language_model.", 1)
-            )
+            return "model." + ckpt_key.replace("language_model.model.", "language_model.", 1)
         return None
 
     @staticmethod

@@ -621,13 +621,7 @@ def collect_down_proj_types(model):
     ``down_proj`` layers are quantized modules regardless of the recorded
     ``quant_method``.
     """
-    return list(
-        {
-            type(module)
-            for name, module in model.named_modules()
-            if "down_proj" in name
-        }
-    )
+    return list({type(module) for name, module in model.named_modules() if "down_proj" in name})
 
 
 def collect_quantized_down_proj_types(model):
