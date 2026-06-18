@@ -370,6 +370,87 @@ outputs = model.generate(**inputs, max_new_tokens=50)
 print(tokenizer.decode(outputs[0], skip_special_tokens=True))
 ```
 
+On macOS, the model is placed on MPS automatically when available. For vLLM serving,
+use a Linux machine with an NVIDIA GPU. See the [macOS / MPS guide](mps.md).
+
+## Global PTQ: KL Distillation
+
+Optimise quantization parameters globally via KL-divergence distillation from a full-precision teacher:
+
+```python
+from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner, GlobalPTQ, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="meta-llama/Llama-2-7b-hf",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=4, groupsize=128)
+
+global_ptq = GlobalPTQ(
+    epochs=5,
+    gptq_lr=1e-5,
+    calibration_config=CalibrationConfig(
+        num_calibration_samples=128,
+        max_length=2048,
+    ),
+    eval_interval=1,
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    post_processes=[global_ptq],
+)
+runner.run()
+```
+
+## Global PTQ: Multi-GPU with DeepSpeed
+
+For large models, use `GlobalPTQDistributed` with DeepSpeed ZeRO-2.
+
+!!! note "Installation"
+    Multi-GPU training requires DeepSpeed. Install it via the `distributed` extra:
+    
+    - **uv**: `uv sync --extra <cuda-extra> --extra distributed`
+    - **pip**: `pip install "onecomp[distributed]"`
+
+```python
+from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner, GlobalPTQDistributed, setup_logger
+
+setup_logger()
+
+model_config = ModelConfig(
+    model_id="meta-llama/Llama-2-7b-hf",
+    device="cuda:0",
+)
+gptq = GPTQ(wbits=4, groupsize=128)
+
+global_ptq = GlobalPTQDistributed(
+    epochs=5,
+    gptq_lr=1e-5,
+    deepspeed_config="ds_zero2.json",
+    calibration_config=CalibrationConfig(
+        num_calibration_samples=128,
+        max_length=2048,
+    ),
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=gptq,
+    post_processes=[global_ptq],
+)
+runner.run()
+```
+
+Launch with `torchrun`:
+
+```bash
+torchrun --nproc_per_node=2 my_script.py
+```
+
 ## Block-wise PTQ
 
 Apply block-wise post-training quantization to improve accuracy after GPTQ quantization:

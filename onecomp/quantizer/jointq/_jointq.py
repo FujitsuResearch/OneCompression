@@ -6,16 +6,18 @@ Author: Keiji Kimura
 
 """
 
+import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import torch
 
+from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
+from onecomp.quantizer.gptq._gptq import GPTQ
+from onecomp.utils.quant_config import get_quant_param
+
 from .core import compute_matrix_XX, quantize
 from .core.solution import Solution
-
-from onecomp.quantizer._quantizer import Quantizer, QuantizationResult
-from onecomp.quantizer.gptq._gptq import GPTQ
 
 _DEFAULT_LAMBDA_LIST = [0.001, 0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5]
 
@@ -128,7 +130,7 @@ class JointQResult(QuantizationResult):
 
 @dataclass
 class JointQ(Quantizer):
-    """JointQ quantizer class.
+    """JointQ quantizer class
 
     JointQ is a post-training quantization method that combines multiple
     initialization strategies (Clip-Optimize, Clip-Optimize-EP, GPTQ) with
@@ -250,6 +252,9 @@ class JointQ(Quantizer):
     flag_calibration: bool = True
     flag_hessian: bool = False
     flag_xtx: bool = True
+    # JointQ does not yet support the generic QEP pipeline.
+    # Planned for a future release.
+    flag_qep_supported: bool = False
     hessian_dtype: torch.dtype = torch.float64
 
     # Parameters for the JointQ quantizer
@@ -295,9 +300,7 @@ class JointQ(Quantizer):
     def __post_init__(self):
         if self.gptq is None:
             gptq_groupsize = self.group_size if self.group_size is not None else -1
-            self.gptq = GPTQ(
-                wbits=self.bits, groupsize=gptq_groupsize, sym=self.symmetric
-            )
+            self.gptq = GPTQ(wbits=self.bits, groupsize=gptq_groupsize, sym=self.symmetric)
         if self.lambda_list is None:
             self.lambda_list = list(_DEFAULT_LAMBDA_LIST)
         super().__post_init__()
@@ -323,11 +326,20 @@ class JointQ(Quantizer):
 
         Also delegates to ``self.gptq.validate_params()`` for GPTQ's own
         parameter validation (blocksize, percdamp, etc.).
+
+        Warnings:
+            bits == 1: valid, but GPTQLinear weight packing does not support
+                1-bit; the inference layer must be built with pack_weights=False.
         """
         bad = []
 
         if not (isinstance(self.bits, int) and self.bits >= 1):
             bad.append(f"Invalid JointQ parameter 'bits': {self.bits!r} (expected int >= 1).")
+        elif self.bits == 1:
+            self.logger.warning(
+                "JointQ with bits=1 is not supported by GPTQLinear weight packing; "
+                "build the inference layer with pack_weights=False."
+            )
 
         if self.group_size is not None and not (
             isinstance(self.group_size, int) and self.group_size >= 1
@@ -372,8 +384,10 @@ class JointQ(Quantizer):
                     "regularization_mode='diagonal' is only supported "
                     "with lambda_mode='fixed_lambda'."
                 )
-            if not (isinstance(self.regularization_gamma, (int, float))
-                    and self.regularization_gamma > 0):
+            if not (
+                isinstance(self.regularization_gamma, (int, float))
+                and self.regularization_gamma > 0
+            ):
                 bad.append(
                     f"Invalid JointQ parameter 'regularization_gamma': "
                     f"{self.regularization_gamma!r} (expected float > 0)."
@@ -395,12 +409,16 @@ class JointQ(Quantizer):
                     "Invalid JointQ parameter 'lambda_list': "
                     "all elements must be non-negative numbers."
                 )
-            if not (isinstance(self.incremental_eps_y, (int, float)) and self.incremental_eps_y >= 0):
+            if not (
+                isinstance(self.incremental_eps_y, (int, float)) and self.incremental_eps_y >= 0
+            ):
                 bad.append(
                     f"Invalid JointQ parameter 'incremental_eps_y': {self.incremental_eps_y!r} "
                     f"(expected float >= 0)."
                 )
-            if not (isinstance(self.incremental_eps_w, (int, float)) and self.incremental_eps_w >= 0):
+            if not (
+                isinstance(self.incremental_eps_w, (int, float)) and self.incremental_eps_w >= 0
+            ):
                 bad.append(
                     f"Invalid JointQ parameter 'incremental_eps_w': {self.incremental_eps_w!r} "
                     f"(expected float >= 0)."
@@ -416,9 +434,7 @@ class JointQ(Quantizer):
                 )
 
         if self.gptq.wbits != self.bits:
-            bad.append(
-                f"GPTQ.wbits (= {self.gptq.wbits}) must match JointQ.bits (= {self.bits})."
-            )
+            bad.append(f"GPTQ.wbits (= {self.gptq.wbits}) must match JointQ.bits (= {self.bits}).")
         expected_groupsize = self.group_size if self.group_size is not None else -1
         if self.gptq.groupsize != expected_groupsize:
             bad.append(
@@ -533,7 +549,9 @@ class JointQ(Quantizer):
         initial_solutions = {}
         if self.enable_gptq:
             gptq_layer = torch.nn.Linear(
-                module.in_features, module.out_features, bias=False,
+                module.in_features,
+                module.out_features,
+                bias=False,
                 device=device,
             )
             gptq_layer.weight.data = matrix_W.to(dtype=module.weight.dtype, device=device)
@@ -621,17 +639,24 @@ class JointQ(Quantizer):
         )
 
         from collections import Counter
+
         counts = Counter(vals)
 
         self.logger.info(
             "[incremental_lambda] summary: %d layers, "
             "mean=%.4f, median=%.4f, min=%.4f, max=%.4f",
-            n, mean_val, median_val, vals_sorted[0], vals_sorted[-1],
+            n,
+            mean_val,
+            median_val,
+            vals_sorted[0],
+            vals_sorted[-1],
         )
         for lam in sorted(counts):
             self.logger.info(
                 "[incremental_lambda]   lambda=%.4f: %d layers (%.1f%%)",
-                lam, counts[lam], counts[lam] / n * 100,
+                lam,
+                counts[lam],
+                counts[lam] / n * 100,
             )
 
     # ------------------------------------------------------------------
@@ -683,6 +708,115 @@ class JointQ(Quantizer):
             perm=perm.cpu() if perm is not None else None,
         )
 
+    def get_quant_config(self) -> dict:
+        """Return GPTQ-compatible quantization config.
+
+        JointQ uses the same scale/zero/assignment structure as GPTQ,
+        so we emit quant_method="gptq" to reuse GPTQLinear and vLLM GPTQ plugin.
+        """
+        return {
+            "quant_method": "gptq",
+            "bits": self.bits,
+            "groupsize": self.group_size if self.group_size is not None else -1,
+            "group_size": self.group_size if self.group_size is not None else -1,
+            "actorder": self.actorder,
+            "desc_act": self.actorder,
+            "sym": self.symmetric,
+            "checkpoint_format": "gptq",
+        }
+
+    @staticmethod
+    def _build_quantization_bits(
+        quantized_names: list[str],
+        quant_config: dict[str, Any],
+        num_layers: int,
+    ) -> list[dict[str, Any]]:
+        _LAYER_RE = re.compile(r"\.layers\.(\d+)\.(.*)")
+        default_bits = quant_config.get("bits", 4)
+        default_gs = get_quant_param(quant_config, "group_size", "groupsize", default=-1)
+
+        layer_modules: dict[int, dict[str, Any]] = {}
+        for name in quantized_names:
+            m = _LAYER_RE.search(name)
+            if m is None:
+                continue
+            layer_idx = int(m.group(1))
+            suffix = m.group(2)
+
+            layer_modules.setdefault(layer_idx, {})[suffix] = {
+                "bits": default_bits,
+                "method": "gptq",
+                "params": {"group_size": default_gs},
+            }
+        if not layer_modules:
+            return []
+
+        return [layer_modules.get(i, {}) for i in range(num_layers)]
+
+    def finalize_quant_config_for_save(
+        self,
+        quant_config: dict[str, Any],
+        quantized_layer_names: list[str],
+        num_hidden_layers: Optional[int] = None,
+    ) -> dict[str, Any]:
+        if num_hidden_layers is None:
+            raise ValueError("num_hidden_layers is required")
+        quant_config["quantization_bits"] = JointQ._build_quantization_bits(
+            quantized_layer_names, quant_config, num_hidden_layers
+        )
+        return quant_config
+
+    def create_inference_layer(self, result, linear_module, **kwargs):
+        """Build GPTQLinear from JointQResult.
+
+        Converts JointQ's 3D assignment (out_features, num_groups, group_size)
+        to 2D qweight (out_features, in_features), matching GPTQ format.
+        JointQ scale/zero_point shape is (out_features, num_groups);
+        GPTQLinear expects (num_groups, out_features), so we transpose.
+        """
+        from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
+
+        qweight = result.assignment.reshape(result.assignment.shape[0], -1)
+
+        # When `actorder` is enabled, `assignment` is stored in the permuted column order.
+        # Restore the original column order before passing to GPTQLinear.
+        # GPTQLinear constructs `g_idx` assuming `qweight` uses the original column ordering.
+        if result.perm is not None:
+            invperm = torch.argsort(result.perm)
+            qweight = qweight[:, invperm]
+
+        pack_weights = kwargs.get("pack_weights", True)
+
+        quantized_weight = qweight.to(torch.int32)
+        zero = result.zero_point.float()
+
+        # Symmetric quantization uses signed integers [-2^(n-1), 2^(n-1)-1];
+        # shift to unsigned [0, 2^n - 1] for GPTQLinear bit packing.
+        if result.symmetric:
+            offset = 2 ** (result.bits - 1)
+            quantized_weight = quantized_weight + offset
+            zero = zero + offset
+
+        return GPTQLinear(
+            in_features=quantized_weight.shape[1],
+            out_features=quantized_weight.shape[0],
+            wbits=result.bits,
+            groupsize=result.group_size if result.group_size is not None else -1,
+            actorder=(result.perm is not None),
+            quantized_weight=quantized_weight,
+            scale=result.scale.T,
+            zero=zero.T,
+            perm=result.perm,
+            bias=(
+                linear_module.bias
+                if hasattr(linear_module, "bias") and linear_module.bias is not None
+                else None
+            ),
+            device=linear_module.weight.device,
+            pack_weights=pack_weights,
+            use_gemlite=kwargs.get("use_gemlite"),
+        )
+
     # ------------------------------------------------------------------
     # Incremental lambda mode
     # ------------------------------------------------------------------
@@ -712,9 +846,7 @@ class JointQ(Quantizer):
 
         for step_idx, lam in enumerate(self.lambda_list):
             # Build regularized matrix_XX for this lambda
-            reg_matrix_XX = self._build_regularization_matrix(
-                matrix_XX_raw, dim_n, lam
-            )
+            reg_matrix_XX = self._build_regularization_matrix(matrix_XX_raw, dim_n, lam)
 
             # Until the first candidate is accepted, keep using the base
             # initializers (GPTQ / Clip-Optimize / etc.) rather than warm start.
@@ -778,12 +910,18 @@ class JointQ(Quantizer):
                     self.logger.info(
                         "[incremental_lambda] step %d: lambda=%.4f  "
                         "Ew=%.4f%%  Ey=%.4f%%  -> initial accept",
-                        step_idx, lam, ew * 100, ey * 100,
+                        step_idx,
+                        lam,
+                        ew * 100,
+                        ey * 100,
                     )
                 continue
 
             accepted, reason = self._accept_candidate(
-                accepted_ew, accepted_ey, ew, ey,
+                accepted_ew,
+                accepted_ey,
+                ew,
+                ey,
                 eps_y=self.incremental_eps_y,
                 eps_w=self.incremental_eps_w,
             )
@@ -794,9 +932,12 @@ class JointQ(Quantizer):
                     "[incremental_lambda] step %d: lambda=%.4f  "
                     "Ew=%.4f%% (%+.2f%%)  Ey=%.4f%% (%+.2f%%)  "
                     "-> %s (%s)",
-                    step_idx, lam,
-                    ew * 100, ew_delta,
-                    ey * 100, ey_delta,
+                    step_idx,
+                    lam,
+                    ew * 100,
+                    ew_delta,
+                    ey * 100,
+                    ey_delta,
                     "accept" if accepted else "reject",
                     reason,
                 )
@@ -812,7 +953,9 @@ class JointQ(Quantizer):
         if self.log_level >= 1:
             self.logger.info(
                 "[incremental_lambda] final: lambda=%.4f  Ew=%.4f%%  Ey=%.4f%%",
-                accepted_lambda, accepted_ew * 100, accepted_ey * 100,
+                accepted_lambda,
+                accepted_ew * 100,
+                accepted_ey * 100,
             )
 
         scale, assignment, zero_point = accepted_solution.get_quantized_result()
@@ -892,8 +1035,8 @@ class JointQ(Quantizer):
         dW = W_hat - W_dev  # (p, m)
 
         # Ew = ||dW||^2_F / ||W||^2_F
-        w_norm_sq = torch.sum(W_dev ** 2).item()
-        dw_norm_sq = torch.sum(dW ** 2).item()
+        w_norm_sq = torch.sum(W_dev**2).item()
+        dw_norm_sq = torch.sum(dW**2).item()
         ew = dw_norm_sq / w_norm_sq if w_norm_sq > 0 else 0.0
 
         # Ey = trace(dW @ XX @ dW^T) / trace(W @ XX @ W^T)
@@ -912,8 +1055,7 @@ class JointQ(Quantizer):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _accept_candidate(ew_prev, ey_prev, ew_new, ey_new,
-                          eps_y=None, eps_w=None):
+    def _accept_candidate(ew_prev, ey_prev, ew_new, ey_new, eps_y=None, eps_w=None):
         """Decide whether to accept a candidate solution.
 
         Rules (evaluated in order):

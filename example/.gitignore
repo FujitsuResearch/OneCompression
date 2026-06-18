@@ -1,4 +1,7 @@
 buf*.py
 run_*.sh
-tinyllama_gptq4_*/
+tinyllama*
 TinyLlama*/
+quantized_model_saveload/
+rotated_model_*
+results

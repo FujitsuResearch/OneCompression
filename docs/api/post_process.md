@@ -8,6 +8,20 @@ Post-quantization process classes for improving quantized model accuracy.
     options:
       show_source: false
 
+## Global PTQ
+
+::: onecomp.post_process.GlobalPTQ
+    options:
+      show_source: false
+      members:
+        - run
+
+::: onecomp.post_process.GlobalPTQDistributed
+    options:
+      show_source: false
+      members:
+        - run
+
 ## Block-wise PTQ
 
 ::: onecomp.post_process.BlockWisePTQ

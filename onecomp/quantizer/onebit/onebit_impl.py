@@ -12,10 +12,10 @@ Author: Yuma Ichikawa
 """
 
 import gc
+import logging
 
 import torch
 import transformers
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,6 @@ def run_onebit(
 
     Returns:
         dict[str, torch.Tensor]: Dictionary containing quantization results with the following keys:
-            - "dequantized_weight": Dequantized weights (original shape, original dtype, CPU).
             - "a": Scaling vector a.
             - "b": Scaling vector b.
             - "sign": Sign matrix sign(W).
@@ -187,10 +186,6 @@ def run_onebit(
     if isinstance(layer, transformers.Conv1D):
         W_reconstructed = W_reconstructed.t()
 
-    dequantized_weight = (
-        W_reconstructed.reshape(layer.weight.shape).to(layer.weight.data.dtype).cpu()
-    )
-
     # Save decomposition results
     weight_a = a.to(dtype=torch.float16, device="cpu")
     weight_b = b.to(dtype=torch.float16, device="cpu")
@@ -212,7 +207,14 @@ def run_onebit(
 
     if torch.isnan(W_reconstructed).any() or torch.isinf(W_reconstructed).any():
         logger.debug("[OneBit] ERROR: NaN or Inf detected in quantized weights!")
-        return False
+        # Free GPU tensors before raising so OOM does not cascade in caller.
+        del W_reconstructed, a, b, W_sign
+        if not use_balancing:
+            del W
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        raise ValueError("NaN or Inf detected in quantized weights")
 
     if not use_balancing:
         del W
@@ -221,7 +223,6 @@ def run_onebit(
     del W_reconstructed, a, b, W_sign
 
     weight_results = {
-        "dequantized_weight": dequantized_weight,
         "a": weight_a,
         "b": weight_b,
         "sign": weight_sign,

@@ -3,10 +3,11 @@
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
-import sys
 import os
-import torch
+import sys
+
 import pytest
+import torch
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -18,8 +19,9 @@ try:
 except ImportError:
     HAS_JOINTQ = False
 
-from onecomp.quantizer._quantizer import QuantizationResult
 from test_module import BaseQuantizeSpec
+
+from onecomp.quantizer._quantizer import QuantizationResult
 
 
 @pytest.mark.skipif(not HAS_JOINTQ, reason="jointq package not installed")
@@ -34,10 +36,13 @@ class TestJointQ(BaseQuantizeSpec):
     quantizer_cls = JointQ if HAS_JOINTQ else None
     result_cls = QuantizationResult
     default_parameter_for_test = {
-        "bits": 1,
+        "bits": 2,
         "symmetric": False,
         "group_size": 1,
     }
+    # JointQ requires in_features divisible by pack_factor (32 // wbits = 16 for wbits=2).
+    _forward_error_features = 32
+
     boundary_parameters = [
         # bits: int >= 1 (validated by validate_params), no explicit upper
         {"bits": 1},  # bits lower boundary
@@ -258,10 +263,6 @@ class TestJointQ(BaseQuantizeSpec):
         result = q.quantize_layer(layer, inp, hessian=hessian)
         self.check_quantize_layer(result, layer)
 
-    def test_forward_error(self, helper):
-        """Skip forward error test (no inference layer support)."""
-        pytest.skip("JointQ does not support create_inference_layer")
-
     # ------------------------------------------------------------------
     # incremental_lambda mode tests
     # ------------------------------------------------------------------
@@ -306,8 +307,12 @@ class TestJointQ(BaseQuantizeSpec):
     def test_accept_candidate_both_decrease(self):
         """Rule 1: both Ew and Ey decrease -> accept."""
         accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.10, ey_prev=0.05, ew_new=0.08, ey_new=0.04,
-            eps_y=0.03, eps_w=0.10,
+            ew_prev=0.10,
+            ey_prev=0.05,
+            ew_new=0.08,
+            ey_new=0.04,
+            eps_y=0.03,
+            eps_w=0.10,
         )
         assert accepted is True
         assert "both decreased" in reason
@@ -315,8 +320,12 @@ class TestJointQ(BaseQuantizeSpec):
     def test_accept_candidate_ew_increase(self):
         """Rule 2: Ew increased -> reject."""
         accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.10, ey_prev=0.05, ew_new=0.11, ey_new=0.04,
-            eps_y=0.03, eps_w=0.10,
+            ew_prev=0.10,
+            ey_prev=0.05,
+            ew_new=0.11,
+            ey_new=0.04,
+            eps_y=0.03,
+            eps_w=0.10,
         )
         assert accepted is False
         assert "Ew increased" in reason
@@ -324,8 +333,12 @@ class TestJointQ(BaseQuantizeSpec):
     def test_accept_candidate_tradeoff_accept(self):
         """Rule 3: Ey worsened within eps_y, Ew improved by at least eps_w -> accept."""
         accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.20, ey_prev=0.05, ew_new=0.17, ey_new=0.051,
-            eps_y=0.03, eps_w=0.10,
+            ew_prev=0.20,
+            ey_prev=0.05,
+            ew_new=0.17,
+            ey_new=0.051,
+            eps_y=0.03,
+            eps_w=0.10,
         )
         assert accepted is True
         assert "tolerance" in reason
@@ -333,8 +346,12 @@ class TestJointQ(BaseQuantizeSpec):
     def test_accept_candidate_tradeoff_reject_ey_too_large(self):
         """Rule 3 fail: Ey worsened beyond eps_y -> reject."""
         accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.20, ey_prev=0.05, ew_new=0.17, ey_new=0.06,
-            eps_y=0.03, eps_w=0.10,
+            ew_prev=0.20,
+            ey_prev=0.05,
+            ew_new=0.17,
+            ey_new=0.06,
+            eps_y=0.03,
+            eps_w=0.10,
         )
         assert accepted is False
         assert "eps_y" in reason
@@ -342,8 +359,12 @@ class TestJointQ(BaseQuantizeSpec):
     def test_accept_candidate_tradeoff_reject_ew_insufficient(self):
         """Rule 3 fail: Ew did not improve enough -> reject."""
         accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.20, ey_prev=0.05, ew_new=0.19, ey_new=0.051,
-            eps_y=0.03, eps_w=0.10,
+            ew_prev=0.20,
+            ey_prev=0.05,
+            ew_new=0.19,
+            ey_new=0.051,
+            eps_y=0.03,
+            eps_w=0.10,
         )
         assert accepted is False
         assert "eps_w" in reason
@@ -351,8 +372,12 @@ class TestJointQ(BaseQuantizeSpec):
     def test_accept_candidate_ew_equal_ey_equal(self):
         """Edge case: Ew and Ey unchanged -> reject (no strict decrease)."""
         accepted, _ = JointQ._accept_candidate(
-            ew_prev=0.10, ey_prev=0.05, ew_new=0.10, ey_new=0.05,
-            eps_y=0.03, eps_w=0.10,
+            ew_prev=0.10,
+            ey_prev=0.05,
+            ew_new=0.10,
+            ey_new=0.05,
+            eps_y=0.03,
+            eps_w=0.10,
         )
         assert accepted is False
 
@@ -360,12 +385,18 @@ class TestJointQ(BaseQuantizeSpec):
         """Without eps parameters, rule 3 cannot fire; only rules 1-2 apply."""
         # Ey worsened, Ew improved, but no eps -> reject
         accepted, _ = JointQ._accept_candidate(
-            ew_prev=0.20, ey_prev=0.05, ew_new=0.17, ey_new=0.051,
+            ew_prev=0.20,
+            ey_prev=0.05,
+            ew_new=0.17,
+            ey_new=0.051,
         )
         assert accepted is False
         # Both decrease -> still accept
         accepted, _ = JointQ._accept_candidate(
-            ew_prev=0.20, ey_prev=0.05, ew_new=0.17, ey_new=0.04,
+            ew_prev=0.20,
+            ey_prev=0.05,
+            ew_new=0.17,
+            ey_new=0.04,
         )
         assert accepted is True
 

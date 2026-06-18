@@ -2,17 +2,20 @@
 Copyright 2025-2026 Fujitsu Ltd.
 
 """
+
 import math
+from logging import getLogger
+
 import torch
 import torch.nn.functional as F
 
 from onecomp.quantizer._quantizer import Quantizer
-from ._metric import ClosedFormSolverArgument, LpcdMetric
+
+from ..qep._quantize_with_qep_arch import compute_hessian_and_crossterm
 from ._gradient_solver import gradient_solver
 from ._lpcd_config import LPCDConfig
-from ..qep._quantize_with_qep_arch import compute_hessian_and_crossterm
+from ._metric import ClosedFormSolverArgument, LpcdMetric
 
-from logging import getLogger
 logger = getLogger(__name__)
 
 
@@ -26,7 +29,7 @@ def compute_mse(
     device: str,
     kwargs: dict,
 ) -> float:
-    """ Compute the quantization error
+    """Compute the quantization error
 
     Args:
         metric_q (LpcdMetric): LPCD metric for the quantized block
@@ -58,7 +61,7 @@ def refiner(
     quantizer: Quantizer,
     kwargs: dict,
 ) -> None:
-    """ Perform the LPCD refinement for a single module group (e.g., qk-module)
+    """Perform the LPCD refinement for a single module group (e.g., qk-module)
 
     Args:
         lpcd_config (LPCDConfig): LPCD configuration
@@ -72,11 +75,11 @@ def refiner(
     device = lpcd_config.device
     batch_size = 16
 
-    assert lpcd_config.gd_batch_size % batch_size == 0, \
-        f"gd_batch_size should be divisible by batch_size, " + \
-        f"but got {lpcd_config.gd_batch_size} and {batch_size}"
-    
-    
+    assert lpcd_config.gd_batch_size % batch_size == 0, (
+        f"gd_batch_size should be divisible by batch_size, "
+        + f"but got {lpcd_config.gd_batch_size} and {batch_size}"
+    )
+
     metric_q, metric_f = metric_group
 
     modules_q = [module for _, module in metric_q.named_targets()]
@@ -97,11 +100,11 @@ def refiner(
                 "Processing layer for refinement: %s =================================================",
                 name,
             )
-            
+
             default_mse = compute_mse(
                 metric_q, metric_f, inps_q, inps_f, batch_size, device, kwargs
             )
-            
+
             # Relaxation step
             cf_solver = metric_q.closed_form_solvers()[module_idx]
 
@@ -119,7 +122,7 @@ def refiner(
                 cf_solver(cf_solver_arg)
             else:
                 logger.info("Relaxing with gradient descent.")
-                
+
                 gradient_solver(
                     lpcd_config=lpcd_config,
                     target_modules=[module_q],
@@ -131,11 +134,10 @@ def refiner(
                     penalty_fn_list=[],
                 )
 
-            
             # apply relaxed result with regularization
             with torch.no_grad():
-                alpha  = lpcd_config.perccorr
-                W      = module_f.weight.data
+                alpha = lpcd_config.perccorr
+                W = module_f.weight.data
                 W_corr = module_q.weight.data
                 module_q.weight.data = (1 - alpha) * W + alpha * W_corr
 
@@ -161,16 +163,15 @@ def refiner(
             # Update the weights of the target layer
             dtype = module_q.weight.data.dtype
             module_q.weight.data = (
-                quantizer.results[name]
-                .compute_dequantized_weight()
-                .to(device)
-                .to(dtype)
+                quantizer.results[name].compute_dequantized_weight().to(device).to(dtype)
             )
 
             # Compute the projected MSE
             mse_after_projection = compute_mse(
                 metric_q, metric_f, inps_q, inps_f, batch_size, device, kwargs
             )
-            logger.debug(f"[LPCD] {default_mse:.5e} -> {relaxed_mse:.5e} -> {mse_after_projection:.5e}")
+            logger.debug(
+                f"[LPCD] {default_mse:.5e} -> {relaxed_mse:.5e} -> {mse_after_projection:.5e}"
+            )
 
     metric_q.is_refined = True

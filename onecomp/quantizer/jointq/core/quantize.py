@@ -11,9 +11,9 @@ import time
 
 import torch
 
+from .__version__ import __version__
 from .quantizer import Quantizer
 from .solution import Solution
-from .__version__ import __version__
 
 
 # pylint: disable=too-many-arguments,too-many-positional-arguments, too-many-locals
@@ -378,8 +378,7 @@ def _validate_quantize_args(
             )
 
     # --- Initialization strategy checks ---
-    if not (enable_clip_optimize or enable_clip_optimize_ep
-            or initial_solutions):
+    if not (enable_clip_optimize or enable_clip_optimize_ep or initial_solutions):
         raise ValueError(
             "At least one initialization strategy must be enabled or "
             "initial_solutions must be provided."
@@ -1016,7 +1015,9 @@ def run_iterated_local_search(
 
         error = torch.sum(squared_errors)
         if log_level >= 1:
-            print(f"<{device}>: <ILS {i + 1}> Result: error = {error:.4e}, MSE = {(error / num_element):.4e}")
+            print(
+                f"<{device}>: <ILS {i + 1}> Result: error = {error:.4e}, MSE = {(error / num_element):.4e}"
+            )
 
     return solution
 

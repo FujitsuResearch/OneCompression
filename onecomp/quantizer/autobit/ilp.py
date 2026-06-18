@@ -11,9 +11,9 @@ import re
 import torch
 from ortools.linear_solver import pywraplp
 
-from onecomp.utils import raw_bits_for_quantizer, effective_bits_for_quantizer
-from onecomp.quantizer.rtn.quantizer import pseudo_quantize_tensor
 from onecomp.quantizer.autobit.activation_stats import collect_activation_stats_blockwise
+from onecomp.quantizer.rtn.quantizer import pseudo_quantize_tensor
+from onecomp.utils import effective_bits_for_quantizer, raw_bits_for_quantizer
 
 
 def assign_by_ilp(quantizer, model, *, use_activation=False):

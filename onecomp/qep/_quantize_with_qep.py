@@ -27,6 +27,7 @@ from onecomp.model_config import ModelConfig
 from onecomp.qep._qep_config import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
 from onecomp.utils import capture_input_activations
+from onecomp.utils.quantization_progress import QuantizationProgressTracker
 
 logger = getLogger(__name__)
 
@@ -36,6 +37,8 @@ def run_quantize_with_qep(
     quantizer: Quantizer,
     qep_config: QEPConfig,
     calibration_config: CalibrationConfig,
+    *,
+    report_progress: bool = True,
 ):
     """Run quantization with Quantization Error Propagation (QEP).
 
@@ -51,6 +54,7 @@ def run_quantize_with_qep(
         qep_config (QEPConfig): Configuration for QEP
             (percdamp, perccorr, exclude_layer_keywords).
         calibration_config (CalibrationConfig): Calibration parameters.
+        report_progress (bool): When True, log ``[progress]`` with ETA per layer.
 
     """
     model = model_config.load_model()
@@ -79,6 +83,14 @@ def run_quantize_with_qep(
     torch.cuda.empty_cache()
 
     logger.info("Quantizing the model using %s", quantizer.name)
+
+    progress = None
+    if report_progress:
+        progress = QuantizationProgressTracker(
+            logger,
+            len(quantizer.module_to_name),
+            "QEP quantization (general, per layer)",
+        )
 
     # 2. For each target layer, perform the following sequentially
     for module, name in quantizer.module_to_name.items():
@@ -114,6 +126,8 @@ def run_quantize_with_qep(
 
         # 2-4. Free memory
         del quant_input_activation
+        if progress is not None:
+            progress.step_complete(name)
 
     del original_input_activations
     quantizer.execute_post_processing()

@@ -23,7 +23,8 @@ class QEPConfig:
             Default is 0.01.
         perccorr (float): Correction percentage for error propagation.
             Default is 0.5.
-        device (str): Device to use for QEP computations (e.g., "cuda").
+        device (str): Device to use for QEP computations
+            (e.g., "cuda", "mps", "cpu").
             Default is "cuda:0".
         exclude_layer_keywords (list[str]): List of keywords to identify
             layers excluded from error propagation. Layers whose names

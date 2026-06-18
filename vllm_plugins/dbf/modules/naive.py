@@ -1,8 +1,9 @@
 """Copyright 2025-2026 Fujitsu Ltd."""
 
+from typing import Optional, Tuple
+
 import torch
 import torch.nn as nn
-from typing import Optional, Tuple
 
 
 def unpack_sign_bits(packed: torch.Tensor, original_shape: torch.Size) -> torch.Tensor:

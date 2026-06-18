@@ -6,16 +6,29 @@ Author: Keiji Kimura
 
 """
 
-from abc import ABCMeta
-from abc import abstractmethod
+import math
+import time
+from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, field
 from logging import getLogger
 from typing import Any, Optional, Union
 
-import time
-import math
 import torch
-from torch.nn import Linear, Conv2d, Conv1d
+from torch.nn import Conv1d, Conv2d, Linear
+
+from onecomp.utils.device import empty_cache
+
+
+def _safe_cholesky_and_solve(hessian, rhs):
+    if hessian.device.type == "mps":
+        hessian_cpu = hessian.cpu()
+        rhs_cpu = rhs.cpu()
+        cholesky = torch.linalg.cholesky(hessian_cpu)
+        delta_weight = torch.cholesky_solve(rhs_cpu.t(), cholesky).to(hessian.device)
+    else:
+        cholesky = torch.linalg.cholesky(hessian)
+        delta_weight = torch.cholesky_solve(rhs.t(), cholesky)
+    return delta_weight
 
 
 @dataclass
@@ -174,6 +187,7 @@ class Quantizer(metaclass=ABCMeta):
     flag_calibration: bool = False
     flag_hessian: bool = False
     flag_xtx: bool = False  # Whether X^T X is needed (e.g., JointQ)
+    flag_qep_supported: bool = True
 
     def __post_init__(self):
         """__post_init__ method"""
@@ -202,11 +216,14 @@ class Quantizer(metaclass=ABCMeta):
 
         name = self.module_to_name[module]
 
-        self.logger.info("Quantizing layer: %s", name)
+        # Emitted at DEBUG because Runner emits a `[progress]` INFO line per
+        # completed layer (see ``onecomp.utils.quantization_progress``); keep
+        # the per-layer "start" signal available under DEBUG for deep dives.
+        self.logger.debug("Quantizing layer: %s", name)
         start_time = time.time()
         if hessian is None and self.flag_hessian:
             hessian = self.calculate_hessian(module, input)
-            
+
         result = self.quantize_layer(module, input, hessian=hessian)
         end_time = time.time()
         if hessian is not None:
@@ -218,7 +235,7 @@ class Quantizer(metaclass=ABCMeta):
         result.quantization_time = end_time - start_time
 
         self.results[name] = result
-        torch.cuda.empty_cache()
+        empty_cache(module.weight.device)
 
         if self.calc_quant_error:
             # Record quantization error
@@ -254,7 +271,7 @@ class Quantizer(metaclass=ABCMeta):
 
         # Adjust the weights to be quantized
         if delta_hatX is not None or original_input_activation is not None:
-            self.logger.info("Adjusting the weight of the layer: %s", name)
+            self.logger.debug("Adjusting the weight of the layer: %s", name)
             self.adjust_weight(
                 module,
                 quant_input_activation,
@@ -264,9 +281,9 @@ class Quantizer(metaclass=ABCMeta):
                 percdamp=percdamp,
                 perccorr=perccorr,
             )
-            torch.cuda.empty_cache()
+            empty_cache(module.weight.device)
 
-        self.logger.info("Quantizing layer: %s", name)
+        self.logger.debug("Quantizing layer: %s", name)
         result = self.quantize_layer(module, quant_input_activation, hessian=hessian)
         end_time = time.time()
         if hessian is not None:
@@ -278,7 +295,7 @@ class Quantizer(metaclass=ABCMeta):
         result.quantization_time = end_time - start_time
 
         self.results[name] = result
-        torch.cuda.empty_cache()
+        empty_cache(module.weight.device)
 
         if self.calc_quant_error:
             # Record quantization error
@@ -314,7 +331,7 @@ class Quantizer(metaclass=ABCMeta):
             result.relative_weight_squared_error,
         ) = self.calculate_weight_quantization_error(module, dequantized_weight)
 
-        torch.cuda.empty_cache()
+        empty_cache(module.weight.device)
 
     def adjust_weight(
         self,
@@ -359,9 +376,8 @@ class Quantizer(metaclass=ABCMeta):
         damp = percdamp * torch.mean(torch.diag(hessian))
         diag = torch.arange(hessian.shape[0], device=hessian.device)
         hessian[diag, diag] += damp
-        cholesky = torch.linalg.cholesky(hessian)
         rhs = weight @ delta_hatX
-        delta_weight = torch.cholesky_solve(rhs.t(), cholesky).t()
+        delta_weight = _safe_cholesky_and_solve(hessian, rhs).t()
         weight = weight + (perccorr * delta_weight)
 
         if isinstance(module, Conv1d):
@@ -453,7 +469,7 @@ class Quantizer(metaclass=ABCMeta):
         layers are considered for quantization.  Vision / audio encoder
         layers are automatically excluded.
 
-        For MoE models with fused 3D expert parameters (e.g. Gemma4,), 
+        For MoE models with fused 3D expert parameters (e.g. Gemma4,),
         expert tensors are automatically unfused into
         per-expert nn.Linear layers before the module scan.
 
@@ -904,7 +920,7 @@ class Quantizer(metaclass=ABCMeta):
 
             del batch_diff, batch_X_T
 
-        torch.cuda.empty_cache()
+        empty_cache(device)
 
         # MSE = output_squared_error / (out_features * total_samples)
         mean_output_squared_error = output_squared_error / num_elements

@@ -12,10 +12,11 @@ from torch import nn
 
 from onecomp.utils.blockwise import (
     backward_input,
-    get_blocks_and_inputs,
     forward_input,
+    get_blocks_and_inputs,
     move_kwargs_to_device,
 )
+from onecomp.utils.device import empty_cache, get_default_device
 
 
 def _find_head_modules(model, blocks):
@@ -66,8 +67,7 @@ def _map_candidates_to_blocks(blocks, candidates):
 
 
 def _is_kv_shared_block(block):
-    """Return True if the block reuses KV states from an earlier layer.
-    """
+    """Return True if the block reuses KV states from an earlier layer."""
     attn = getattr(block, "self_attn", None)
     return getattr(attn, "is_kv_shared_layer", False)
 
@@ -88,17 +88,18 @@ def collect_activation_stats_blockwise(
         tuple[dict, dict]: (a_diag, b_diag)
     """
     from transformers import AutoTokenizer
+
     from onecomp.calibration import prepare_calibration_dataset
 
     if device is None:
-        device = torch.device("cuda")
+        device = get_default_device()
 
     original_device = next(model.parameters()).device
     if original_device.type != "cpu":
         if logger:
             logger.info("Moving model to CPU for block-wise activation collection")
         model.to("cpu")
-        torch.cuda.empty_cache()
+        empty_cache(original_device)
 
     model_id = getattr(model.config, "_name_or_path", None)
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
@@ -111,9 +112,7 @@ def collect_activation_stats_blockwise(
 
     num_samples = calibration_config.num_calibration_samples
     actual_samples = min(num_samples, calib_data["input_ids"].shape[0])
-    model_inputs = {
-        k: v[:actual_samples] for k, v in calib_data.items()
-    }
+    model_inputs = {k: v[:actual_samples] for k, v in calib_data.items()}
 
     blocks, inps, kwargs = get_blocks_and_inputs(model, model_inputs, batch_size)
     kwargs = move_kwargs_to_device(kwargs, device)
@@ -158,7 +157,7 @@ def collect_activation_stats_blockwise(
         for h in hooks:
             h.remove()
         block.cpu()
-        torch.cuda.empty_cache()
+        empty_cache(device)
 
     # Collect b_diag
     if use_curvature_b:
@@ -209,7 +208,7 @@ def collect_activation_stats_blockwise(
             for h in hooks:
                 h.remove()
             block.cpu()
-            torch.cuda.empty_cache()
+            empty_cache(device)
 
     a_diag = {}
     b_diag = {}
@@ -225,6 +224,7 @@ def collect_activation_stats_blockwise(
         if logger:
             logger.info("Restoring model to %s", original_device)
         model.to(original_device)
+        empty_cache(original_device)
 
     return a_diag, b_diag
 
@@ -277,6 +277,6 @@ def _compute_loss_grad(final_hidden, norm, lm_head, input_ids, device):
 
     norm.cpu()
     lm_head.cpu()
-    torch.cuda.empty_cache()
+    empty_cache(device)
 
     return torch.cat(all_grads)

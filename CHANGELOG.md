@@ -1,5 +1,165 @@
 # Change log
 
+## [v1.3.0] 2026-MM-DD (WIP)
+
+(TODO: Add changelog for v1.3.0)
+
+### Bug fix
+- Text-only `generate()` on multimodal models (e.g. Gemma-4 12B) could emit modality delimiter tokens and degrade output after quantize→reload, because `load_quantized_model()` did not restore `generation_config.json` (including `suppress_tokens`). Now loads it from the save directory when present (`quantized_model_loader.py`).
+- Fixed VLM (e.g. Gemma3) quantized model save/load: safetensors key prefixes from `save_pretrained` (`model.language_model.model.layers.*`) did not match the `from_config` model (`model.language_model.layers.*`), so `load_state_dict(..., assign=True)` left `qweight` / `scales` / `qzeros` at zero and generation degraded (`onecomp/quantized_model_loader.py`)
+  - Added `_remap_state_dict_keys()` to normalize checkpoint keys before `_replace_quantized_layers`; `_apply_known_state_dict_key_rewrites()` rewrites `.language_model.model.` → `.language_model.` (pattern-based, without requiring keys to exist in the empty model yet)
+
+## [v1.2.0] 2026-06-08
+
+### Save/Load Support for JointQ, RTN, and OneBit Quantizers
+
+- **JointQ**: Added `get_quant_config()`, `finalize_quant_config_for_save()`, and `create_inference_layer()` to `JointQ` class (`onecomp/quantizer/jointq/_jointq.py`)
+  - Emits `quant_method="gptq"` to reuse `GPTQLinear` and vLLM GPTQ plugin (JointQ uses the same scale/zero/assignment structure as GPTQ)
+  - `create_inference_layer()` converts JointQ's 3D assignment `(out_features, num_groups, group_size)` to 2D qweight `(out_features, in_features)` matching GPTQ format, with scale/zero transposition
+  - Handles `actorder` permutation: restores original column order before passing to `GPTQLinear` so `g_idx` is constructed correctly
+  - Symmetric quantization: shifts signed integers `[-2^(n-1), 2^(n-1)-1]` to unsigned `[0, 2^n - 1]` for GPTQLinear bit packing
+  - Added `bits == 1` warning in `validate_params()`: GPTQLinear weight packing does not support 1-bit; inference layer must be built with `pack_weights=False`
+  - Added `_build_quantization_bits()` static method to emit per-layer `quantization_bits` metadata for mixed-precision save
+- **RTN**: Added `get_quant_config()`, `finalize_quant_config_for_save()`, `create_inference_layer()`, and `RTNResult.compute_dequantized_weight()` to `RTN` class (`onecomp/quantizer/rtn/_rtn.py`)
+  - Emits `quant_method="gptq"` to reuse `GPTQLinear` and vLLM GPTQ plugin (RTN uses the same qweight/scales/qzeros tensor format)
+  - `compute_dequantized_weight()` implements `W = (quantized_weight - zero) * scale` with per-channel and group-wise paths
+  - `create_inference_layer()` transposes scale/zero from `(out_features, num_groups)` to `(num_groups, out_features)` for GPTQLinear compatibility
+  - Added `_build_quantization_bits()` static method for per-layer metadata
+- **OneBit**: Added `get_quant_config()`, `finalize_quant_config_for_save()`, `create_inference_layer()`, and `OnebitResult.compute_dequantized_weight()` to `Onebit` class (`onecomp/quantizer/onebit/_onebit.py`)
+  - Emits `quant_method="onebit"` with OneBit-specific parameters (`iters`, `use_importance_scaling`, `use_balancing`, `balance_iters`, `balance_alpha`)
+  - `compute_dequantized_weight()` implements `W ≈ a[:, None] * sign * b[None, :]`
+  - `create_inference_layer()` builds `OneBitLinear` via `OneBitLinear.from_quantization_result()`
+  - Added `_build_quantization_bits()` static method for per-layer metadata
+
+### Apple Silicon / macOS support
+
+- **MPS quantization**: GPTQ (and AutoBit with GPTQ-only candidates) on `device="mps"`; cross-platform `empty_cache()` via new `onecomp/utils/device.py` (`runner.py`, `quantizer/gptq/_gptq.py`, `quantizer/_quantizer.py`)
+- **MPS device placement (GPTQ on CPU, QEP correction on MPS)**: With `device="mps"`, `run_gptq` moves the Hessian and weights to **CPU** for the full column-wise GPTQ loop (including inverse-Hessian Cholesky). The main reason is not absent Cholesky kernels on MPS (recent PyTorch supports them); if the GPTQ loop stayed on MPS, `maxq.item()` inside `quantize()` would run once per column—each call waits for pending MPS work to finish and read back a single scalar to the host (per-column host sync), not a full matrix copy per column—and that overhead is often several times slower than CPU on Apple Silicon (~4× in internal benchmarks with PyTorch 2.12). When QEP weight correction runs (`adjust_weight`, typically under `qep=True`), per-layer work stays on **MPS** (e.g. `weight @ delta_hatX`); only the Cholesky solve uses CPU via `_safe_cholesky_and_solve` (one solve per layer). A full CPU fallback for QEP does not materially improve speed. Calibration forwards may still use MPS. Details: README (macOS / MPS).
+- **MPS inference**: load saved quantized models on Mac with `QuantizedModelLoader` + Transformers `generate()` (GemLite/vLLM remain Linux + CUDA)
+- **macOS `uv sync`**: added `darwin` to `tool.uv.environments`, `--extra mps` for MPS-enabled PyTorch from PyPI; `--extra cpu` is Linux-only (pytorch-cpu index); Linux-only markers on CUDA extras (`cu118`–`cu130`)
+
+## New Feature : Dashboard
+
+- Added `dashboard/`, a browser-based web app for OneCompression on **SLURM-managed HPC GPU nodes without Docker**: pick a Hugging Face model and quantization settings in the UI, run jobs on the GPU, deploy the quantized checkpoint, and validate inference via chat
+- **Stack**: React + Vite frontend (local PC), FastAPI API, Celery worker + user-built Redis, SQLite job DB, per-job output under `backend/tmp/quantized/`; CUDA quantization via `onecomp` and chat deploy via a separate **vLLM** subprocess from the same `backend/.venv` (`onecomp` + `vllm>=0.21` in `pyproject.toml`)
+- **Quantization methods exposed in the UI**: `gptq`, `autobit`, `jointq`, and `auto_run` (VRAM-based bitwidth / group size); optional QEP (not with JointQ); fractional bit widths for `autobit` / `auto_run`
+
+### New Feature: Global PTQ (Post-Training Quantization)
+
+- Added `GlobalPTQ` and `GlobalPTQDistributed` post-process classes for KL-distillation-based global optimisation of continuous quantization parameters (scales and zeros for GPTQ; scaling factors for DBF)
+- `GlobalPTQ`: Single-GPU implementation with cosine-warmup LR scheduling, early stopping, mixed-precision support, and gradient accumulation
+- `GlobalPTQDistributed`: Multi-GPU implementation using HuggingFace Trainer + DeepSpeed ZeRO-2, supporting KL divergence and/or NTP loss with automatic best-state rollback
+
+### Evaluation:
+- Added `onecomp.eval` and the `onecomp-eval` CLI: one vLLM server, subprocess evaluators, aggregated `summary.json` / `summary.csv`
+- Added `mt_bench` (Japanese MT-Bench) and opt-in `throughput` (TTFT / decode tok/s) evaluators
+
+### for Developer: pre-commit
+
+- Added `.pre-commit-config.yaml` with `black`, `isort`, and local hooks (`no-japanese`, `copyright-header`, `no-email-address`); install with `uv sync --extra dev` then `pre-commit install` (see README)
+
+### OneBitLinear Inference Layer Improvements
+
+- Added `OneBitLinear.from_quantization_result()` class method: builds `OneBitLinear` from `OnebitResult` (mirrors the pattern used by `GPTQLinear` and `DoubleBinaryLinear`) (`onecomp/quantizer/onebit/onebit_layer.py`)
+- Added `OneBitLinear.from_saved_state()` class method: reconstructs `OneBitLinear` from saved `state_dict` tensors (`a`, `b`, `sign_packed`, optional `bias`), using the same `cls.__new__` pattern as `DoubleBinaryLinear` (`onecomp/quantizer/onebit/onebit_layer.py`)
+- Removed `preunpack` parameter from `OneBitLinear.__init__()` and `replace_linear_with_onebit_layer()`: sign matrix is now always stored as packed `uint8` and unpacked on demand during `forward()`, matching the DBF inference layer pattern (`onecomp/quantizer/onebit/onebit_layer.py`)
+- Normalized buffers to FP16 with `detach()` in `OneBitLinear.__init__()` to drop autograd graph
+- Added `_load_from_state_dict()` override to clear `sign_matrix` cache when loading from checkpoint
+- Extracted `_unpack_sign_matrix()` helper for sign matrix unpacking logic
+- Removed unreferenced functions `replace_linear_with_onebit_layer()` and `extract_onebit_weights_for_save()` from `onebit_layer.py`: layer construction is now handled by `OneBitLinear.from_quantization_result()` / `OneBitLinear.from_saved_state()`, and save-time weight extraction is covered by the unified `create_inference_layer()` / `state_dict()` path (`onecomp/quantizer/onebit/onebit_layer.py`)
+
+### QuantizedModelLoader: OneBit Support
+
+- `QuantizedModelLoader` now supports `quant_method="onebit"` (`onecomp/quantized_model_loader.py`)
+  - Added `OneBitLinear` to import and layer replacement logic
+  - Added `OneBitLinear.from_saved_state()` call path for creating empty OneBit layers during model loading
+  - Hadamard hook registration now recognizes `OneBitLinear` as a quantized layer class
+
+### BlockWisePTQ / CBQ OneBit Optimizer Compatibility
+
+- Updated OneBit block-wise and cross-block quantization (CBQ) optimizers to work with packed-only `OneBitLinear` (`onecomp/post_process/_blockwise/onebit_block_optimizer.py`, `onecomp/post_process/_blockwise/onebit_cbq_optimizer.py`)
+  - Reads current sign matrices from `sign_packed` via `my_unpack()` when `sign_matrix` is not present, while still allowing `sign_matrix` as a temporary optimization override
+  - Writes sign updates back to `sign_packed` with `my_pack()` and clears `sign_matrix` so packed signs remain the single source of truth after hard evaluation, best-state restore, and final updates
+  - Hoisted `my_pack` / `my_unpack` imports in the OneBit CBQ optimizer
+- Clarified `OneBitLinear.sign_matrix` as a non-persistent temporary override used by optimization flows such as BlockWisePTQ and CBQ (`onecomp/quantizer/onebit/onebit_layer.py`)
+
+### Bug Fix
+
+- Fixed `GPTQLinear.from_saved_state()`: `_weight_is_packed` now defaults to `False` when `wbits == 1` (JointQ `wbits=1` checkpoints are saved with `pack_weights=False` because GPTQLinear packing does not support 1-bit) (`onecomp/quantizer/gptq/gptq_layer.py`)
+- Fixed redundant symmetric shift in RTN inference layer (`onecomp/quantizer/rtn/_rtn.py`)
+- Fixed `run_onebit()` returning `False` on NaN/Inf detection; now raises `ValueError` with proper GPU tensor cleanup to prevent OOM cascading (`onecomp/quantizer/onebit/onebit_impl.py`)
+- Removed pre-computed `dequantized_weight` from `run_onebit()` return dict and `OnebitResult`; dequantized weight is now computed on demand via `compute_dequantized_weight()` (`onecomp/quantizer/onebit/onebit_impl.py`, `onecomp/quantizer/onebit/_onebit.py`)
+- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now skips `OneBitLinear` in addition to `GPTQLinear` and `DoubleBinaryLinear`, so OneBit's fp16 scaling buffers (`a`, `b`, `bias`) are preserved when loading a OneBit-quantized model that requires `bfloat16` (e.g. Gemma 3 / Gemma 4 detected via `needs_bfloat16`). Without this, the post-load safety-net cast rewrote OneBit's stored fp16 metadata to `bfloat16`, breaking the dtype contract that `OneBitLinear.forward` relies on (`self.a.to(x.dtype)` / `self.b.to(x.dtype)` casts to the activation dtype at compute time). Updated the function's docstring to list `OneBitLinear` alongside the other quantized layer types whose fp16 metadata is intentionally retained (`onecomp/quantized_model_loader.py`).
+
+### Tests
+
+- Enabled inherited `test_forward_error` tests for JointQ, OneBit, and RTN (previously skipped with `"does not support create_inference_layer"`) (`tests/onecomp/quantizer/jointq/test_jointq.py`, `tests/onecomp/quantizer/onebit/test_onebit.py`, `tests/onecomp/quantizer/rtn/test_rtn.py`)
+- Added `_forward_error_features` class attribute to `BaseQuantizeSpec` for parameterizing layer size in `test_forward_error`; JointQ overrides to `32` (requires `in_features` divisible by `pack_factor = 32 // wbits`) (`tests/onecomp/quantizer/test_module.py`)
+- Changed JointQ test default `bits` from `1` to `2` to match GPTQLinear packing constraints (`tests/onecomp/quantizer/jointq/test_jointq.py`)
+- Updated `check_equal_results` in RTN and OneBit tests to use `compute_dequantized_weight()` instead of direct `dequantized_weight` attribute access
+- Updated `apply_quantized_weights` in RTN and OneBit tests to use `compute_dequantized_weight()` with proper dtype preservation
+- Tightened GPTQ unit test tolerances in `tests/onecomp/quantizer/gptq/test_gptq.py` so regressions in dequantized-weight error are detected earlier (`error < 0.4`, `max_error < 1.71`; previously `0.6` / `2.5`) (`tests/onecomp/quantizer/gptq/test_gptq.py`)
+- Fixed `tests/onecomp/quantizer/test_module.py` to feed `y_replaced` consistently into `q_proj` / `k_proj` / `v_proj` after quantized weights are applied, aligning the replacement-path forward test with the intended residual update flow
+- Extracted the duplicated attention+MLP forward loop in `test_quantize_error` into `TestModel.forward()` (`tests/onecomp/quantizer/test_module.py`); both the pre-quantization and post-quantization inference paths now call `model(inp)` directly, eliminating 34 duplicate lines
+
+### Dependencies
+
+- Pinned the `vllm` optional dependency to `vllm>=0.10,<0.22` in `pyproject.toml` (and regenerated `uv.lock`). vLLM 0.22.0 removed the legacy Exllama GPTQ kernel that OneComp's GPTQ serving uses for low bit-widths (2-/3-bit, and 4-/8-bit models that are asymmetric or use `desc_act`), so **vLLM 0.22 and later are not supported** — serving affected models on 0.22+ fails at runtime. Documented in `docs/user-guide/vllm-inference.md` and `docs/getting-started/installation.md`.
+
+### Documentation
+
+- Documented save/load and vLLM compatibility for the newly-supported **JointQ**, **RTN**, and **OneBit** quantizers across the docs:
+  - `docs/api/quantizers/base.md`: moved `JointQ`, `RTN`, and `Onebit` into the supported rows of the "Quantizer Feature Support" table (`get_quant_config` / `create_inference_layer` / Save / Quantized PPL/ACC all Yes), and added a new "Saved `quant_method` and vLLM compatibility" table mapping each quantizer to its emitted `quant_method` (`gptq` / `mixed_gptq` / `dbf` / `onebit`) and serving path
+  - `docs/user-guide/basic-usage.md`: updated the quantized-model evaluation note and the "Quantizer feature support" table to include JointQ/RTN/OneBit, added a `quant_method` column, and clarified which saved models are vLLM-servable
+  - `docs/user-guide/vllm-inference.md`: rewrote the "Supported Quantization Methods" table to distinguish vLLM's **built-in** GPTQ plugin (used for `gptq`: GPTQ uniform bits, JointQ, RTN) from the **OneComp** plugins (`mixed_gptq`, `dbf`), added a note that `Onebit` is not vLLM-servable, and listed the GPTQ/JointQ/AutoBit end-to-end examples; split the `gptq` row so GPTQ/RTN (`wbits` in {2, 3, 4, 8}) and JointQ (`bits` in {2, 3, 4}; `bits=1` is OneComp load-only with `pack_weights=False`) document their distinct supported bit-widths
+  - `docs/algorithms/jointq.md`: added a "Save and Load" section (emits `quant_method="gptq"`, served by vLLM's built-in GPTQ plugin), a note that JointQ `bits` is limited to {2, 3, 4} for vLLM (the JointQ core quantizer rejects `bits > 4`) while `bits=1` requires an explicit `runner.save_quantized_model(..., pack_weights=False)` and is OneComp load-only / not vLLM-servable, and clarified that JointQ does not support QEP (`qep=False`)
+  - `docs/algorithms/rtn.md`: added a "Save and Load" section, a note that vLLM serving uses `wbits` in {2, 3, 4, 8} (RTN itself accepts a wider range, but GPTQ-compatible bit packing and vLLM serving are limited to these), and a warning that rotation-preprocessed RTN models cannot be served with vLLM (no online Hadamard transform), though they remain loadable with `load_quantized_model()`
+  - `docs/getting-started/quickstart.md`, `docs/index.md`, `README.md`: updated quantized-model evaluation and vLLM integration descriptions to include JointQ/RTN/OneBit and reference the GPTQ built-in plugin path
+
+### Examples
+
+- Added `example/vllm_inference/example_jointq_vllm_inference.py`: end-to-end JointQ quantization (4-bit, `group_size=128`) → save → vLLM offline inference. Mirrors the GPTQ vLLM example, uses `qep=False` (JointQ does not support QEP), and documents the `bits >= 2` requirement for vLLM bit-packing. Registered in the README example table.
+
+
+## [v1.1.1] 2026-05-21
+
+### New Feature: Quantization progress logging
+
+- Added `QuantizationProgressTracker` (`onecomp/utils/quantization_progress.py`) that emits a single `[progress]` INFO line per completed step with done/total, percentage, elapsed time, and a linear ETA estimate; supports an optional `thread_safe=True` mode for multi-GPU quantization
+- Added `report_progress: bool = True` flag to `Runner.__init__` (`onecomp/runner.py`) and to the underlying entry points `run_chunked_quantization` (`onecomp/runner_methods/chunked_quantization.py`), `run_multi_gpu_quantization` / `run_quantization_phase` (`onecomp/runner_methods/multi_gpu_quantization.py`), `run_quantize_with_qep` (`onecomp/qep/_quantize_with_qep.py`), and `run_quantize_with_qep_arch` (`onecomp/qep/_quantize_with_qep_arch.py`) so long quantization runs (calibration, chunked, multi-GPU, QEP) report progress by default; pass `report_progress=False` for quiet runs
+- Demoted some INFO-level per-layer / per-chunk logs to DEBUG to avoid duplication with the new `[progress]` line (still available via `logging.basicConfig(level=logging.DEBUG)` for deep debugging)
+
+### Bug fixes: QEP + JointQ validation
+
+- Raise a clear error when `Runner` is configured with `qep=True` and a quantizer that does not support QEP (currently `JointQ`). Previously the run failed deep inside `quantize_with_qep` / `adjust_weight` with a confusing low-level error. `Runner.check()` now reports e.g. "Quantizer 'JointQ' (or one of its candidate quantizers) does not support QEP (Quantization Error Propagation). Set qep=False, or use a QEP-compatible quantizer (e.g., GPTQ, DBF, AutoBitQuantizer with QEP-compatible candidates)." Implementation: added `flag_qep_supported` (default `True`) on `Quantizer`, set to `False` on `JointQ`, and propagated via `AutoBitQuantizer._sync_flags` (only `True` when *all* candidate quantizers support QEP) (`quantizer/_quantizer.py`, `quantizer/jointq/_jointq.py`, `quantizer/autobit/_autobit.py`, `runner.py`).
+
+### Bug fixes: VLM save / load
+
+- `Runner.save_quantized_model()` now copies all auxiliary `*.json` and `*.jinja` files (e.g. `preprocessor_config.json`, `processor_config.json`, `special_tokens_map.json`, `chat_template.jinja`) from the original model directory to the save directory, so the quantized model is fully self-contained for VLM / multimodal inference. Weight tensors (`*.safetensors`, `*.bin`, `*.pt`, `*.pth`), weight index files, `config.json` and `generation_config.json` are skipped, and any file already written by `model.save_pretrained` / `tokenizer.save_pretrained` is preserved (`runner.py`).
+- Source-model directory resolution (incl. `huggingface_hub.snapshot_download` fallback for Hub IDs) was extracted into a private helper `Runner._resolve_source_model_dir()` (`runner.py`).
+- `load_quantized_model()` now re-establishes the `lm_head` <-> `embed_tokens` weight tie for models with `tie_word_embeddings=True`. `load_state_dict(..., assign=True)` would otherwise leave `lm_head.weight` as the freshly initialised tensor (typically `float16`) while `embed_tokens.weight` got replaced with the checkpoint tensor (typically `bfloat16`), causing `RuntimeError: expected mat1 and mat2 to have the same dtype` at the final `lm_head` matmul during generation. The re-tie is gated on `lm_head` still being an `nn.Linear` so it does not interfere when `lm_head` itself was quantized (`quantized_model_loader.py`).
+- `load_quantized_model()` now reads `torch_dtype` from `config.json` when no explicit `torch_dtype` is passed by the caller, so the empty model is built in the same dtype as the saved checkpoint. Previously it always defaulted to `torch.float16`, which left non-quantized VLM submodules (e.g. `multi_modal_projector` in Cohere2Vision) at fp16 whenever `load_state_dict(..., assign=True)` could not find their key in the state_dict (`quantized_model_loader.py`).
+- `load_quantized_model()` now casts any leftover `float16` parameters and buffers of non-quantized modules to `model.config.torch_dtype` after the `lm_head` re-tie step. Quantized layers (`GPTQLinear`, `DoubleBinaryLinear`) and `float32` params (e.g. fp32 LayerNorm in mixed-precision models) are deliberately untouched. This generalises the existing `lm_head` re-tie to any non-quantized module and fixes the dtype mismatch reported in issue 64-3 (`RuntimeError: ... c10::Half != c10::BFloat16` on VLM image features) (`quantized_model_loader.py`).
+- Added regression tests `tests/onecomp/runner/test_save_quantized_aux_files.py` (auxiliary-file copy whitelist), `tests/onecomp/runner/test_load_tied_embeddings.py` (tied-embedding dtype round-trip) and `tests/onecomp/runner/test_load_excluded_module_dtype.py` (non-quantized module dtype handling, including config-based empty-model dtype default, fp16 safety-net cast, fp32 preservation, and quantized-layer skip).
+- Loosened `test_save_load_pipeline_tinyllama.py` and `test_save_load_pipeline_qwen3.py` save/load round-trip threshold from absolute `1e-3` to relative `1%` of the per-tensor logits magnitude (`tests/onecomp/pre_process/test_save_load_pipeline_*.py`). The original absolute bound was below fp16's representable precision once accumulated through the 22-28 decoder layers of TinyLlama / Qwen3, causing the `gptq + save_dequantized` cases to fail on aarch64 + Blackwell (GB200) where cuBLAS picks slightly different reduction kernels than reference x86_64 / Hopper hosts. The save/load equivalence intent is preserved via the relative comparison, which is robust to platform-specific fp16 rounding noise.
+- Set `gpu_memory_utilization=0.78` explicitly when constructing `LLM(...)` in `example/vllm_inference/example_autobit_vllm_inference.py` and `example/vllm_inference/example_gptq_vllm_inference.py`. The vLLM default `0.92` cgroup-OOMs on UMA hosts (e.g. DGX Spark / GB200, 121.7 GiB UMA) because vLLM's startup memory check fails: the residual quantizer process leaves only ~106 GiB free, which is below `0.92 * 121.7 = 111.96 GiB`. `0.78` matches the value already used in `tests/vllm_plugins/gptq/test_mixed_gptq_e2e.py` and is documented in the workspace `slurm-submit.mdc` rule.
+
+### Logging / observability tweaks
+
+- `Runner._copy_auxiliary_files()` now emits a matter-of-fact `INFO`-level log when an auxiliary file from the original model directory is *not* copied because the destination already contains a file of the same name (typically because `tokenizer.save_pretrained` wrote it just before, or a previous `save_quantized_model` call did). The new line is symmetrical to the existing `Copied %s to save directory` entry so the auxiliary-copy step can be audited end-to-end (`runner.py`).
+- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now returns the list of fully-qualified parameter / buffer names whose dtype was actually converted instead of a plain count. The post-load `INFO` log in `load_quantized_model()` includes those names so it is obvious which non-quantized submodules were normalised by the safety-net cast (e.g. `multi_modal_projector.linear_*` in Cohere2Vision). Existing tests are updated accordingly and a new test pins the buffer-name reporting (`quantized_model_loader.py`, `tests/onecomp/runner/test_load_excluded_module_dtype.py`, `tests/onecomp/runner/test_save_quantized_aux_files.py`).
+- `QuantizedModelLoader.load_quantized_model()` now detects `tie_word_embeddings=True` even when the flag is nested in a sub-config (e.g. `model.config.text_config.tie_word_embeddings` in Llama 3.2-Vision and other torchtune-derived VLMs) by walking one level of sub-configs. Previously the flag was only read from the top-level `model.config`, so VLMs that placed it in `text_config` skipped the post-load re-tie; with HF deduplicating `lm_head.weight` for tied checkpoints, that left `lm_head.weight` at the empty-model random initial values rather than re-pointing to `embed_tokens.weight` (`quantized_model_loader.py`).
+
+### Tests
+
+- Added regression tests for the save/load fixes above: `tests/onecomp/runner/test_save_quantized_aux_files.py` (auxiliary-file copy whitelist), `tests/onecomp/runner/test_load_tied_embeddings.py` (tied-embedding dtype round-trip), and `tests/onecomp/runner/test_load_excluded_module_dtype.py` (non-quantized module dtype handling, including config-based empty-model dtype default, fp16 safety-net cast, fp32 preservation, and quantized-layer skip).
+- Added `tests/onecomp/test_runner_check.py` for the new `qep=True` validation path: JointQ + qep=True raises a clear `ValueError`, while JointQ + qep=False and GPTQ + qep=True both pass `Runner.check()`.
+- Added `tests/onecomp/runner/test_load_tied_embeddings.py::test_should_retie_word_embeddings_*` unit tests covering top-level, nested-text-config, all-False and unrelated-sub-attribute shapes.
+
+### New Contributors
+
+- [@sotanengel](https://github.com/sotanengel) made their first contribution in [#13](https://github.com/FujitsuResearch/OneCompression/pull/13)
+
 ## [v1.1.0] 2026-04-16
 
 ### Gemma 3 / Gemma 4 & VLM Support

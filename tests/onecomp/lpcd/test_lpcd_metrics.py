@@ -17,33 +17,14 @@ import torch
 from torch import nn
 
 from onecomp import LPCDConfig
-from onecomp.lpcd._metric import (
-    LpcdMetric,
-    LpcdMetricGroup,
-    make_lpcd_metrics,
-)
-from onecomp.lpcd.arch._llama import (
-    LlamaDown,
-    LlamaOut,
-    LlamaQueryKey,
-    LlamaUpDown,
-    LlamaValueOut,
-)
-from onecomp.lpcd.arch._qwen3 import (
-    Qwen3Down,
-    Qwen3Out,
-    Qwen3QueryKey,
-    Qwen3UpDown,
-    Qwen3ValueOut,
-)
+from onecomp.lpcd._metric import LpcdMetric, LpcdMetricGroup, make_lpcd_metrics
+from onecomp.lpcd.arch._llama import LlamaDown, LlamaOut, LlamaQueryKey, LlamaUpDown, LlamaValueOut
+from onecomp.lpcd.arch._qwen3 import Qwen3Down, Qwen3Out, Qwen3QueryKey, Qwen3UpDown, Qwen3ValueOut
 
 
 def _make_llama_block():
     """Build a tiny ``LlamaDecoderLayer`` on CPU (no weights downloaded)."""
-    from transformers.models.llama.modeling_llama import (
-        LlamaConfig,
-        LlamaDecoderLayer,
-    )
+    from transformers.models.llama.modeling_llama import LlamaConfig, LlamaDecoderLayer
 
     config = LlamaConfig(
         hidden_size=32,
@@ -59,10 +40,7 @@ def _make_llama_block():
 
 def _make_qwen3_block():
     """Build a tiny ``Qwen3DecoderLayer`` on CPU (no weights downloaded)."""
-    from transformers.models.qwen3.modeling_qwen3 import (
-        Qwen3Config,
-        Qwen3DecoderLayer,
-    )
+    from transformers.models.qwen3.modeling_qwen3 import Qwen3Config, Qwen3DecoderLayer
 
     config = Qwen3Config(
         hidden_size=32,
@@ -84,10 +62,7 @@ def _metric_classes(group: LpcdMetricGroup) -> list[type]:
 
 def _metric_target_names(group: LpcdMetricGroup) -> list[list[str]]:
     """Return the list of target names for each metric in the group."""
-    return [
-        [name for name, _ in metric_q.named_targets()]
-        for metric_q, _ in group.metrics
-    ]
+    return [[name for name, _ in metric_q.named_targets()] for metric_q, _ in group.metrics]
 
 
 class TestMakeLpcdMetricsLlama:
@@ -152,9 +127,7 @@ class TestMakeLpcdMetricsLlama:
     def test_no_metrics_when_all_disabled(self, blocks):
         """All flags off → empty metric group."""
         block_q, block_f = blocks
-        cfg = LPCDConfig(
-            enable_qk=False, enable_vo=False, enable_ud=False, enable_residual=False
-        )
+        cfg = LPCDConfig(enable_qk=False, enable_vo=False, enable_ud=False, enable_residual=False)
         group = make_lpcd_metrics(cfg, block_q, block_f)
         assert group.metrics == []
 

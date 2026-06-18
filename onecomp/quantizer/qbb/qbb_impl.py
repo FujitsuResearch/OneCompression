@@ -14,15 +14,15 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
-from typing import Optional
+import gc
 from logging import getLogger
+from typing import Optional
 
 import torch
 import torch.nn as nn
 import transformers
-import gc
-from torch.optim import Adam
 from torch.nn.utils import clip_grad_norm_
+from torch.optim import Adam
 
 logger = getLogger(__name__)
 

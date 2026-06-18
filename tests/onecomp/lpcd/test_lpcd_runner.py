@@ -23,13 +23,7 @@ import gc
 import pytest
 import torch
 
-from onecomp import (
-    CalibrationConfig,
-    LPCDConfig,
-    ModelConfig,
-    Runner,
-    setup_logger,
-)
+from onecomp import CalibrationConfig, LPCDConfig, ModelConfig, Runner, setup_logger
 from onecomp.qep import QEPConfig
 from onecomp.quantizer.gptq import GPTQ
 
@@ -214,9 +208,7 @@ class TestLPCDBehavior:
             "beyond the baseline GPTQ+QEP output"
         )
 
-    def test_pre_attn_projections_match_baseline(
-        self, results_lpcd_residual, results_baseline
-    ):
+    def test_pre_attn_projections_match_baseline(self, results_lpcd_residual, results_baseline):
         """Pre-attention projections (q/k/v_proj) match the baseline.
 
         ``q_proj`` / ``k_proj`` / ``v_proj`` are quantised before any

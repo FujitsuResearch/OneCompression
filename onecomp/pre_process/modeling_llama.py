@@ -18,16 +18,18 @@ from transformers.models.llama.modeling_llama import (
     LlamaAttention,
     LlamaConfig,
     LlamaDecoderLayer,
+)
+from transformers.models.llama.modeling_llama import LlamaForCausalLM as _BaseLlamaForCausalLM
+from transformers.models.llama.modeling_llama import (
     LlamaMLP,
+)
+from transformers.models.llama.modeling_llama import LlamaModel as _BaseLlamaModel
+from transformers.models.llama.modeling_llama import (
     LlamaPreTrainedModel,
     LlamaRMSNorm,
     LlamaRotaryEmbedding,
-    eager_attention_forward,
     apply_rotary_pos_emb,
-)
-from transformers.models.llama.modeling_llama import (
-    LlamaForCausalLM as _BaseLlamaForCausalLM,
-    LlamaModel as _BaseLlamaModel,
+    eager_attention_forward,
 )
 from transformers.utils import auto_docstring, can_return_tuple
 

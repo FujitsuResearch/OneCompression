@@ -11,6 +11,18 @@ Performs the following steps:
 Requirements:
   pip install vllm
 
+Note:
+  vLLM runs a DeepGEMM (FP8) kernel warmup at engine startup even for
+  non-FP8 quantization such as GPTQ. If ``deep_gemm`` is not installed this
+  fails with ``RuntimeError: DeepGEMM backend is not available or outdated``.
+  OneComp-quantized models do not need DeepGEMM, so disable the FP8 path
+  before running this script::
+
+      export VLLM_USE_DEEP_GEMM=0
+      export VLLM_DEEP_GEMM_WARMUP=skip
+
+  See docs/user-guide/vllm-inference.md (Troubleshooting) for details.
+
 Copyright 2025-2026 Fujitsu Ltd.
 
 Author: Keiji Kimura
@@ -20,8 +32,9 @@ Author: Keiji Kimura
 import gc
 
 import torch
-from onecomp import Runner, ModelConfig, CalibrationConfig, GPTQ, setup_logger
 from vllm import LLM, SamplingParams
+
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, Runner, setup_logger
 
 
 def main():
@@ -67,12 +80,17 @@ def main():
     gc.collect()
     torch.cuda.empty_cache()
 
-    # Step 3: Load the quantized model with vLLM
+    # Step 3: Load the quantized model with vLLM.
+    # gpu_memory_utilization=0.78 leaves headroom for the residual
+    # quantizer process (~16 GiB) on a UMA 121.7 GiB device (e.g. DGX
+    # Spark / GB200). The vLLM default 0.92 cgroup-OOMs on shared-memory
+    # GPUs.
     llm = LLM(
         model=save_dir,
         max_model_len=512,
         dtype="float16",
         enforce_eager=True,
+        gpu_memory_utilization=0.78,
     )
 
     # Step 4: Generate text
