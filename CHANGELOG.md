@@ -1,5 +1,32 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/bitpack_mode] 2026-06-18
+
+### New Feature: GPTQ bitpack-on-quantize mode
+
+- Added `bitpack_on_quantize` support to the base `Quantizer` and enabled it by default for `GPTQ`, so `qweight` and `qzeros` can be stored in AutoGPTQ-compatible packed format immediately after each layer is quantized (`onecomp/quantizer/_quantizer.py`, `onecomp/quantizer/gptq/_gptq.py`)
+- Extended `GPTQResult` with packed-state metadata (`qweight_is_packed`, `qzeros_is_packed`, `qweight_original_shape`) and updated `compute_dequantized_weight()` so packed and unpacked results reconstruct the same dequantized weights across grouped / per-channel, symmetric / asymmetric, and act-order paths (`onecomp/quantizer/gptq/_gptq.py`)
+- Updated `GPTQLinear` to consume pre-packed `GPTQResult` tensors without repacking, unpack them when `pack_weights=False`, and handle the GPTQ v1 zero-point offset consistently for packed results and inference (`onecomp/quantizer/gptq/gptq_layer.py`)
+
+### Validation / compatibility tweaks
+
+- Limited GPTQ bit-width validation to `1..15` across `wbits`, `mlp_wbits`, `module_wbits`, and saved `quantization_config` loading (`onecomp/quantizer/gptq/_gptq.py`, `onecomp/quantizer/gptq/config.py`)
+- Restricted immediate GPTQ bitpacking to packer-supported widths `{2, 3, 4, 8}`; other valid GPTQ widths can still be used with `bitpack_on_quantize=False` (`onecomp/quantizer/gptq/_gptq.py`)
+- Added `bitpack_on_quantize` to `AutoBitQuantizer` and propagated it to GPTQ child quantizers before child validation, so unsupported packed GPTQ candidates fail with a clear error (`onecomp/quantizer/autobit/_autobit.py`)
+- Preserved JointQ's existing optimization path by keeping its internal GPTQ initialization on unpacked `qweight` / `qzeros` (`onecomp/quantizer/jointq/_jointq.py`)
+
+### Examples
+
+- Added `example/example_gptq_bitpack_equivalence.py`, which compares GPTQ quantization with and without `bitpack_on_quantize` across supported bit-widths and reports whether the reconstructed dequantized weights match bit-exactly.
+
+### Tests
+
+- Added `tests/onecomp/quantizer/gptq/test_gptq_bitpack.py` for packed result metadata, dequantization, `GPTQLinear.from_quantization_result()` inference, unsupported bit-width errors, and packed-result shape checks.
+- Added `tests/onecomp/quantizer/gptq/test_gptq_bitpack_equivalence.py` for packed-vs-unpacked equivalence across supported bit-widths, grouping, symmetry, and act-order combinations.
+- Updated `tests/onecomp/quantizer/gptq/test_gptq.py` for the `bitpack_on_quantize` flag, unpacked-result compatibility, and the shared `1..15` GPTQ bit-width validation limit.
+- Updated `tests/onecomp/quantizer/autobit/test_fused_group_validation.py` for AutoBit-to-GPTQ `bitpack_on_quantize` propagation and unsupported packed GPTQ candidate validation.
+- Updated `tests/onecomp/quantizer/autobit/test_autobit.py` so existing AutoBit tests that exercise unpacked GPTQ candidates pass `bitpack_on_quantize=False` explicitly.
+
 ## [v1.3.0] 2026-MM-DD (WIP)
 
 (TODO: Add changelog for v1.3.0)
