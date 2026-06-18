@@ -16,7 +16,7 @@ try:
 except ImportError:
     LLM = None  # type: ignore[assignment]
 
-from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, Runner
 from onecomp.pre_process.prepare_rotated_model import prepare_rotated_model
 
 SMALL_MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"

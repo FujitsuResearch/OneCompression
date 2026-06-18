@@ -29,7 +29,7 @@ try:
 except ImportError:
     _HAS_VLLM = False
 
-from onecomp import CalibrationConfig, DBF, ModelConfig, Runner
+from onecomp import DBF, CalibrationConfig, ModelConfig, Runner
 
 from ..conftest import (
     SMALL_MODEL_ID,

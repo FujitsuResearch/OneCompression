@@ -9,9 +9,10 @@ Covers items from the test spec not present in test_rotation.py:
   - DbfConfig rotation metadata parsing and quant_method wrapping
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 import torch
-from unittest.mock import MagicMock
 
 from onecomp.pre_process.rotation_utils import is_online_hadamard_target
 from vllm_plugins.utils import rotation
@@ -19,6 +20,7 @@ from vllm_plugins.utils.rotation import RotatedLinearMethod, RotationMetadata
 
 try:
     from vllm.model_executor.layers.linear import LinearBase
+
     from vllm_plugins.dbf.vllm_plugin import DbfConfig, DBFLinearMethod
 
     _HAS_VLLM = True
@@ -26,7 +28,6 @@ except ImportError:
     _HAS_VLLM = False
 
 from .conftest import _DummyLayer
-
 
 # ---------------------------------------------------------------------------
 # is_online_hadamard_target
@@ -202,6 +203,7 @@ class TestDbfConfigRotation:
     def test_create_weights_raises_for_tensor_parallel_size_greater_than_one(self, monkeypatch):
         # TP > 1 is unsupported; DBFLinearMethod.create_weights must raise immediately.
         import vllm_plugins.dbf.vllm_plugin as plugin_mod
+
         monkeypatch.setattr(plugin_mod, "get_tensor_model_parallel_world_size", lambda: 2)
 
         config = DbfConfig(quantization_bits=[], rotation_metadata=RotationMetadata())

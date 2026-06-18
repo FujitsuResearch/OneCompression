@@ -1,14 +1,15 @@
 """Copyright 2025-2026 Fujitsu Ltd."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
-from unittest.mock import MagicMock, patch
 
 try:
     import vllm_plugins.dbf.vllm_plugin as _plugin_module
     from vllm_plugins.dbf.vllm_plugin import (
-        DBFLinearMethod,
         DbfConfig,
+        DBFLinearMethod,
         _disable_gemlite_runtime,
     )
 

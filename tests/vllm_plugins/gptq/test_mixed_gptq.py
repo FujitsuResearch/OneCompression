@@ -16,6 +16,7 @@ import pytest
 
 try:
     from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
+
     try:
         from vllm.model_executor.layers.linear import WEIGHT_LOADER_V2_SUPPORTED
     except ImportError:

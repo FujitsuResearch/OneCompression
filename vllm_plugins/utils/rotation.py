@@ -10,13 +10,14 @@ from typing import Any
 
 import torch
 
-from onecomp.pre_process.rotation_utils import is_online_hadamard_target
 from onecomp.pre_process.hadamard_utils import get_hadK, matmul_hadU_cuda
+from onecomp.pre_process.rotation_utils import is_online_hadamard_target
 
 try:
     from vllm.distributed import tensor_model_parallel_all_gather
     from vllm.distributed.utils import split_tensor_along_last_dim
     from vllm.model_executor.layers.linear import LinearMethodBase
+
     try:
         from vllm.model_executor.layers.linear import WEIGHT_LOADER_V2_SUPPORTED
     except ImportError:
@@ -36,7 +37,9 @@ try:
         if _vllm_register_weight_loader_v2_supported_method is not None:
             return _vllm_register_weight_loader_v2_supported_method(cls)
         return cls
+
 except ImportError:  # pragma: no cover - exercised only without vLLM installed.
+
     def tensor_model_parallel_all_gather(input_: torch.Tensor, dim: int = -1) -> torch.Tensor:
         raise RuntimeError("vLLM tensor-model-parallel all_gather is unavailable.")
 

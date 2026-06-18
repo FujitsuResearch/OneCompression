@@ -6,9 +6,9 @@ Copyright 2025-2026 Fujitsu Ltd.
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from onecomp.pre_process import rotation_utils
 from onecomp.runner import Runner
 from onecomp.utils import unfuse_moe as unfuse_moe_module
-from onecomp.pre_process import rotation_utils
 
 
 class _FakeLayer:
@@ -87,7 +87,8 @@ def test_create_quantized_model_switches_rotated_gptq_to_mixed(monkeypatch):
         "register_online_hadamard_hooks",
         lambda model, fp32_had=False, layers_cls=None: register_calls.append(
             (model, fp32_had, layers_cls)
-        ) or [object()],
+        )
+        or [object()],
     )
     monkeypatch.setattr(
         Runner,
@@ -164,7 +165,8 @@ def test_create_quantized_model_keeps_existing_mixed_gptq_without_extra_switch(m
         "register_online_hadamard_hooks",
         lambda model, fp32_had=False, layers_cls=None: register_calls.append(
             (model, fp32_had, layers_cls)
-        ) or [object()],
+        )
+        or [object()],
     )
     monkeypatch.setattr(Runner, "_patch_k_eq_v_for_vllm", lambda self, model, quant_config: None)
 
@@ -195,7 +197,8 @@ def test_create_quantized_model_keeps_dbf_quant_method_when_rotated(monkeypatch)
         "register_online_hadamard_hooks",
         lambda model, fp32_had=False, layers_cls=None: register_calls.append(
             (model, fp32_had, layers_cls)
-        ) or [object()],
+        )
+        or [object()],
     )
     monkeypatch.setattr(Runner, "_patch_k_eq_v_for_vllm", lambda self, model, quant_config: None)
 

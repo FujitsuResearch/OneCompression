@@ -207,11 +207,23 @@ def test_apply_tp_path_uses_fake_collectives_and_local_shard(monkeypatch):
 @pytest.mark.parametrize(
     ("layer", "message"),
     [
-        (_DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=None), "requires tp_rank and tp_size"),
-        (_DummyLayer(input_is_parallel=True, tp_size=None, tp_rank=0), "requires tp_rank and tp_size"),
+        (
+            _DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=None),
+            "requires tp_rank and tp_size",
+        ),
+        (
+            _DummyLayer(input_is_parallel=True, tp_size=None, tp_rank=0),
+            "requires tp_rank and tp_size",
+        ),
         (_DummyLayer(input_is_parallel=True, tp_size=1, tp_rank=0), "requires tp_size > 1"),
-        (_DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=-1), "Invalid tensor-parallel metadata"),
-        (_DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=2), "Invalid tensor-parallel metadata"),
+        (
+            _DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=-1),
+            "Invalid tensor-parallel metadata",
+        ),
+        (
+            _DummyLayer(input_is_parallel=True, tp_size=2, tp_rank=2),
+            "Invalid tensor-parallel metadata",
+        ),
     ],
 )
 def test_get_tp_metadata_error_paths(layer, message):
