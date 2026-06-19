@@ -19,7 +19,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 
 Usage:
-    python example/post_process/example_lora_sft_knowledge.py
+    python example/post_process/example_lora_sft_knowledge_legacy.py
 """
 
 from pathlib import Path

@@ -14,7 +14,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 
 Usage:
-    python example/post_process/example_lora_sft.py
+    python example/post_process/example_lora_sft_legacy.py
 """
 
 import torch
