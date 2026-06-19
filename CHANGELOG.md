@@ -1,6 +1,6 @@
 # Change log
 
-## [v1.3.0(WIP)+feature/lora-save-load-vllm-infer_jointq_prfix] 2026-06-17
+## [v1.3.0(WIP)+feature/lora-save-load-vllm-infer_jointq] 2026-06-19 16:45:00
 
 ### LoRA Adapter Sidecar Save/Load
 
