@@ -1886,6 +1886,7 @@ class Runner:
         self,
         model,
         lora_modules: list[tuple[str, torch.nn.Module]],
+        pack_weights: bool = True,
     ) -> dict[str, torch.Tensor]:
         """Build a base-model state_dict for HF/vLLM-compatible export.
 
@@ -1915,7 +1916,7 @@ class Runner:
                 export_state_dict[export_key] = tensor
 
         gptq_layers = self._iter_gptq_export_layers(model, lora_modules)
-        if not gptq_layers:
+        if not gptq_layers or not pack_weights:
             return export_state_dict
 
         from .quantizer.gptq.gptq_layer import pack_int_weights, pack_zeros
@@ -2239,7 +2240,9 @@ class Runner:
             not getattr(layer, "_weight_is_packed", False) for _name, layer in gptq_layers
         )
         if needs_export_state_dict:
-            base_state_dict = self._build_base_quantized_state_dict(model, lora_modules)
+            base_state_dict = self._build_base_quantized_state_dict(
+                model, lora_modules, pack_weights=pack_weights
+            )
             model.save_pretrained(save_directory, state_dict=base_state_dict)
         else:
             model.save_pretrained(save_directory)
