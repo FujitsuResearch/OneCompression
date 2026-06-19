@@ -82,6 +82,7 @@ nav:
   - Getting Started:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md
+      - Tutorial Notebook: getting-started/tutorial-notebook.md
   - User Guide:
       - Basic Usage: user-guide/basic-usage.md
       - macOS / MPS: user-guide/mps.md
