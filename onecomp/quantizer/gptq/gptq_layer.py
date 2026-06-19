@@ -417,8 +417,7 @@ class GPTQLinear(nn.Module):
             # e.g. JointQ 1-bit: no AutoGPTQ packing layout exists, so leave the
             # weights unpacked (matches how such layers are constructed/saved).
             logger.info(
-                "pack_in_place no-op: wbits=%d is not packable; "
-                "leaving GPTQLinear unpacked.",
+                "pack_in_place no-op: wbits=%d is not packable; " "leaving GPTQLinear unpacked.",
                 self.wbits,
             )
             return

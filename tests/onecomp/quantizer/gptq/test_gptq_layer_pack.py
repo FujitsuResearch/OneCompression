@@ -389,6 +389,7 @@ def test_forward_restores_zero_columns_exactly(wbits, pack_weights):
         f"dequantize to -1, got sample {out[4:8].tolist()}"
     )
 
+
 @pytest.mark.parametrize("wbits", [2, 3, 4, 8])
 def test_pack_unpack_in_place_roundtrip_preserves_forward(wbits):
     """A pack → unpack → pack round trip must leave forward output unchanged.

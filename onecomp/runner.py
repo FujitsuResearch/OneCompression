@@ -1903,9 +1903,7 @@ class Runner:
             export_key = key
             for lora_name, _mod in lora_modules:
                 prefix = f"{lora_name}." if lora_name else ""
-                if key.startswith(f"{prefix}lora_A.") or key.startswith(
-                    f"{prefix}lora_B."
-                ):
+                if key.startswith(f"{prefix}lora_A.") or key.startswith(f"{prefix}lora_B."):
                     skip = True
                     break
                 base_prefix = f"{prefix}base_layer."

@@ -21,7 +21,6 @@ from onecomp.quantized_model_loader import QuantizedModelLoader
 from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
 from onecomp.runner import Runner
 
-
 QUANTIZED_LAYER_NAME = "model.layers.0.mlp.down_proj"
 
 
@@ -99,13 +98,10 @@ def _make_gptq_linear(in_features, out_features, *, packed=True):
     wbits = 4
     groupsize = 32
     num_groups = in_features // groupsize
-    qweight = (
-        torch.arange(out_features * in_features, dtype=torch.int32).reshape(
-            out_features,
-            in_features,
-        )
-        % (1 << wbits)
-    )
+    qweight = torch.arange(out_features * in_features, dtype=torch.int32).reshape(
+        out_features,
+        in_features,
+    ) % (1 << wbits)
     scales = torch.full((num_groups, out_features), 0.01, dtype=torch.float16)
     zeros = torch.full((num_groups, out_features), 7.0, dtype=torch.float16)
 
@@ -254,16 +250,8 @@ def test_gptq_lora_post_process_save_load_roundtrip_preserves_logits(tmp_path):
         QUANTIZED_LAYER_NAME,
         lora_layer.base_layer,
     )
-    assert (
-        save_dir
-        / Runner.LORA_ADAPTER_SUBDIR
-        / "adapter_model.safetensors"
-    ).is_file()
-    assert (
-        save_dir
-        / Runner.LORA_ADAPTER_SUBDIR
-        / "adapter_config.json"
-    ).is_file()
+    assert (save_dir / Runner.LORA_ADAPTER_SUBDIR / "adapter_model.safetensors").is_file()
+    assert (save_dir / Runner.LORA_ADAPTER_SUBDIR / "adapter_config.json").is_file()
 
     loaded_model = _load_saved_model(save_dir)
     loaded_layer = loaded_model.model.layers[0].mlp.down_proj

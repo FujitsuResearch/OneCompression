@@ -1311,8 +1311,7 @@ class PostProcessLoraSFT(PostQuantizationProcess):
             num_repacked = _restore_gptq_pack_state(quantized_model, gptq_pack_state)
             if num_repacked:
                 logger.info(
-                    "Re-packed %d GPTQLinear layer(s) to restore the incoming "
-                    "pack state.",
+                    "Re-packed %d GPTQLinear layer(s) to restore the incoming " "pack state.",
                     num_repacked,
                 )
             self._save_adapter(quantized_model)
