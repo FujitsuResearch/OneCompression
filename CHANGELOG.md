@@ -1,6 +1,6 @@
 # Change log
 
-## [v1.3.0(WIP)+feature/bitpack_mode] 2026-06-18
+## [v1.3.0(WIP)+feature/bitpack_mode] 2026-06-19 16:45:00
 
 ### New Feature: GPTQ bitpack-on-quantize mode
 
