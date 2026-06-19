@@ -89,6 +89,7 @@ def _gptq_quant_config(module_name: str) -> dict:
         "modules_in_block_to_quantize": [module_name],
     }
 
+
 def _write_gemma3_vlm_save_dir(save_dir: Path, state_dict: dict) -> None:
     save_dir.mkdir(parents=True, exist_ok=True)
     cfg = {
@@ -152,9 +153,7 @@ def test_remap_state_dict_keys_rewrites_quantized_tensors_before_layer_swap():
     remapped = QuantizedModelLoader._remap_state_dict_keys(ckpt, model)
     assert "model.language_model.layers.0.self_attn.q_proj.qweight" in remapped
     assert "model.language_model.model.layers.0.self_attn.q_proj.qweight" not in remapped
-    assert torch.equal(
-        remapped["model.language_model.layers.0.self_attn.q_proj.qweight"], qweight
-    )
+    assert torch.equal(remapped["model.language_model.layers.0.self_attn.q_proj.qweight"], qweight)
 
 
 def test_resolve_state_dict_key_without_model_prefix():
@@ -215,21 +214,26 @@ def test_load_quantized_model_applies_remap_before_state_dict(tmp_path):
             captured.update(state_dict)
             return super().load_state_dict(state_dict, *args, **kwargs)
 
-    with patch.object(
-        QuantizedModelLoader,
-        "_build_empty_model_from_config",
-        return_value=_RecordingModel(),
-    ), patch(
-        "onecomp.quantized_model_loader.AutoTokenizer.from_pretrained",
-        return_value=object(),
-    ), patch.object(
-        QuantizedModelLoader,
-        "_replace_quantized_layers",
-        lambda *a, **k: None,
-    ), patch.object(
-        QuantizedModelLoader,
-        "_cast_fp16_to_target_dtype",
-        return_value=[],
+    with (
+        patch.object(
+            QuantizedModelLoader,
+            "_build_empty_model_from_config",
+            return_value=_RecordingModel(),
+        ),
+        patch(
+            "onecomp.quantized_model_loader.AutoTokenizer.from_pretrained",
+            return_value=object(),
+        ),
+        patch.object(
+            QuantizedModelLoader,
+            "_replace_quantized_layers",
+            lambda *a, **k: None,
+        ),
+        patch.object(
+            QuantizedModelLoader,
+            "_cast_fp16_to_target_dtype",
+            return_value=[],
+        ),
     ):
         QuantizedModelLoader.load_quantized_model(str(save_dir), device_map="")
 
@@ -254,8 +258,8 @@ def test_remap_enables_direct_layer_sd_prefix_lookup():
 
 def test_remap_replace_and_load_quantized_layer_pipeline():
     """remap → _replace_quantized_layers → load_state_dict fills GPTQ buffers."""
-    from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
     from onecomp.quantized_model_loader import QuantizedModelLoader
+    from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
 
     module_name = "model.language_model.layers.0.self_attn.q_proj"
     saved_module_name = "model.language_model.model.layers.0.self_attn.q_proj"
