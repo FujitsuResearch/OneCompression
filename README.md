@@ -274,10 +274,19 @@ uv run mkdocs serve
 
 Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 
+## 📓 Tutorial Notebook
+
+Interactive walkthrough in Jupyter or [Google Colab](https://colab.research.google.com/github/FujitsuResearch/OneCompression/blob/main/notebook/01_tutorial.ipynb)
+— RTN visualization, `Runner.auto_run`, and vLLM chat inference.
+
+See [`notebook/README.md`](./notebook/README.md) for local setup, or the
+[Tutorial Notebook guide](https://FujitsuResearch.github.io/OneCompression/getting-started/tutorial-notebook/) in the docs.
+
 ## 🚀 Examples
 
 | Category | Script | Description |
 |----------|--------|-------------|
+| Tutorial | [01_tutorial.ipynb](./notebook/01_tutorial.ipynb) | Interactive notebook (Jupyter / Colab) |
 | Quantization | [example_gptq.py](./example/example_gptq.py) | GPTQ quantization |
 | | [example_qep_gptq.py](./example/example_qep_gptq.py) | GPTQ + QEP (error propagation) |
 | | [example_lpcd_gptq.py](./example/example_lpcd_gptq.py) | GPTQ + QEP + LPCD quantization |

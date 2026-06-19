@@ -2,6 +2,10 @@
 
 This page demonstrates common usage patterns beyond the basic workflow.
 
+!!! tip "Prefer a hands-on walkthrough?"
+    Try the [Tutorial Notebook](../getting-started/tutorial-notebook.md) in Jupyter or Google Colab.
+    It covers RTN visualization, `Runner.auto_run`, and vLLM chat inference step by step.
+
 ## One-liner with `auto_run`
 
 The simplest way to quantize a model:
