@@ -315,9 +315,7 @@ class GPTQ(Quantizer):
                 )
 
         if self.mlp_wbits is not None:
-            if not (
-                isinstance(self.mlp_wbits, int) and 1 <= self.mlp_wbits <= GPTQ_MAX_BITS
-            ):
+            if not (isinstance(self.mlp_wbits, int) and 1 <= self.mlp_wbits <= GPTQ_MAX_BITS):
                 bad.append(
                     f"Invalid GPTQ parameter 'mlp_wbits': {self.mlp_wbits!r} "
                     f"(expected int in 1..{GPTQ_MAX_BITS})"
@@ -375,9 +373,7 @@ class GPTQ(Quantizer):
             if isinstance(self.module_wbits, dict):
                 for layer_name, bits in self.module_wbits.items():
                     if isinstance(layer_name, str):
-                        check_pack_supported(
-                            f"module_wbits[{layer_name!r}]", bits, GPTQ_MAX_BITS
-                        )
+                        check_pack_supported(f"module_wbits[{layer_name!r}]", bits, GPTQ_MAX_BITS)
 
         if bad:
             raise ValueError("; ".join(bad))

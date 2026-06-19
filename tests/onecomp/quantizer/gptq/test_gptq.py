@@ -19,6 +19,7 @@ from test_module import BaseQuantizeSpec
 from onecomp.quantizer.gptq._gptq import GPTQ, GPTQResult
 from onecomp.quantizer.gptq.config import resolve_gptq_layer_wbits
 
+
 class TestGPTQ(BaseQuantizeSpec):
     """Test cases for GPTQ quantization."""
 

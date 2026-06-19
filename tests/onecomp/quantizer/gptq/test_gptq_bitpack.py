@@ -11,7 +11,6 @@ import torch
 from onecomp.quantizer.gptq._gptq import GPTQ
 from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
 
-
 _DEVICES = ["cpu", "cuda"]
 
 

@@ -99,9 +99,7 @@ def make_fake_quant_result(wbits, groupsize, actorder, seed=0):
 def _fresh_copy(result_dict):
     """Return a deep-ish copy so the two quantize_layer calls cannot alias/mutate
     each other's tensors via the shared mock return value."""
-    return {
-        k: (v.clone() if torch.is_tensor(v) else v) for k, v in result_dict.items()
-    }
+    return {k: (v.clone() if torch.is_tensor(v) else v) for k, v in result_dict.items()}
 
 
 def _quantize_both_modes(wbits, groupsize, actorder, sym):
