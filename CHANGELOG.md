@@ -1,5 +1,13 @@
 # Change log
 
+## [v1.2.0+feature/openvino-2026.01] 2026-06-10
+
+### New Feature: Isolated GPTQ-to-OpenVINO export workflow
+
+- Added an isolated OpenVINO export environment under `envs/openvino/` with pinned dependencies and uv resolver guardrails for reproducible GPTQ-to-IR conversion (`envs/openvino/pyproject.toml`).
+- Added `envs/openvino/example_export_openvino.py` to export OneComp GPTQ 4-bit checkpoints to OpenVINO IR and save tokenizer assets, with temporary compatibility workarounds for `auto_gptq` import and `"torch_fused"` quant type. The script also applies a config compatibility patch at load time: if `modules_in_block_to_quantize` is stored as `List[str]`, it is converted to `List[List[str]]` in a temporary model copy before Hugging Face / Optimum loading.
+- Added `envs/openvino/README.md` documenting the minimal flow: prepare GPTQ model, set `MODEL_PATH`, run isolated export, and run OpenVINO GenAI inference on NPU.
+
 ## [v1.3.0] 2026-MM-DD (WIP)
 
 (TODO: Add changelog for v1.3.0)

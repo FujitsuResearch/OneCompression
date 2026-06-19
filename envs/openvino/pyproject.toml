@@ -1,0 +1,75 @@
+[project]
+name = "onecomp-gptq-openvino-converter"
+version = "2026.1.0.1"
+description = "Isolated OpenVINO conversion environment for OneCompression GPTQ models."
+readme = "README.md"
+requires-python = ">=3.12, <3.13"
+dependencies = [
+  # OpenVINO / Optimum Intel
+  "openvino==2026.1.0",
+  "openvino-genai==2026.1.0.0",
+  "openvino-tokenizers[transformers]==2026.1.0.0",
+  "optimum-intel[openvino]==1.27.0",
+
+  # HF / conversion runtime
+  "transformers>=4.56,<4.58",
+  "accelerate",
+  "sentencepiece",
+  "protobuf",
+
+  # PyTorch CUDA 13.0
+  "torch==2.9.0",
+  "torchvision==0.24.0",
+  "torchaudio==2.9.0",
+
+  # GPTQModel v5.6.0 wheel
+  "gptqmodel==5.6.0+cu130torch2.9",
+
+  # Explicit extras required when gptqmodel is installed with dependencies disabled (--no-deps)
+  "logbar>=0.1.7",
+  "device-smi>=0.5.1",
+  "pypcre>=0.2.4",
+  "hf-transfer>=0.1.9",
+  "random-word>=1.0.13",
+  "tokenicer>=0.0.5",
+  "maturin>=1.9.4",
+  "datasets>=3.6.0",
+  "pyarrow>=21.0",
+  "dill>=0.3.8",
+  "torchao>=0.14.0",
+  "threadpoolctl",
+
+  # Workflow pins for reproducibility
+  "numpy==2.2.6",
+  "kernels>=0.11.1,<0.13",
+]
+
+# Keep this environment package-less so installing root onecomp does not pull it in.
+# Dependency resolution should treat onecomp and this package as fully independent.
+[tool.uv]
+package = false
+
+# GPTQModel wheel metadata can force incompatible upgrades (for example, transformers).
+# Instruct the resolver to treat gptqmodel as dependency-free.
+dependency-metadata = [
+  { name = "gptqmodel", version = "5.6.0+cu130torch2.9", requires-dist = [], requires-python = ">=3.12,<3.13" },
+]
+
+# Guardrails to prevent dependency resolution from moving transformers, numpy, or kernels.
+override-dependencies = [
+  "transformers>=4.56,<4.58",
+  "numpy==2.2.6",
+  "kernels>=0.11.1,<0.13",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
+
+gptqmodel = { url = "https://github.com/ModelCloud/GPTQModel/releases/download/v5.6.0/gptqmodel-5.6.0%2Bcu130torch2.9-cp312-cp312-linux_x86_64.whl" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
