@@ -16,6 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from test_module import QuantizeTestHelper
 
+from onecomp.analyzer.cumulative_error import _update_weights
 from onecomp.quantizer.dbf._dbf import DBF, DBFResult
 from onecomp.quantizer.dbf.dbf_layer import DoubleBinaryLinear, pack_binary
 
@@ -71,6 +72,12 @@ def _make_dbf_result(out_dim, mid_dim, in_dim, *, packed, seed=0) -> DBFResult:
     else:
         kwargs.update(dbf_A=A, dbf_B=B)
     return DBFResult(**kwargs)
+
+
+class _Tiny(torch.nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.proj = torch.nn.Linear(in_dim, out_dim, bias=False)
 
 
 def test_bitpack_on_quantize_default_is_true():
@@ -137,6 +144,32 @@ def test_from_quantization_result_accepts_bitpacked_result():
 
     assert torch.allclose(layer_out, ref_out, atol=5e-2, rtol=5e-2)
 
+
+def test_update_weights_accepts_bitpacked_result():
+    """Downstream weight updates consume a packed DBFResult without error."""
+    out_dim, mid_dim, in_dim = 6, 5, 8
+    result = _make_dbf_result(out_dim, mid_dim, in_dim, packed=True, seed=7)
+    model = _Tiny(in_dim, out_dim)
+
+    _update_weights(model, {"proj": result}, ["proj"])
+
+    expected = result.compute_dequantized_weight().to(model.proj.weight.dtype)
+    assert model.proj.weight.shape == (out_dim, in_dim)
+    assert torch.equal(model.proj.weight.data, expected)
+
+
+def test_update_weights_packed_unpacked_equivalent():
+    """Packed and unpacked DBF results update model weights identically."""
+    out_dim, mid_dim, in_dim = 6, 5, 8
+    packed = _make_dbf_result(out_dim, mid_dim, in_dim, packed=True, seed=7)
+    unpacked = _make_dbf_result(out_dim, mid_dim, in_dim, packed=False, seed=7)
+
+    model_p = _Tiny(in_dim, out_dim)
+    model_u = _Tiny(in_dim, out_dim)
+    _update_weights(model_p, {"proj": packed}, ["proj"])
+    _update_weights(model_u, {"proj": unpacked}, ["proj"])
+
+    assert torch.equal(model_p.proj.weight.data, model_u.proj.weight.data)
 
 def test_bitpack_missing_shape_raises_clear_error():
     """Packed flag without original shape is an explicit error."""
