@@ -149,6 +149,12 @@ class AutoBitQuantizer(Quantizer):
     dbf_threshold: float = 2.0
     dbf_iters: int = None  # None → DBF default (600); set low (e.g. 10) for fast testing
 
+    # --- bitpack mode ---
+    # Propagated to child candidates and the DBF fallback before validation:
+    # when True, DBF stores its binary factors packed (uint8) at quantize time
+    # to reduce RAM during quantization.
+    bitpack_on_quantize: bool = True
+
     # --- vLLM fused-layer constraints ---
     # Groups of module suffixes that vLLM fuses into a single linear
     fused_groups: list = field(
@@ -224,6 +230,17 @@ class AutoBitQuantizer(Quantizer):
                 f"{calib_config.max_length!r} (expected int >= 1)"
             )
 
+        # Propagate the bitpack mode to child candidates before their own
+        # validation, so a candidate validates with the AutoBit-level flag
+        # rather than its constructor default.
+        if isinstance(self.bitpack_on_quantize, bool):
+            self._sync_child_bitpack_on_quantize()
+        else:
+            bad.append(
+                f"Invalid parameter 'bitpack_on_quantize': {self.bitpack_on_quantize!r} "
+                f"(expected bool)"
+            )
+
         for i, q in enumerate(self.quantizers):
             try:
                 q.validate_params()
@@ -249,6 +266,16 @@ class AutoBitQuantizer(Quantizer):
 
         if bad:
             raise ValueError("; ".join(bad))
+
+    def _sync_child_bitpack_on_quantize(self):
+        """Propagate the AutoBit bitpack mode to child candidates before validation.
+
+        A candidate is synced with the AutoBit-level flag so it validates with
+        that value rather than its own constructor default.
+        """
+        for q in self.quantizers:
+            if isinstance(q, DBF):
+                q.bitpack_on_quantize = self.bitpack_on_quantize
 
     def setup(self, model):
         self.validate_params()
@@ -299,6 +326,7 @@ class AutoBitQuantizer(Quantizer):
                 self.logger,
                 dbf_iters=self.dbf_iters,
                 device=model_device,
+                bitpack_on_quantize=self.bitpack_on_quantize,
             )
             self._sync_flags()
 
@@ -330,7 +358,10 @@ class AutoBitQuantizer(Quantizer):
         ``setup()``, so the value here is always ≥ 1.0.
         """
         target_bits = self.target_bit
-        dbf_kwargs = {"target_bits": target_bits}
+        dbf_kwargs = {
+            "target_bits": target_bits,
+            "bitpack_on_quantize": self.bitpack_on_quantize,
+        }
         if self.dbf_iters is not None:
             dbf_kwargs["iters"] = self.dbf_iters
         dbf_q = DBF(**dbf_kwargs)
