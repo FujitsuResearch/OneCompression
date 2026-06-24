@@ -18,7 +18,6 @@ from test_module import BaseQuantizeSpec
 
 from onecomp.quantizer.dbf._dbf import DBF, DBFResult
 
-
 class TestDBF(BaseQuantizeSpec):
     """Test cases for DBF quantization."""
 
