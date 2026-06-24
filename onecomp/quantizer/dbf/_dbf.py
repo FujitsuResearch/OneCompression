@@ -124,6 +124,10 @@ class DBF(Quantizer):
         balance_alpha (float): Balancing alpha.
         balance_mode (str): Balancing mode (e.g., "l1").
         use_adaptive_rho (bool): Whether to adapt ADMM rho.
+        bitpack_on_quantize (bool): If True, store the binary factors
+            ``dbf_A`` / ``dbf_B`` in bitpacked ``uint8`` form immediately after
+            quantization to reduce RAM held during quantization. Default is True.
+            When False, they are kept as unpacked ±1 ``float16`` matrices.
 
     Methods:
         quantize_layer: Quantizes a given layer using DBF.
@@ -143,6 +147,9 @@ class DBF(Quantizer):
     use_adaptive_rho: bool = True
     mlp_target_bits: Optional[float] = None
     module_target_bits: Optional[dict[str, float]] = None
+    # DBF always packs to bp1/bp3 for inference/save, so default to packing the
+    # binary factors at quantize time as well to reduce RAM during quantization.
+    bitpack_on_quantize: bool = True
 
     @staticmethod
     def resolve_bits(
@@ -192,6 +199,14 @@ class DBF(Quantizer):
 
         if not (isinstance(self.reg, (int, float)) and self.reg >= 0):
             bad.append(f"Invalid DBF parameter 'reg': {self.reg!r} (expected numeric >= 0).")
+
+        # DBF packs arbitrary shapes via padding, so bitpack_on_quantize only
+        # needs bool type validation here.
+        if not isinstance(self.bitpack_on_quantize, bool):
+            bad.append(
+                f"Invalid DBF parameter 'bitpack_on_quantize': {self.bitpack_on_quantize!r} "
+                f"(expected bool)."
+            )
 
         if self.use_balancing:
             if not (isinstance(self.balance_iters, int) and self.balance_iters >= 1):
