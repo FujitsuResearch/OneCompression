@@ -30,7 +30,7 @@ from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.utils.quant_config import get_quant_param
 
 from .dbf_impl import run_dbf
-from .dbf_layer import unpack_binary_matrix
+from .dbf_layer import pack_binary, unpack_binary_matrix
 
 
 @dataclass
@@ -374,6 +374,33 @@ class DBF(Quantizer):
             use_adaptive_rho=self.use_adaptive_rho,
         )
 
+        is_dbf_quantized = weight_results.get("is_dbf_quantized", False)
+        dbf_A = weight_results.get("dbf_A")
+        dbf_B = weight_results.get("dbf_B")
+        dbf_A_is_packed = False
+        dbf_B_is_packed = False
+        dbf_A_original_shape = None
+        dbf_B_original_shape = None
+
+        # On-quantize bitpack: store the binary factors as packed uint8 CPU
+        # tensors to reduce RAM held while quantization is in progress.
+        # Only pack when DBF actually produced both binary factors; on DBF
+        # failure / is_dbf_quantized=False the factors are left untouched so
+        # the existing compute/dequant error behavior is preserved.
+        if self.bitpack_on_quantize and is_dbf_quantized and dbf_A is not None and dbf_B is not None:
+            dbf_A_original_shape = tuple(dbf_A.shape)
+            dbf_B_original_shape = tuple(dbf_B.shape)
+            packed_A = pack_binary(dbf_A).to(torch.uint8).cpu()
+            packed_B = pack_binary(dbf_B).to(torch.uint8).cpu()
+            # Replace the entries and drop the unpacked references early so the
+            # large ±1 matrices can be freed before the result is built.
+            weight_results["dbf_A"] = packed_A
+            weight_results["dbf_B"] = packed_B
+            dbf_A = packed_A
+            dbf_B = packed_B
+            dbf_A_is_packed = True
+            dbf_B_is_packed = True
+
         dbf_result = DBFResult(
             # DBF quantization parameters
             target_bits=resolved_target_bits,
@@ -385,12 +412,16 @@ class DBF(Quantizer):
             balance_mode=self.balance_mode,
             use_adaptive_rho=self.use_adaptive_rho,
             # DBF weight reconstruction data
-            is_dbf_quantized=weight_results.get("is_dbf_quantized", False),
+            is_dbf_quantized=is_dbf_quantized,
             dbf_Da=weight_results.get("dbf_Da"),
-            dbf_A=weight_results.get("dbf_A"),
+            dbf_A=dbf_A,
             dbf_mid=weight_results.get("dbf_mid"),
-            dbf_B=weight_results.get("dbf_B"),
+            dbf_B=dbf_B,
             dbf_Db=weight_results.get("dbf_Db"),
+            dbf_A_is_packed=dbf_A_is_packed,
+            dbf_B_is_packed=dbf_B_is_packed,
+            dbf_A_original_shape=dbf_A_original_shape,
+            dbf_B_original_shape=dbf_B_original_shape,
         )
 
         return dbf_result
