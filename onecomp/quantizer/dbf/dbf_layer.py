@@ -109,7 +109,7 @@ class BitLinearPacked(nn.Module):
 
     def forward(self, x):
         # Unpack, slice to needed size, reshape, and matmul
-        bit_mat = unpack_binary(self.bp)[: self._numel].reshape(self.shape)
+        bit_mat = unpack_binary_matrix(self.bp, self.shape)
         return x.matmul(bit_mat.to(x.dtype).t())
 
 
@@ -197,7 +197,7 @@ class DoubleBinaryLinear(nn.Module):
 
     def _unpack_bp(self, bp: torch.Tensor, shape: tuple) -> torch.Tensor:
         """Unpack a packed binary buffer to {-1,+1} matrix."""
-        return unpack_binary(bp)[: shape[0] * shape[1]].reshape(shape)
+        return unpack_binary_matrix(bp, shape)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """5-stage forward pass."""

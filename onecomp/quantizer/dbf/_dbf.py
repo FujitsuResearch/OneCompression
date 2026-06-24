@@ -172,10 +172,13 @@ class DBFResult(QuantizationResult):
             raise ValueError("DBFResult is missing required data for dequantization")
 
         compute_device = torch.device(device) if device is not None else torch.device("cpu")
+        # Recover ±1 factors regardless of packed/unpacked storage; the math
+        # below is identical for both since pack/unpack is value-preserving.
+        unpacked_A, unpacked_B = self.get_unpacked_binary_factors(device=compute_device)
         Da = self.dbf_Da.float().to(compute_device)  # (out_dim,)
-        A = self.dbf_A.float().to(compute_device)  # (out_dim, mid_dim)
+        A = unpacked_A.float()  # (out_dim, mid_dim)
         mid = self.dbf_mid.float().to(compute_device)  # (mid_dim,)
-        B = self.dbf_B.float().to(compute_device)  # (mid_dim, in_dim)
+        B = unpacked_B.float()  # (mid_dim, in_dim)
         Db = self.dbf_Db.float().to(compute_device)  # (in_dim,)
 
         # W = diag(Da) @ A @ diag(mid) @ B @ diag(Db)
