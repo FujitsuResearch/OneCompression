@@ -52,6 +52,40 @@ def unpack_binary(x: torch.Tensor) -> torch.Tensor:
     return out.flatten() * 2 - 1
 
 
+def pack_binary_matrix(matrix: torch.Tensor) -> torch.Tensor:
+    """Pack a 2D ±1 matrix into a 1D uint8 buffer.
+
+    Thin wrapper over :func:`pack_binary` kept for symmetry with
+    :func:`unpack_binary_matrix`. The trailing padding bits added by
+    ``pack_binary`` are recovered/sliced off by the matching unpack helper.
+
+    Args:
+        matrix (torch.Tensor): 2D ±1 tensor (zeros are treated as +1).
+
+    Returns:
+        torch.Tensor: 1D ``uint8`` packed buffer.
+    """
+    return pack_binary(matrix)
+
+
+def unpack_binary_matrix(packed: torch.Tensor, shape: tuple[int, int]) -> torch.Tensor:
+    """Unpack a 1D uint8 buffer back into a 2D ±1 matrix of the given shape.
+
+    Inverts :func:`pack_binary` for a 2D matrix: unpacks to the flat ±1
+    representation, slices off the trailing padding bits, and restores the
+    original (row-major) shape.
+
+    Args:
+        packed (torch.Tensor): 1D ``uint8`` buffer produced by ``pack_binary``.
+        shape (tuple[int, int]): Original ``(rows, cols)`` matrix shape.
+
+    Returns:
+        torch.Tensor: ``int8`` matrix of values in {-1, +1} with ``shape``.
+    """
+    numel = shape[0] * shape[1]
+    return unpack_binary(packed)[:numel].reshape(shape)
+
+
 # ========================================
 # Basic components
 # ========================================

@@ -30,6 +30,7 @@ from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.utils.quant_config import get_quant_param
 
 from .dbf_impl import run_dbf
+from .dbf_layer import unpack_binary_matrix
 
 
 @dataclass
@@ -47,10 +48,26 @@ class DBFResult(QuantizationResult):
         use_adaptive_rho (bool): Whether to adapt ADMM rho.
         is_dbf_quantized (Optional[bool]): Whether DBF quantization was applied.
         dbf_Da (Optional[torch.Tensor]): Scaling vector paired with A.
-        dbf_A (Optional[torch.Tensor]): Binary A matrix.
+        dbf_A (Optional[torch.Tensor]): Binary A matrix. ``uint8`` packed buffer
+            when ``dbf_A_is_packed`` is True, otherwise an unpacked ±1 ``float16``
+            matrix.
         dbf_mid (Optional[torch.Tensor]): Middle scaling vector.
-        dbf_B (Optional[torch.Tensor]): Binary B matrix.
+        dbf_B (Optional[torch.Tensor]): Binary B matrix. ``uint8`` packed buffer
+            when ``dbf_B_is_packed`` is True, otherwise an unpacked ±1 ``float16``
+            matrix.
         dbf_Db (Optional[torch.Tensor]): Scaling vector paired with B.
+        dbf_A_is_packed (bool): Whether ``dbf_A`` is stored bitpacked (``uint8``).
+        dbf_B_is_packed (bool): Whether ``dbf_B`` is stored bitpacked (``uint8``).
+        dbf_A_original_shape (Optional[tuple[int, int]]): Unpacked ``dbf_A`` shape
+            (out_dim, mid_dim); required to recover the matrix when packed.
+        dbf_B_original_shape (Optional[tuple[int, int]]): Unpacked ``dbf_B`` shape
+            (mid_dim, in_dim); required to recover the matrix when packed.
+
+    Note:
+        When ``dbf_A``/``dbf_B`` are packed, their dtype/shape differ from the
+        unpacked representation. Do not index them directly; use
+        ``compute_dequantized_weight()`` or ``get_unpacked_binary_factors()``
+        which transparently handle both representations.
     """
 
     # =========================================
@@ -74,6 +91,67 @@ class DBFResult(QuantizationResult):
     dbf_mid: Optional[torch.Tensor] = None  # Middle scaling vector (mid_dim,)
     dbf_B: Optional[torch.Tensor] = None  # Binary B matrix (mid_dim, in_dim)
     dbf_Db: Optional[torch.Tensor] = None  # Scaling vector paired with B (in_dim,)
+
+    # Packed-state metadata (dbf_A / dbf_B only; the scaling vectors stay float16)
+    dbf_A_is_packed: bool = False
+    dbf_B_is_packed: bool = False
+    dbf_A_original_shape: Optional[tuple[int, int]] = None
+    dbf_B_original_shape: Optional[tuple[int, int]] = None
+
+    def get_unpacked_binary_factors(self, device=None) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the unpacked ±1 binary factors ``(dbf_A, dbf_B)``.
+
+        Transparently handles both packed and unpacked storage so callers never
+        need to know which representation a result uses. Packed factors are
+        restored to their original shape via the stored ``*_original_shape``
+        metadata; unpacked factors are returned as-is (moved to ``device``).
+
+        Args:
+            device (str or torch.device, optional): Device for the returned
+                tensors. Defaults to CPU.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: ``(dbf_A, dbf_B)`` as ±1 ``float16``
+                matrices. The dtype is uniform for both packed and unpacked
+                storage so callers can use the factors without a dtype check.
+
+        Raises:
+            ValueError: If a factor is missing, or is flagged packed but its
+                original shape metadata is absent.
+        """
+        if self.dbf_A is None or self.dbf_B is None:
+            raise ValueError("DBFResult is missing dbf_A / dbf_B binary factors")
+
+        target_device = torch.device(device) if device is not None else torch.device("cpu")
+
+        # Old results predate the packed-state fields; treat them as unpacked.
+        a_packed = bool(getattr(self, "dbf_A_is_packed", False))
+        b_packed = bool(getattr(self, "dbf_B_is_packed", False))
+
+        # unpack_binary_matrix() returns int8; cast packed factors to float16 so
+        # both branches yield the same dtype as the stored unpacked factors and
+        # the packed/unpacked difference never leaks to callers.
+        if a_packed:
+            a_shape = getattr(self, "dbf_A_original_shape", None)
+            if a_shape is None:
+                raise ValueError("dbf_A_original_shape is required to unpack a packed dbf_A.")
+            dbf_A = unpack_binary_matrix(self.dbf_A, a_shape).to(
+                device=target_device, dtype=torch.float16
+            )
+        else:
+            dbf_A = self.dbf_A.to(device=target_device, dtype=torch.float16)
+
+        if b_packed:
+            b_shape = getattr(self, "dbf_B_original_shape", None)
+            if b_shape is None:
+                raise ValueError("dbf_B_original_shape is required to unpack a packed dbf_B.")
+            dbf_B = unpack_binary_matrix(self.dbf_B, b_shape).to(
+                device=target_device, dtype=torch.float16
+            )
+        else:
+            dbf_B = self.dbf_B.to(device=target_device, dtype=torch.float16)
+
+        return dbf_A, dbf_B
 
     def compute_dequantized_weight(self, device=None) -> torch.Tensor:
         """Compute dequantized weight from quantized data and quantization parameters.
