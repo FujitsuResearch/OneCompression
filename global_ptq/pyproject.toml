@@ -1,0 +1,112 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onecomp-globalptq"
+dynamic = ["version"]
+description = "OneComp"
+readme = "README.md"
+license = {text = "Proprietary"}
+authors = [
+    {name = "Keiji Kimura"},
+]
+requires-python = ">=3.12, <3.14"
+dependencies = [
+    "onecomp >= 1.1.0",
+    "torch",
+    "transformers >= 5.3.0",
+]
+
+[project.optional-dependencies]
+cpu = ["torch", "torchvision"]
+cu118 = ["torch", "torchvision"]
+cu121 = ["torch", "torchvision"]
+cu124 = ["torch", "torchvision"]
+cu126 = ["torch", "torchvision"]
+cu128 = ["torch", "torchvision"]
+cu130 = ["torch", "torchvision"]
+distributed = [
+    "deepspeed",
+]
+dev = [
+    "black",
+    "pylint",
+    "pytest",
+    "deepspeed",
+]
+
+[tool.uv]
+conflicts = [
+    [{extra = "cpu"}, {extra = "cu118"}, {extra = "cu121"}, {extra = "cu124"}, {extra = "cu126"}, {extra = "cu128"}, {extra = "cu130"}],
+]
+
+[tool.uv.sources]
+onecomp = {git = "https://github.com/FujitsuResearch/OneCompression.git", branch = "main"}
+torch = [
+    {index = "pytorch-cpu", extra = "cpu"},
+    {index = "pytorch-cu118", extra = "cu118"},
+    {index = "pytorch-cu121", extra = "cu121"},
+    {index = "pytorch-cu124", extra = "cu124"},
+    {index = "pytorch-cu126", extra = "cu126"},
+    {index = "pytorch-cu128", extra = "cu128"},
+    {index = "pytorch-cu130", extra = "cu130"},
+]
+torchvision = [
+    {index = "pytorch-cpu", extra = "cpu"},
+    {index = "pytorch-cu118", extra = "cu118"},
+    {index = "pytorch-cu121", extra = "cu121"},
+    {index = "pytorch-cu124", extra = "cu124"},
+    {index = "pytorch-cu126", extra = "cu126"},
+    {index = "pytorch-cu128", extra = "cu128"},
+    {index = "pytorch-cu130", extra = "cu130"},
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.black]
+line-length = 99
+
+[tool.setuptools.dynamic]
+version = {attr = "onecomp_globalptq.__version__.__version__"}
+
+[tool.setuptools.packages.find]
+exclude = ["tests", "tests.*"]
