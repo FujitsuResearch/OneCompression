@@ -32,6 +32,7 @@ from safetensors.torch import load_file
 
 from onecomp.post_process.post_process_lora_sft import LoRAGPTQLinear
 from onecomp.runner import Runner
+from onecomp.utils.lora import LORA_ADAPTER_SUBDIR
 
 
 def _make_quantized_model() -> nn.Module:
@@ -65,7 +66,6 @@ def _save_with_dtype(tmp_path: Path, dtype: str) -> dict:
     stub = SimpleNamespace(
         quantized_model=_make_quantized_model(),
         model_config=SimpleNamespace(dtype=dtype),
-        LORA_ADAPTER_SUBDIR=Runner.LORA_ADAPTER_SUBDIR,
         logger=SimpleNamespace(info=lambda *a, **k: None),
         _collect_lora_gptq_modules=Runner._collect_lora_gptq_modules,
     )
@@ -73,7 +73,7 @@ def _save_with_dtype(tmp_path: Path, dtype: str) -> dict:
     wrote = Runner._save_lora_adapter_sidecar(stub, str(tmp_path))
     assert wrote is True
 
-    adapter_path = tmp_path / Runner.LORA_ADAPTER_SUBDIR / "adapter_model.safetensors"
+    adapter_path = tmp_path / LORA_ADAPTER_SUBDIR / "adapter_model.safetensors"
     assert adapter_path.exists()
     return load_file(str(adapter_path))
 
@@ -109,7 +109,7 @@ def test_sidecar_keys_follow_peft_convention(tmp_path):
         "base_model.model.model.layers.0.self_attn.q_proj.lora_B.weight",
     }
 
-    config_path = tmp_path / Runner.LORA_ADAPTER_SUBDIR / "adapter_config.json"
+    config_path = tmp_path / LORA_ADAPTER_SUBDIR / "adapter_config.json"
     config = json.loads(config_path.read_text())
     assert config["r"] == 4
     assert config["lora_alpha"] == 8

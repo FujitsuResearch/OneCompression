@@ -25,6 +25,7 @@ from .quantizer.gptq.gptq_layer import GPTQLinear
 from .quantizer.onebit.onebit_layer import OneBitLinear
 from .utils.device import get_default_device
 from .utils.dtype import needs_bfloat16
+from .utils.lora import LORA_ADAPTER_SUBDIR
 from .utils.quant_config import get_quant_param
 
 logger = getLogger(__name__)
@@ -743,8 +744,6 @@ class QuantizedModelLoader:
 
             QuantizedModelLoader._set_module_by_name(model, name, quantized_module)
 
-    LORA_ADAPTER_SUBDIR = "lora_adapter"
-
     @staticmethod
     def _apply_lora_adapters_from_sidecar(model, save_directory: str) -> int:
         """Re-wrap GPTQLinear layers with LoRAGPTQLinear from a PEFT-format sidecar.
@@ -761,7 +760,7 @@ class QuantizedModelLoader:
         Returns:
             int: Number of layers wrapped (0 if no adapter sidecar was found).
         """
-        adapter_dir = os.path.join(save_directory, QuantizedModelLoader.LORA_ADAPTER_SUBDIR)
+        adapter_dir = os.path.join(save_directory, LORA_ADAPTER_SUBDIR)
         adapter_weights_path = os.path.join(adapter_dir, "adapter_model.safetensors")
         adapter_config_path = os.path.join(adapter_dir, "adapter_config.json")
         if not (os.path.isfile(adapter_weights_path) and os.path.isfile(adapter_config_path)):

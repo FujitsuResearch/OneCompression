@@ -20,6 +20,7 @@ from onecomp.post_process.post_process_lora_sft import LoRAGPTQLinear, PostProce
 from onecomp.quantized_model_loader import QuantizedModelLoader
 from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
 from onecomp.runner import Runner
+from onecomp.utils.lora import LORA_ADAPTER_SUBDIR
 
 QUANTIZED_LAYER_NAME = "model.layers.0.mlp.down_proj"
 
@@ -250,8 +251,8 @@ def test_gptq_lora_post_process_save_load_roundtrip_preserves_logits(tmp_path):
         QUANTIZED_LAYER_NAME,
         lora_layer.base_layer,
     )
-    assert (save_dir / Runner.LORA_ADAPTER_SUBDIR / "adapter_model.safetensors").is_file()
-    assert (save_dir / Runner.LORA_ADAPTER_SUBDIR / "adapter_config.json").is_file()
+    assert (save_dir / LORA_ADAPTER_SUBDIR / "adapter_model.safetensors").is_file()
+    assert (save_dir / LORA_ADAPTER_SUBDIR / "adapter_config.json").is_file()
 
     loaded_model = _load_saved_model(save_dir)
     loaded_layer = loaded_model.model.layers[0].mlp.down_proj
@@ -280,7 +281,7 @@ def test_gptq_non_lora_save_load_roundtrip_preserves_logits(tmp_path):
 
     state_dict = _collect_saved_state(save_dir)
     _assert_gptq_tensors_are_packed(state_dict, QUANTIZED_LAYER_NAME, gptq_layer)
-    assert not (save_dir / Runner.LORA_ADAPTER_SUBDIR).exists()
+    assert not (save_dir / LORA_ADAPTER_SUBDIR).exists()
 
     loaded_model = _load_saved_model(save_dir)
     loaded_layer = loaded_model.model.layers[0].mlp.down_proj

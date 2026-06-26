@@ -32,6 +32,7 @@ from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
 from .utils import empty_cache
 from .utils.device import is_mps_device
+from .utils.lora import LORA_ADAPTER_SUBDIR
 from .utils.quantization_progress import QuantizationProgressTracker
 
 
@@ -1840,8 +1841,6 @@ class Runner:
     # Unified Save/Load Methods
     # ========================================
 
-    LORA_ADAPTER_SUBDIR = "lora_adapter"
-
     @staticmethod
     def _packable_gptq_wbits(wbits: int) -> bool:
         """Return whether OneComp can export GPTQ tensors in packed format."""
@@ -2057,7 +2056,7 @@ class Runner:
             "revision": None,
         }
 
-        adapter_dir = Path(save_directory) / self.LORA_ADAPTER_SUBDIR
+        adapter_dir = Path(save_directory) / LORA_ADAPTER_SUBDIR
         adapter_dir.mkdir(parents=True, exist_ok=True)
         _st_save_file(
             state_dict,
@@ -2275,7 +2274,7 @@ class Runner:
             # Remove any stale sidecar from a previous run so the directory is
             # self-consistent and load_quantized_model does not pick up an
             # adapter that no longer matches the saved base model.
-            stale_adapter_dir = save_path / self.LORA_ADAPTER_SUBDIR
+            stale_adapter_dir = save_path / LORA_ADAPTER_SUBDIR
             if stale_adapter_dir.is_dir():
                 for stale in (
                     "adapter_model.safetensors",
