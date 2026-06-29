@@ -204,6 +204,11 @@ class DoubleBinaryLinear(nn.Module):
         self.register_buffer("bp1", bp1)
         self.register_buffer("bp3", bp3)
 
+        # Derived from the original (unpacked) shapes:
+        # _bp1_shape=(mid, in), _bp3_shape=(out, mid).
+        self.in_features = self._bp1_shape[1]
+        self.out_features = self._bp3_shape[0]
+
         if use_gemlite is None:
             use_gemlite = HAS_GEMLITE_SUPPORT and is_gemlite_available()
 
@@ -321,6 +326,8 @@ class DoubleBinaryLinear(nn.Module):
         self = cls.__new__(cls)
         nn.Module.__init__(self)
         self.target_bits = target_bits
+        self.in_features = in_features
+        self.out_features = out_features
 
         def _p(k):
             t = layer_state_dict[k]
