@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.2.0+feature/legacy-vllm] 2026-06-09
+
+### Environment updates
+
+- Added `envs/vllm/` with versioned vLLM environment definitions (`0.12.0`, `0.15.1`).
+
 ## [v1.3.0] 2026-MM-DD (WIP)
 
 (TODO: Add changelog for v1.3.0)
