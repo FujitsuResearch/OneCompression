@@ -37,6 +37,11 @@
 - Added `_resolve_name_by_layer_suffix()` tests covering exact, unique suffix, no-match, and ambiguous first/error modes (`tests/onecomp/runner/test_resolve_name_by_layer_suffix.py`)
 - Added CPU-only LoRA adapter sidecar dtype tests covering base-dtype saves, unexpected dtype failures, and PEFT key/config conventions (`tests/onecomp/runner/test_save_lora_adapter_sidecar_dtype.py`)
 
+## [v1.2.0+feature/legacy-vllm] 2026-06-09
+
+### Environment updates
+
+- Added `envs/vllm/` with versioned vLLM environment definitions (`0.12.0`, `0.15.1`).
 
 ## [v1.3.0] 2026-MM-DD (WIP)
 
