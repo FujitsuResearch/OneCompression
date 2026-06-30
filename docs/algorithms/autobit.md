@@ -41,6 +41,7 @@ as a fallback quantizer for the layers where GPTQ candidates would incur excessi
 | `enable_fused_groups`  | `bool`  | Enforce same quantizer for vLLM fused layers                       | `True`               |
 | `auto_dbf`             | `bool`  | Enable DBF fallback for ultra-low-bit targets                      | `True`               |
 | `dbf_threshold`        | `float` | Target bit-width threshold below which DBF is injected             | `2.0`                |
+| `bitpack_on_quantize`  | `bool`  | Propagate bitpacking to candidate and injected-DBF quantizers      | `True`               |
 | `save_path`            | `str`   | Path to save assignment heatmap visualization                      | `None`               |
 
 ## Usage
