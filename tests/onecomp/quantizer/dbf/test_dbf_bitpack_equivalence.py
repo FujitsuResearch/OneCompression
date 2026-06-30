@@ -31,7 +31,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from test_module import QuantizeTestHelper
 
 from onecomp.quantizer.dbf._dbf import DBF, DBFResult
-from onecomp.quantizer.dbf.dbf_layer import DoubleBinaryLinear, pack_binary
+from onecomp.quantizer.dbf.dbf_layer import DoubleBinaryLinear, pack_binary_factor
 
 
 def _make_pm1(rows: int, cols: int, seed: int = 0) -> torch.Tensor:
@@ -51,8 +51,8 @@ def _make_dbf_result(out_dim, mid_dim, in_dim, *, packed, seed=0) -> DBFResult:
     kwargs = dict(is_dbf_quantized=True, dbf_Da=Da, dbf_mid=mid, dbf_Db=Db)
     if packed:
         kwargs.update(
-            dbf_A=pack_binary(A),
-            dbf_B=pack_binary(B),
+            dbf_A=pack_binary_factor(A),
+            dbf_B=pack_binary_factor(B),
             dbf_A_is_packed=True,
             dbf_B_is_packed=True,
             dbf_A_original_shape=(out_dim, mid_dim),

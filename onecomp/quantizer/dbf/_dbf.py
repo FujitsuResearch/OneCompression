@@ -30,7 +30,7 @@ from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.utils.quant_config import get_quant_param
 
 from .dbf_impl import run_dbf
-from .dbf_layer import pack_binary, unpack_binary_matrix
+from .dbf_layer import pack_binary_factor, unpack_binary_factor
 
 
 @dataclass
@@ -128,14 +128,14 @@ class DBFResult(QuantizationResult):
         a_packed = bool(getattr(self, "dbf_A_is_packed", False))
         b_packed = bool(getattr(self, "dbf_B_is_packed", False))
 
-        # unpack_binary_matrix() returns int8; cast packed factors to float16 so
+        # unpack_binary_factor() returns int8; cast packed factors to float16 so
         # both branches yield the same dtype as the stored unpacked factors and
         # the packed/unpacked difference never leaks to callers.
         if a_packed:
             a_shape = getattr(self, "dbf_A_original_shape", None)
             if a_shape is None:
                 raise ValueError("dbf_A_original_shape is required to unpack a packed dbf_A.")
-            dbf_A = unpack_binary_matrix(self.dbf_A, a_shape).to(
+            dbf_A = unpack_binary_factor(self.dbf_A, a_shape).to(
                 device=target_device, dtype=torch.float16
             )
         else:
@@ -145,7 +145,7 @@ class DBFResult(QuantizationResult):
             b_shape = getattr(self, "dbf_B_original_shape", None)
             if b_shape is None:
                 raise ValueError("dbf_B_original_shape is required to unpack a packed dbf_B.")
-            dbf_B = unpack_binary_matrix(self.dbf_B, b_shape).to(
+            dbf_B = unpack_binary_factor(self.dbf_B, b_shape).to(
                 device=target_device, dtype=torch.float16
             )
         else:
@@ -393,8 +393,8 @@ class DBF(Quantizer):
         if self.bitpack_on_quantize and is_dbf_quantized and dbf_A is not None and dbf_B is not None:
             dbf_A_original_shape = tuple(dbf_A.shape)
             dbf_B_original_shape = tuple(dbf_B.shape)
-            packed_A = pack_binary(dbf_A).to(torch.uint8).cpu()
-            packed_B = pack_binary(dbf_B).to(torch.uint8).cpu()
+            packed_A = pack_binary_factor(dbf_A).to(torch.uint8).cpu()
+            packed_B = pack_binary_factor(dbf_B).to(torch.uint8).cpu()
             # Replace the entries and drop the unpacked references early so the
             # large ±1 matrices can be freed before the result is built.
             weight_results["dbf_A"] = packed_A

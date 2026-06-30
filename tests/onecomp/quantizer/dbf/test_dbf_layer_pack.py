@@ -14,9 +14,8 @@ import torch
 
 from onecomp.quantizer.dbf.dbf_layer import (
     DoubleBinaryLinear,
-    pack_binary,
-    pack_binary_matrix,
-    unpack_binary_matrix,
+    pack_binary_factor,
+    unpack_binary_factor,
 )
 
 
@@ -43,17 +42,17 @@ def _reference_weight(dbf_Da, dbf_A, dbf_mid, dbf_B, dbf_Db):
     ).to(torch.float16)
 
 
-def test_pack_binary_matrix_padding_roundtrip_bit_exact():
+def test_pack_binary_factor_padding_roundtrip_bit_exact():
     """Packed +/-1 matrices round-trip exactly, including padded shapes."""
     for rows, cols in [(8, 8), (5, 7), (3, 1), (1, 9), (13, 11)]:
         mat = _make_pm1(rows, cols, seed=rows * 100 + cols)
-        packed = pack_binary_matrix(mat)
+        packed = pack_binary_factor(mat)
 
         assert packed.dtype == torch.uint8
         assert packed.ndim == 1
         assert packed.numel() == (mat.numel() + 7) // 8
 
-        restored = unpack_binary_matrix(packed, (rows, cols))
+        restored = unpack_binary_factor(packed, (rows, cols))
         assert restored.shape == (rows, cols)
         assert torch.equal(restored.to(torch.float16), mat)
 
@@ -73,8 +72,8 @@ def test_double_binary_linear_packs_unpacked_factors_to_bp_buffers():
 
     assert layer._bp1_shape == tuple(dbf_B.shape)
     assert layer._bp3_shape == tuple(dbf_A.shape)
-    assert torch.equal(layer.bp1, pack_binary(dbf_B))
-    assert torch.equal(layer.bp3, pack_binary(dbf_A))
+    assert torch.equal(layer.bp1, pack_binary_factor(dbf_B))
+    assert torch.equal(layer.bp3, pack_binary_factor(dbf_A))
 
     x = torch.randn(2, dbf_B.shape[1], dtype=torch.float16)
     expected = torch.nn.functional.linear(x, _reference_weight(dbf_Da, dbf_A, dbf_mid, dbf_B, dbf_Db))
@@ -84,8 +83,8 @@ def test_double_binary_linear_packs_unpacked_factors_to_bp_buffers():
 def test_double_binary_linear_keeps_already_packed_factors_without_repack():
     """Packed dbf_A/dbf_B inputs are registered directly as bp3/bp1."""
     dbf_Da, dbf_A, dbf_mid, dbf_B, dbf_Db = _make_factors()
-    packed_A = pack_binary(dbf_A)
-    packed_B = pack_binary(dbf_B)
+    packed_A = pack_binary_factor(dbf_A)
+    packed_B = pack_binary_factor(dbf_B)
 
     layer = DoubleBinaryLinear(
         dbf_Da,
