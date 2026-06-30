@@ -167,6 +167,7 @@ Complete working examples (quantization + vLLM inference) are available:
 - GPTQ: [`example/vllm_inference/example_gptq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_gptq_vllm_inference.py)
 - JointQ: [`example/vllm_inference/example_jointq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_jointq_vllm_inference.py)
 - AutoBit (mixed-precision): [`example/vllm_inference/example_autobit_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_autobit_vllm_inference.py)
+- DBF: [`example/vllm_inference/example_dbf_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_dbf_vllm_inference.py)
 
 `JointQ` and `RTN` follow exactly the same flow as the GPTQ example above —
 substitute `JointQ(bits=4, group_size=128)` or `RTN(wbits=4, groupsize=128)` for the

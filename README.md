@@ -284,6 +284,7 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 | | [example_jointq.py](./example/example_jointq.py) | JointQ quantization |
 | | [example_autobit.py](./example/example_autobit.py) | AutoBit mixed-precision quantization |
 | | [example_auto_run.py](./example/example_auto_run.py) | AutoBit with automatic VRAM estimation |
+| | [example_dbf_bitpack_equivalence.py](./example/example_dbf_bitpack_equivalence.py) | DBF quantization with/without bitpack-on-quantize (bit-exact equivalence check) |
 | Calibration | [example_custom_calibration.py](./example/example_custom_calibration.py) | Custom calibration dataset with CalibrationConfig |
 | Save / Load | [example_save_load.py](./example/example_save_load.py) | Save and load quantized models |
 | Rotation Preprocessing | [example_llama_preprocess_rtn.py](./example/pre_process/example_llama_preprocess_rtn.py) | Rotation preprocessing + RTN (TinyLlama) |
@@ -294,6 +295,7 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
+| | [example_dbf_vllm_inference.py](./example/vllm_inference/example_dbf_vllm_inference.py) | DBF quantization and vLLM inference |
 
 ## 🔌 vLLM Inference
 
