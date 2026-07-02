@@ -100,6 +100,10 @@ def rank_from_bpw(
             - "floor": Round down (ensure b_target is not exceeded)
             - "ceil": Round up (prioritize approximation accuracy)
             - "round": Round to nearest (balance)
+        scale_bits: Bit width of each amplitude (envelope) parameter counted in
+            the BPW budget. Defaults to 16 (FP16), matching the paper's formula
+            b = P * [r(n+m) + 16*l*(n+m+2r)] / (nm). Set to 0 to count only the
+            binary sign matrices.
 
     Returns:
         Calculated rank r
