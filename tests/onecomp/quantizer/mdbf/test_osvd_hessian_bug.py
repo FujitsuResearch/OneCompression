@@ -1,24 +1,23 @@
 """
-Proof-of-concept test: lowrank_osvd の H^{1/2} 計算バグの検証
+Proof-of-concept test: verification of the H^{1/2} computation bug in lowrank_osvd
 
-0604.pdf 指摘: initialize.py の lowrank_osvd において
-  前半: W_tilde = W @ Q @ diag(√λ)          ← Q^T が欠落
-  後半: V' = Q @ diag(1/√λ) @ [Q^T] @ V_r   ← Q^T は正しい H^{-1/2} の展開
+Issue (0604.pdf): in lowrank_osvd of initialize.py,
+  first half:  W_tilde = W @ Q @ diag(sqrt(λ))          <- Q^T is missing
+  second half: V' = Q @ diag(1/sqrt(λ)) @ [Q^T] @ V_r   <- Q^T is the correct H^{-1/2} expansion
 
-H = Q Λ Q^T のとき H^{1/2} = Q Λ^{1/2} Q^T（Q^T が必要）であるため、
-前半の W_tilde は実際には W @ H^{1/2} @ Q を計算している。
+Since H = Q Λ Q^T implies H^{1/2} = Q Λ^{1/2} Q^T (Q^T is required),
+the first-half W_tilde actually computes W @ H^{1/2} @ Q.
 
-V_r は W @ H^{1/2} @ Q の右特異ベクトルであり、
-W @ H^{1/2} の右特異ベクトル V_r_correct とは
-  V_r_buggy = Q^T @ V_r_correct
-という関係にある。
+V_r is the set of right singular vectors of W @ H^{1/2} @ Q, which relate to
+the right singular vectors V_r_correct of W @ H^{1/2} as
+  V_r_buggy = Q^T @ V_r_correct.
 
-後半の V' の計算:
-  buggy  : Q @ diag(1/√λ) @ Q^T @ V_r_buggy  = Q @ diag(1/√λ) @ Q^T @ Q^T @ V_r_correct
-  correct: Q @ diag(1/√λ)                   @ V_r_buggy  = Q @ diag(1/√λ) @ Q^T @ V_r_correct
+Second-half computation of V':
+  buggy  : Q @ diag(1/sqrt(λ)) @ Q^T @ V_r_buggy = Q @ diag(1/sqrt(λ)) @ Q^T @ Q^T @ V_r_correct
+  correct: Q @ diag(1/sqrt(λ))              @ V_r_buggy = Q @ diag(1/sqrt(λ)) @ Q^T @ V_r_correct
 
-Q^T @ Q^T = (Q @ Q)^{-1} ≠ I（Q が対角でない限り）なので、
-W_hat_buggy = U' @ V'_buggy^T は W の H 重み付き最良 rank-r 近似にならない。
+Because Q^T @ Q^T = (Q @ Q)^{-1} != I (unless Q is diagonal),
+W_hat_buggy = U' @ V'_buggy^T is not the H-weighted best rank-r approximation of W.
 """
 
 import pytest
@@ -33,16 +32,16 @@ def _hessian_error(W: torch.Tensor, W_hat: torch.Tensor, H: torch.Tensor) -> flo
 
 def _osvd_correct(W: torch.Tensor, H: torch.Tensor, r: int) -> torch.Tensor:
     """
-    正しい OSVD 実装: H^{1/2} = Q diag(√λ) Q^T を使う
+    Correct OSVD implementation: uses H^{1/2} = Q diag(sqrt(λ)) Q^T
 
-    W_tilde = W @ H^{1/2}  → SVD → V' = H^{-1/2} @ V_r @ diag(√Σ)
+    W_tilde = W @ H^{1/2}  -> SVD -> V' = H^{-1/2} @ V_r @ diag(sqrt(Σ))
     """
     eig_vals, eig_vecs = torch.linalg.eigh(H)
     eig_vals = eig_vals.clamp(min=1e-12)
     sqrt_eig = torch.sqrt(eig_vals)
     inv_sqrt_eig = 1.0 / sqrt_eig
 
-    # 正しい H^{1/2}: Q diag(√λ) Q^T
+    # Correct H^{1/2}: Q diag(sqrt(λ)) Q^T
     W_tilde = W @ eig_vecs @ torch.diag(sqrt_eig) @ eig_vecs.T
 
     U_w, S_w, Vh_w = torch.linalg.svd(W_tilde, full_matrices=False)
@@ -51,27 +50,28 @@ def _osvd_correct(W: torch.Tensor, H: torch.Tensor, r: int) -> torch.Tensor:
     sqrt_S = torch.sqrt(S_r.clamp(min=1e-12))
 
     U_prime = U_r * sqrt_S[None, :]
-    # V' = H^{-1/2} @ V_r @ diag(√Σ)  （H^{-1/2} = Q diag(1/√λ) Q^T）
+    # V' = H^{-1/2} @ V_r @ diag(sqrt(Σ))  (H^{-1/2} = Q diag(1/sqrt(λ)) Q^T)
     V_prime = eig_vecs @ torch.diag(inv_sqrt_eig) @ eig_vecs.T @ V_r @ torch.diag(sqrt_S)
     return U_prime @ V_prime.T
 
 
 def _osvd_buggy(W: torch.Tensor, H: torch.Tensor, r: int) -> torch.Tensor:
     """
-    現行実装（バグあり）: W_tilde に Q^T が欠落
+    Current implementation (buggy): Q^T is missing from W_tilde
 
-    W_tilde = W @ Q @ diag(√λ)   ← Q^T なし（= W @ H^{1/2} @ Q）
-    V' = Q @ diag(1/√λ) @ Q^T @ V_r @ diag(√Σ)  ← 後半は完全な H^{-1/2}
+    W_tilde = W @ Q @ diag(sqrt(λ))   <- no Q^T (= W @ H^{1/2} @ Q)
+    V' = Q @ diag(1/sqrt(λ)) @ Q^T @ V_r @ diag(sqrt(Σ))  <- second half is the full H^{-1/2}
 
-    前半で V_r は W @ H^{1/2} @ Q の右特異ベクトル (= Q^T @ V_r_correct) なので、
-    後半に Q^T を掛けると Q^T @ Q^T = (Q^2)^{-1} ≠ I が入り込みズレが生じる。
+    In the first half V_r is the set of right singular vectors of W @ H^{1/2} @ Q
+    (= Q^T @ V_r_correct), so multiplying by Q^T in the second half introduces
+    Q^T @ Q^T = (Q^2)^{-1} != I and produces a discrepancy.
     """
     eig_vals, eig_vecs = torch.linalg.eigh(H)
     eig_vals = eig_vals.clamp(min=1e-12)
     sqrt_eig = torch.sqrt(eig_vals)
     inv_sqrt_eig = 1.0 / sqrt_eig
 
-    # バグ: Q^T が欠落 → W @ H^{1/2} @ Q を計算している
+    # Bug: Q^T is missing -> this computes W @ H^{1/2} @ Q
     W_tilde = W @ eig_vecs @ torch.diag(sqrt_eig)
 
     U_w, S_w, Vh_w = torch.linalg.svd(W_tilde, full_matrices=False)
@@ -80,13 +80,13 @@ def _osvd_buggy(W: torch.Tensor, H: torch.Tensor, r: int) -> torch.Tensor:
     sqrt_S = torch.sqrt(S_r.clamp(min=1e-12))
 
     U_prime = U_r * sqrt_S[None, :]
-    # 後半は完全な H^{-1/2} を適用しているが、V_r が Q 回転済みなので不整合
+    # The second half applies the full H^{-1/2}, but V_r is already Q-rotated, so it is inconsistent
     V_prime = eig_vecs @ torch.diag(inv_sqrt_eig) @ eig_vecs.T @ V_r @ torch.diag(sqrt_S)
     return U_prime @ V_prime.T
 
 
 def _make_pd_matrix(m: int, seed: int, noise: float = 0.1) -> torch.Tensor:
-    """非対角の正定値行列を生成（H が対角の場合はバグが顕在化しない）"""
+    """Generate a non-diagonal positive-definite matrix (the bug does not manifest when H is diagonal)"""
     torch.manual_seed(seed)
     A = torch.randn(m, m)
     return A @ A.T + noise * torch.eye(m)
@@ -94,7 +94,7 @@ def _make_pd_matrix(m: int, seed: int, noise: float = 0.1) -> torch.Tensor:
 
 class TestOsvdHessianBug:
     """
-    lowrank_osvd の H^{1/2} バグ: 数値的証明
+    lowrank_osvd H^{1/2} bug: numerical proof
     """
 
     @pytest.mark.parametrize("n,m,r,seed", [
@@ -104,11 +104,12 @@ class TestOsvdHessianBug:
     ])
     def test_buggy_has_larger_hessian_error(self, n, m, r, seed):
         """
-        バグあり実装は、H 重み付き出力誤差が最適解より大きくなることを証明する。
+        Prove that the buggy implementation yields a larger H-weighted output
+        error than the optimal solution.
 
-        正しい OSVD は最小化問題の最適解を返すため、
-        バグあり版の誤差 ≥ 正しい版の誤差 が成立する。
-        両者が等しいのは H が対角行列の場合のみ（Q = I のとき）。
+        Since the correct OSVD returns the optimal solution of the minimization
+        problem, buggy error >= correct error holds. The two are equal only when
+        H is diagonal (i.e. Q = I).
         """
         torch.manual_seed(seed)
         W = torch.randn(n, m, dtype=torch.float64)
@@ -126,11 +127,11 @@ class TestOsvdHessianBug:
             f"  degradation={100*(err_buggy-err_correct)/max(abs(err_correct),1e-12):.2f}%"
         )
 
-        # 正しい版は最適解なので、バグあり版より常に小さいか等しい
+        # The correct version is optimal, so it is always <= the buggy version
         assert err_correct <= err_buggy + 1e-6 * abs(err_correct), (
-            f"correct ({err_correct:.6e}) should be ≤ buggy ({err_buggy:.6e})"
+            f"correct ({err_correct:.6e}) should be <= buggy ({err_buggy:.6e})"
         )
-        # 非対角 H では真に異なるはず（等しければバグが顕在化していない）
+        # For non-diagonal H they must genuinely differ (if equal, the bug is not manifesting)
         assert abs(err_buggy - err_correct) > 1e-8 * abs(err_correct), (
             "Both errors are equal: bug is not manifesting "
             "(check whether H is effectively diagonal)"
@@ -138,7 +139,7 @@ class TestOsvdHessianBug:
 
     def test_reconstruction_differs(self):
         """
-        W_hat_correct と W_hat_buggy の行列が異なることを直接確認する。
+        Directly confirm that the matrices W_hat_correct and W_hat_buggy differ.
         """
         torch.manual_seed(7)
         n, m, r = 10, 8, 3
@@ -157,22 +158,25 @@ class TestOsvdHessianBug:
 
     def test_diagonal_H_no_bug(self):
         """
-        対角 H かつ固有値が昇順ソート済み（= Q が単位行列）の場合はバグが顕在化しないことを確認する。
+        Confirm that the bug does not manifest when H is diagonal with
+        ascending-sorted eigenvalues (i.e. Q is the identity matrix).
 
-        torch.linalg.eigh は固有値を昇順に返す。
-        H が対角行列でかつ対角成分がすでに昇順に並んでいる場合のみ eig_vecs = I となり、
-        バグの Q 回転が恒等変換になってバグが出ない。
+        torch.linalg.eigh returns eigenvalues in ascending order. Only when H is
+        diagonal and its diagonal entries are already sorted ascending does
+        eig_vecs = I hold, making the bug's Q-rotation the identity so the bug
+        does not appear.
 
-        これにより、バグが Q の非対角（または並べ替え）成分に起因することが裏付けられる。
+        This corroborates that the bug stems from the off-diagonal (or permutation)
+        component of Q.
         """
         torch.manual_seed(5)
         n, m, r = 10, 8, 3
         W = torch.randn(n, m, dtype=torch.float64)
-        # 対角 H: 固有値を昇順に並べることで eigh が返す Q が単位行列になる
+        # Diagonal H: sorting eigenvalues ascending makes the Q returned by eigh the identity
         diag_vals = torch.sort(torch.rand(m, dtype=torch.float64) + 0.5).values
         H = torch.diag(diag_vals)
 
-        # eigh が単位行列を返すことを事前確認
+        # Pre-check that eigh returns the identity matrix
         eig_vals, eig_vecs = torch.linalg.eigh(H)
         assert torch.allclose(eig_vecs.abs(), torch.eye(m, dtype=torch.float64), atol=1e-10), \
             "For sorted diagonal H, eig_vecs should be identity"
@@ -186,7 +190,7 @@ class TestOsvdHessianBug:
         )
         print(f"\nDiagonal H (sorted): max diff = {max_diff:.2e}, error diff = {err_diff:.2e}")
 
-        # Q = I のときは両者が一致する（= バグが Q の回転に起因する証拠）
+        # When Q = I the two agree (= evidence that the bug stems from the Q rotation)
         assert max_diff < 1e-5, (
             "With sorted diagonal H (Q=I), correct and buggy should agree "
             f"(got max diff {max_diff:.2e})"
@@ -194,13 +198,13 @@ class TestOsvdHessianBug:
 
     def test_buggy_inconsistency_analytically(self):
         """
-        解析的な不整合の確認:
-          W_tilde_buggy = W @ Q @ diag(√λ)  は  W @ H^{1/2} @ Q  に等しい。
-          したがって V_r_buggy = Q^T @ V_r_correct。
-          後半に H^{-1/2} = Q diag(1/√λ) Q^T を掛けると
-            Q diag(1/√λ) Q^T @ Q^T @ V_r_correct
-          = Q diag(1/√λ) @ (Q @ Q)^{-1} @ V_r_correct  （Q^T @ Q^T ≠ I）
-          となり、余分な (Q^2)^{-1} が残る。
+        Analytic confirmation of the inconsistency:
+          W_tilde_buggy = W @ Q @ diag(sqrt(λ)) equals W @ H^{1/2} @ Q.
+          Therefore V_r_buggy = Q^T @ V_r_correct.
+          Multiplying by H^{-1/2} = Q diag(1/sqrt(λ)) Q^T in the second half gives
+            Q diag(1/sqrt(λ)) Q^T @ Q^T @ V_r_correct
+          = Q diag(1/sqrt(λ)) @ (Q @ Q)^{-1} @ V_r_correct  (Q^T @ Q^T != I),
+          leaving a spurious (Q^2)^{-1} factor.
         """
         torch.manual_seed(99)
         m = 6
@@ -210,12 +214,12 @@ class TestOsvdHessianBug:
         eig_vals = eig_vals.clamp(min=1e-12)
         sqrt_eig = torch.sqrt(eig_vals)
 
-        # H^{1/2} @ Q = Q @ diag(√λ)  を確認
+        # Confirm H^{1/2} @ Q = Q @ diag(sqrt(λ))
         H_half = Q @ torch.diag(sqrt_eig) @ Q.T
         assert torch.allclose(H_half @ Q, Q @ torch.diag(sqrt_eig), atol=1e-10), \
             "H^{1/2} @ Q should equal Q @ diag(sqrt_eig)"
 
-        # W_tilde_buggy = W @ Q @ diag(√λ) = W @ H^{1/2} @ Q ≠ W @ H^{1/2}
+        # W_tilde_buggy = W @ Q @ diag(sqrt(λ)) = W @ H^{1/2} @ Q != W @ H^{1/2}
         torch.manual_seed(13)
         W = torch.randn(8, m, dtype=torch.float64)
         W_tilde_buggy   = W @ Q @ torch.diag(sqrt_eig)
@@ -224,7 +228,7 @@ class TestOsvdHessianBug:
         assert not torch.allclose(W_tilde_buggy, W_tilde_correct, atol=1e-8), \
             "W_tilde_buggy and W_tilde_correct should differ for non-diagonal H"
 
-        # Q^T @ Q^T ≠ I を確認（バグの根本原因）
+        # Confirm Q^T @ Q^T != I (the root cause of the bug)
         QtQt = Q.T @ Q.T
         assert not torch.allclose(QtQt, torch.eye(m, dtype=torch.float64), atol=1e-6), \
             "Q^T @ Q^T should not be identity (confirming the extra rotation is spurious)"
