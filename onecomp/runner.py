@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 import torch
+import torch.nn as nn
 
 from .__version__ import __version__
 from .calibration import CalibrationConfig, prepare_calibration_dataset
@@ -1712,20 +1713,21 @@ class Runner:
         # which discards hooks registered by RotatedModelConfig.load_model().
         fp32_had = getattr(self.model_config, "fp32_had", False)
         if self.model_config.has_additional_data():
-            from .pre_process.rotation_utils import register_online_hadamard_hooks
-
-            sample_layer = next(
-                (m for n, m in model.named_modules() if "down_proj" in n),
-                None,
+            from .pre_process.rotation_utils import (
+                collect_quantized_down_proj_types,
+                register_online_hadamard_hooks,
             )
-            if sample_layer is not None:
+
+            quantized_down_proj_types = collect_quantized_down_proj_types(model)
+
+            if quantized_down_proj_types:
                 hooks = register_online_hadamard_hooks(
                     model,
-                    layers_cls=[type(sample_layer)],
+                    layers_cls=quantized_down_proj_types,
                     fp32_had=fp32_had,
                 )
                 self.logger.info(
-                    "Re-registered Hadamard pre-hooks on %d down_proj layers (fp32_had=%s)",
+                    "Re-registered Hadamard pre-hooks on %d quantized layers (fp32_had=%s)",
                     len(hooks),
                     fp32_had,
                 )

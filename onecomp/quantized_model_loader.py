@@ -152,26 +152,17 @@ class QuantizedModelLoader:
 
         # Register Hadamard hooks for rotation-preprocessed models
         if quant_config.get("rotated", False):
-            from .pre_process.rotation_utils import register_online_hadamard_hooks
+            from .pre_process.rotation_utils import (
+                collect_down_proj_types,
+                register_online_hadamard_hooks,
+            )
 
             fp32_had = quant_config.get("fp32_had", False)
-            quant_method = quant_config.get("quant_method", "")
-            effective_method = (
-                quant_method[len("mixed_") :]
-                if quant_method.startswith("mixed_")
-                else quant_method
-            )
-            if effective_method == "gptq":
-                layers_cls = [GPTQLinear]
-            elif effective_method == "dbf":
-                layers_cls = [DoubleBinaryLinear]
-            elif effective_method == "onebit":
-                layers_cls = [OneBitLinear]
-            else:
-                layers_cls = None
+            down_proj_types = collect_down_proj_types(model)
+
             hooks = register_online_hadamard_hooks(
                 model,
-                layers_cls=layers_cls,
+                layers_cls=down_proj_types,
                 fp32_had=fp32_had,
             )
             logger.info(
