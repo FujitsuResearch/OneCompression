@@ -1,5 +1,5 @@
 """
-Example: Knowledge injection via LoRA SFT on a GPTQ-quantized model
+Example: Knowledge injection via LoRA SFT on a JointQ-quantized model
 
 Demonstrates how to teach a quantized model new knowledge using
 LoRA SFT post-processing. The model learns about "OneCompression"
@@ -7,7 +7,7 @@ LoRA SFT post-processing. The model learns about "OneCompression"
 after training.
 
 Flow:
-    1. Quantize TinyLlama with GPTQ 4-bit (groupsize=128)
+    1. Quantize TinyLlama with JointQ 4-bit (groupsize=128)
     2. Build quantized model via create_quantized_model
     3. Generate text BEFORE LoRA SFT (model does not know OneCompression)
     4. Run LoRA SFT with OneCompression knowledge data
@@ -21,7 +21,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 
 Usage:
-    python example/post_process/example_lora_sft_knowledge.py
+    python example/post_process/example_lora_sft_knowledge_jointq.py
 """
 
 from pathlib import Path
@@ -29,8 +29,8 @@ from pathlib import Path
 import torch
 
 from onecomp import (
-    GPTQ,
     CalibrationConfig,
+    JointQ,
     ModelConfig,
     PostProcessLoraSFT,
     Runner,
@@ -43,7 +43,7 @@ setup_logger()
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 KNOWLEDGE_DATA = str(Path(__file__).parent / "onecomp_knowledge.jsonl")
 PROMPT = "Q: What is OneCompression?\nA:"
-SAVE_DIR = "./tinyllama_gptq4_lora_knowledge"
+SAVE_DIR = "./tinyllama_jointq4_lora_knowledge"
 
 
 def generate_text(model, tokenizer, prompt, device, max_new_tokens=128):
@@ -62,18 +62,18 @@ def generate_text(model, tokenizer, prompt, device, max_new_tokens=128):
 
 
 # ================================================================
-# Step 1: Quantize the model with GPTQ 4-bit
+# Step 1: Quantize the model with JointQ 4-bit
 # ================================================================
 print("=" * 70)
-print("Step 1: Quantizing TinyLlama with GPTQ 4-bit (groupsize=128)")
+print("Step 1: Quantizing TinyLlama with JointQ 4-bit (groupsize=128)")
 print("=" * 70)
 
 model_config = ModelConfig(model_id=MODEL_ID, device="cuda:0")
-gptq = GPTQ(wbits=4, groupsize=128)
+jointq = JointQ(bits=4, group_size=128)
 
 runner = Runner(
     model_config=model_config,
-    quantizer=gptq,
+    quantizer=jointq,
     calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
 )
 runner.run()
@@ -135,7 +135,7 @@ print("=" * 70)
 runner.save_quantized_model(SAVE_DIR)
 print(f"Model saved to: {SAVE_DIR}")
 print(
-    "  - model.safetensors, config.json                  : base GPTQ model (HF-compatible)\n"
+    "  - model.safetensors, config.json                  : base JointQ model (HF-compatible)\n"
     "  - lora_adapter/adapter_model.safetensors           : PEFT-format LoRA adapter\n"
     "  - lora_adapter/adapter_config.json                 : PEFT-format adapter config"
 )

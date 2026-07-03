@@ -33,6 +33,7 @@ from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
 from .utils import empty_cache
 from .utils.device import is_mps_device
+from .utils.lora import LORA_ADAPTER_SUBDIR
 from .utils.quantization_progress import QuantizationProgressTracker
 
 
@@ -133,9 +134,12 @@ class Runner:
             post_processes (list[PostQuantizationProcess] or None):
                 Optional list of post-quantization processes to execute
                 after the main quantization step.  Each process receives
-                a quantized model on CPU (built via
-                ``create_quantized_model``) and may modify it in-place.
-                Processes are executed in order.  Default is None.
+                a packed quantized model on CPU (built via
+                ``create_quantized_model(pack_weights=True, use_gemlite=False)``)
+                and may modify it in-place.  Processes preserve the
+                incoming pack state, so the final ``self.quantized_model``
+                remains packed in the production path.  Processes are
+                executed in order.  Default is None.
             report_progress (bool):
                 When ``True`` (default), emit ``[progress]`` log lines with
                 completed steps, elapsed time, and a linear ETA estimate
@@ -896,8 +900,12 @@ class Runner:
     def run_post_processes(self):
         """Execute post-quantization processes.
 
-        Builds a quantized model on CPU from ``quantizer.results`` and
-        passes it to each :class:`PostQuantizationProcess` in order.
+        Builds a packed quantized model on CPU from ``quantizer.results``
+        and passes it to each :class:`PostQuantizationProcess` in order. Each
+        process preserves the incoming pack state (packed-in -> packed-out), so
+        ``self.quantized_model`` stays packed for memory-efficient eval reuse.
+        Processes that train (e.g. :class:`PostProcessLoraSFT`) unpack the base
+        weights internally for the duration of training and re-pack on exit.
 
         Raises:
             ValueError: If ``self.quantizer`` is ``None``
@@ -912,11 +920,13 @@ class Runner:
             )
 
         logger.info("Building quantized model for post-quantization processes...")
+        # Pass a packed model to post-processes; each one keeps the incoming
+        # pack state (packed-in -> packed-out) so the result stays packed.
         # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
         # LoRA SFT runs with bfloat16 autocast.  Plain buffers (qweight/scales) are
         # needed so training can call base_layer.forward() without dtype mismatch.
         quantized_model, _ = self.create_quantized_model(
-            pack_weights=False,
+            pack_weights=True,
             use_gemlite=False,
         )
 
@@ -1667,9 +1677,16 @@ class Runner:
 
             With post-process:
 
-            >>> model, tokenizer = runner.create_quantized_model(pack_weights=False)
+            >>> model, tokenizer = runner.create_quantized_model(
+            ...     pack_weights=True,
+            ...     use_gemlite=False,
+            ... )
             >>> post_process = PostProcessLoraSFT(data_files="train.jsonl")
             >>> post_process.run(model, runner.model_config)
+
+            Post-processes preserve the incoming pack state.  Use
+            ``pack_weights=False`` only when intentionally debugging an
+            unpacked-buffer path.
         """
         if quantizer is None:
             quantizer = self.quantizer
@@ -1823,8 +1840,240 @@ class Runner:
                 quant_config[key] = sorted(names + added)
 
     # ========================================
-    # Unified Save/Load Methods (Using quantizer.results)
+    # Unified Save/Load Methods
     # ========================================
+
+    @staticmethod
+    def _packable_gptq_wbits(wbits: int) -> bool:
+        """Return whether OneComp can export GPTQ tensors in packed format."""
+        from .quantizer.gptq.gptq_layer import is_packable_wbits
+
+        return is_packable_wbits(wbits)
+
+    @staticmethod
+    def _collect_lora_gptq_modules(model) -> list[tuple[str, torch.nn.Module]]:
+        """Return ``LoRAGPTQLinear`` modules contained in *model*."""
+        # Avoid importing post_process_lora_sft here; it pulls training deps.
+        return [
+            (name, mod)
+            for name, mod in model.named_modules()
+            if mod.__class__.__name__ == "LoRAGPTQLinear"
+        ]
+
+    @staticmethod
+    def _iter_gptq_export_layers(
+        model,
+        lora_modules: list[tuple[str, torch.nn.Module]],
+    ) -> list[tuple[str, torch.nn.Module]]:
+        """Return GPTQLinear layers keyed by their base-model export prefix."""
+        from .quantizer.gptq.gptq_layer import GPTQLinear
+
+        layers: list[tuple[str, torch.nn.Module]] = []
+        lora_base_names = set()
+        for name, mod in lora_modules:
+            base_layer = getattr(mod, "base_layer", None)
+            if isinstance(base_layer, GPTQLinear):
+                layers.append((name, base_layer))
+                lora_base_names.add(f"{name}.base_layer" if name else "base_layer")
+
+        for name, mod in model.named_modules():
+            if name in lora_base_names:
+                continue
+            if isinstance(mod, GPTQLinear):
+                layers.append((name, mod))
+        return layers
+
+    def _build_base_quantized_state_dict(
+        self,
+        model,
+        lora_modules: list[tuple[str, torch.nn.Module]],
+        pack_weights: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        """Build a base-model state_dict for HF/vLLM-compatible export.
+
+        ``LoRAGPTQLinear`` wrappers are flattened back to the base GPTQLinear
+        key layout, and LoRA tensors are omitted from the base weights. If a
+        GPTQLinear is unpacked and the bit-width is packable, only the exported
+        tensors are packed; the in-memory model is left unchanged.
+        """
+        export_state_dict: dict[str, torch.Tensor] = {}
+        lora_modules = sorted(lora_modules, key=lambda item: len(item[0]), reverse=True)
+
+        for key, tensor in model.state_dict().items():
+            skip = False
+            export_key = key
+            for lora_name, _mod in lora_modules:
+                prefix = f"{lora_name}." if lora_name else ""
+                if key.startswith(f"{prefix}lora_A.") or key.startswith(f"{prefix}lora_B."):
+                    skip = True
+                    break
+                base_prefix = f"{prefix}base_layer."
+                if key.startswith(base_prefix):
+                    export_key = f"{prefix}{key[len(base_prefix):]}"
+                    break
+            if not skip:
+                export_state_dict[export_key] = tensor
+
+        gptq_layers = self._iter_gptq_export_layers(model, lora_modules)
+        if not gptq_layers or not pack_weights:
+            return export_state_dict
+
+        from .quantizer.gptq.gptq_layer import pack_int_weights, pack_zeros
+
+        packed_layers = 0
+        skipped_layers = []
+        for layer_name, layer in gptq_layers:
+            if getattr(layer, "_weight_is_packed", False):
+                continue
+
+            wbits = int(getattr(layer, "wbits", 0))
+            if not self._packable_gptq_wbits(wbits):
+                if wbits != 1:
+                    skipped_layers.append((layer_name, wbits))
+                continue
+
+            prefix = f"{layer_name}." if layer_name else ""
+            qweight_key = f"{prefix}qweight"
+            qzeros_key = f"{prefix}qzeros"
+            if qweight_key not in export_state_dict or qzeros_key not in export_state_dict:
+                self.logger.warning(
+                    "Skipping GPTQ export packing for %s because qweight/qzeros "
+                    "were not found in state_dict",
+                    layer_name,
+                )
+                continue
+
+            export_state_dict[qweight_key] = pack_int_weights(
+                layer.qweight.detach().to(torch.int32),
+                wbits,
+            ).contiguous()
+            export_state_dict[qzeros_key] = pack_zeros(
+                layer.qzeros.detach().to(torch.int32),
+                wbits,
+            ).contiguous()
+            packed_layers += 1
+
+        if packed_layers:
+            self.logger.info(
+                "Packed %d unpacked GPTQLinear layer(s) in export state_dict",
+                packed_layers,
+            )
+        if skipped_layers:
+            self.logger.warning(
+                "Left %d unpacked GPTQLinear layer(s) unpacked in export state_dict "
+                "because their wbits are not packable: %s",
+                len(skipped_layers),
+                skipped_layers,
+            )
+        return export_state_dict
+
+    def _save_lora_adapter_sidecar(self, save_directory: str, model=None) -> bool:
+        """Write a PEFT-compatible LoRA adapter sidecar if *model*
+        contains ``LoRAGPTQLinear`` modules (typically produced by
+        ``PostProcessLoraSFT``).
+
+        The sidecar is placed in a ``lora_adapter/`` subdirectory rather than
+        directly in ``save_directory``. Reason: vLLM's base-model safetensors
+        loader globs ``*.safetensors`` at the top level of the model directory
+        and would otherwise try to load ``adapter_model.safetensors`` as
+        base-model weights, crashing with ``"no module or parameter named
+        'base_model' in LlamaForCausalLM"``. Keeping the adapter under a
+        subdirectory avoids that collision while still keeping the whole model
+        self-contained under one directory tree.
+
+        The subdirectory contains:
+          - ``adapter_model.safetensors``
+          - ``adapter_config.json``
+
+        The format matches what vLLM's native PEFT LoRA loader expects, so::
+
+            LLM(model=save_dir, enable_lora=True)
+            LoRARequest(..., lora_path=os.path.join(save_dir, "lora_adapter"))
+
+        will load and apply the adapter without any OneComp-specific changes
+        to the vLLM plugin.
+
+        Returns:
+            bool: True iff an adapter was written. False if there is no
+            in-memory LoRA state to save (e.g. no post-process ran).
+        """
+        if model is None:
+            model = self.quantized_model
+        if model is None:
+            return False
+
+        # Inline imports keep runner.py import-time cheap and avoid any
+        # circular-import risk with the post_process package.
+        from safetensors.torch import save_file as _st_save_file
+
+        lora_modules = self._collect_lora_gptq_modules(model)
+        if not lora_modules:
+            return False
+
+        # Save in the base model's runtime dtype so the round-trip is a single
+        # fp32(train) -> base-dtype rounding. Hardcoding float16 would add a
+        # needless fp16 intermediate for bf16 models (fp32 -> fp16 -> bf16 in
+        # vLLM). This save path expects model_config.dtype to be a concrete
+        # "float16"/"bfloat16" that maps directly to a torch dtype; an
+        # unexpected value (e.g. "auto") is out of scope and intentionally
+        # raises via getattr rather than silently falling back.
+        save_dtype = getattr(torch, self.model_config.dtype)
+
+        # PEFT convention: keys are prefixed with "base_model.model." and the
+        # module path matches what we will see on the loaded HF model.
+        state_dict = {}
+        for name, mod in lora_modules:
+            state_dict[f"base_model.model.{name}.lora_A.weight"] = (
+                mod.lora_A.weight.detach().to("cpu", save_dtype).contiguous()
+            )
+            state_dict[f"base_model.model.{name}.lora_B.weight"] = (
+                mod.lora_B.weight.detach().to("cpu", save_dtype).contiguous()
+            )
+
+        first = lora_modules[0][1]
+        lora_r = int(first.lora_r)
+        # scaling = alpha / r is stored as float; round-trip back to int alpha.
+        lora_alpha = int(round(float(first.scaling) * float(first.lora_r)))
+        lora_dropout = (
+            float(first.dropout.p) if isinstance(first.dropout, torch.nn.Dropout) else 0.0
+        )
+        target_modules = sorted({name.rsplit(".", 1)[-1] for name, _ in lora_modules})
+
+        adapter_config = {
+            "peft_type": "LORA",
+            "auto_mapping": None,
+            "base_model_name_or_path": str(Path(save_directory).resolve()),
+            "task_type": "CAUSAL_LM",
+            "r": lora_r,
+            "lora_alpha": lora_alpha,
+            "lora_dropout": lora_dropout,
+            "target_modules": target_modules,
+            "bias": "none",
+            "fan_in_fan_out": False,
+            "inference_mode": True,
+            "modules_to_save": None,
+            "init_lora_weights": True,
+            "layers_to_transform": None,
+            "layers_pattern": None,
+            "revision": None,
+        }
+
+        adapter_dir = Path(save_directory) / LORA_ADAPTER_SUBDIR
+        adapter_dir.mkdir(parents=True, exist_ok=True)
+        _st_save_file(
+            state_dict,
+            str(adapter_dir / "adapter_model.safetensors"),
+            metadata={"format": "pt"},
+        )
+        with open(adapter_dir / "adapter_config.json", "w", encoding="utf-8") as f:
+            json.dump(adapter_config, f, indent=2, ensure_ascii=True)
+
+        self.logger.info(
+            "Saved LoRA adapter sidecar (%d layers) to %s",
+            len(lora_modules),
+            adapter_dir,
+        )
+        return True
 
     def _resolve_source_model_dir(self) -> Optional[str]:
         """Resolve the original model directory for auxiliary file copy.
@@ -1925,36 +2174,77 @@ class Runner:
     def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
         """Save the quantized model to the specified directory
 
+        If ``self.quantized_model`` is available, that in-place updated model
+        is saved. Otherwise, the base quantized model is built from
+        ``quantizer.results`` via :meth:`create_quantized_model`. The result
+        is saved in HuggingFace-compatible safetensors format.
+
+        If the selected model contains ``LoRAGPTQLinear`` wrappers, this method
+        saves base weights with LoRA tensors excluded and additionally writes a
+        PEFT-compatible LoRA adapter sidecar
+        (``adapter_model.safetensors`` + ``adapter_config.json``) into the same
+        directory. The resulting directory can then be loaded back with
+        :func:`onecomp.load_quantized_model` (which auto-detects the sidecar
+        and re-wraps the layers) or served by vLLM via ``enable_lora=True``.
+
         Args:
             save_directory (str):
                 The path to save the quantized model.
             pack_weights (bool):
-                Whether to pack quantized weights for more memory/storage-efficient
-                representation.
+                Whether to pack quantized weights when ``self.quantized_model``
+                is not set and a model is built from ``quantizer.results``.
+                When saving an existing ``self.quantized_model``, packable
+                unpacked GPTQ buffers are packed only in the export
+                ``state_dict`` without mutating the in-memory model.
 
         Examples:
             Single quantizer mode:
 
             >>> runner.save_quantized_model("./quantized_model")
+
+            GPTQ + LoRA SFT:
+
+            >>> runner = Runner(
+            ...     model_config=model_config,
+            ...     quantizer=GPTQ(wbits=4, groupsize=128),
+            ...     post_processes=[PostProcessLoraSFT(data_files="train.jsonl")],
+            ... )
+            >>> runner.run()
+            >>> runner.save_quantized_model("./quantized_model_lora")
         """
         logger = self.logger
         logger.info("Saving quantized model to %s", save_directory)
 
         if self.quantized_model is not None:
-            logger.info("Using existing quantized model (post-process results preserved)")
+            logger.info(
+                "Saving in-memory quantized model from self.quantized_model; "
+                "quantization results will not be used to rebuild it"
+            )
             model = self.quantized_model
             tokenizer = self.model_config.load_tokenizer()
         else:
-            # Disable GemLite when saving to avoid extra params in safetensors
+            # Disable GemLite when saving to avoid extra params in safetensors.
             model, tokenizer = self.create_quantized_model(
-                pack_weights=pack_weights, use_gemlite=False
+                pack_weights=pack_weights,
+                use_gemlite=False,
             )
 
         # Save model and tokenizer
         save_path = Path(save_directory)
         save_path.mkdir(parents=True, exist_ok=True)
 
-        model.save_pretrained(save_directory)
+        lora_modules = self._collect_lora_gptq_modules(model)
+        gptq_layers = self._iter_gptq_export_layers(model, lora_modules)
+        needs_export_state_dict = bool(lora_modules) or any(
+            not getattr(layer, "_weight_is_packed", False) for _name, layer in gptq_layers
+        )
+        if needs_export_state_dict:
+            base_state_dict = self._build_base_quantized_state_dict(
+                model, lora_modules, pack_weights=pack_weights
+            )
+            model.save_pretrained(save_directory, state_dict=base_state_dict)
+        else:
+            model.save_pretrained(save_directory)
         tokenizer.save_pretrained(save_directory)
 
         # Gemma 4 PT models require BOS token for coherent generation but the
@@ -1979,6 +2269,33 @@ class Runner:
             self._copy_auxiliary_files(src_dir, save_directory)
         else:
             logger.warning("Source model dir not resolvable; skipping auxiliary file copy.")
+
+        # LoRA sidecar (only if the selected model contains LoRAGPTQLinear).
+        wrote_adapter = self._save_lora_adapter_sidecar(save_directory, model=model)
+        if not wrote_adapter:
+            # Remove any stale sidecar from a previous run so the directory is
+            # self-consistent and load_quantized_model does not pick up an
+            # adapter that no longer matches the saved base model.
+            stale_adapter_dir = save_path / LORA_ADAPTER_SUBDIR
+            if stale_adapter_dir.is_dir():
+                for stale in (
+                    "adapter_model.safetensors",
+                    "adapter_config.json",
+                ):
+                    stale_path = stale_adapter_dir / stale
+                    if stale_path.exists():
+                        stale_path.unlink()
+                # Remove the (now-empty) subdirectory if nothing else lives there.
+                try:
+                    stale_adapter_dir.rmdir()
+                except OSError:
+                    pass
+            # Also remove any top-level adapter files left by older versions of
+            # this helper (previous layout put the sidecar directly in save_dir).
+            for legacy in ("adapter_model.safetensors", "adapter_config.json"):
+                legacy_path = save_path / legacy
+                if legacy_path.exists():
+                    legacy_path.unlink()
 
         logger.info(f"Quantized model saved to {save_directory}")
         return save_directory
