@@ -46,6 +46,49 @@
 - Added `tests/onecomp/utils/test_quant_config.py` for `validate_quant_config()` / `validate_quantized_model_config()` (with `tests/onecomp/fixtures/quant_config.py`)
 - Added `tests/onecomp/post_process/test_base_metadata.py` and `test_base_run.py` for `build_metadata()` and the `run()` template method (validate/CPU/eval restore, metadata-on-success behavior), plus `test_runtime.py` for the `_runtime.py` helpers, backed by `tests/onecomp/post_process/_doubles.py`
 
+## [v1.3.0(WIP)+feature/lora-save-load-vllm-infer_jointq] 2026-06-19 16:45:00
+
+### LoRA Adapter Sidecar Save/Load
+
+- Updated `Runner.save_quantized_model()` to save GPTQ + LoRA SFT outputs in HF/vLLM-compatible form when `LoRAGPTQLinear` modules are present: the base quantized model is saved as normal safetensors, while LoRA weights are written as a PEFT sidecar in `lora_adapter/` (`adapter_model.safetensors`, `adapter_config.json`) (`onecomp/runner.py`)
+  - Uses the in-memory `self.quantized_model` when available, preserving post-process changes; falls back to `create_quantized_model()` only when no quantized model is cached
+  - Flattens `LoRAGPTQLinear.base_layer` tensors back to the base GPTQ key layout, excludes `lora_A` / `lora_B` tensors from base safetensors, and packs GPTQ export tensors when possible without mutating the in-memory model
+  - Saves LoRA adapter tensors in the base model dtype from `model_config.dtype`, avoiding an extra rounding step for bf16 models
+- Updated `QuantizedModelLoader.load_quantized_model()` to auto-detect LoRA sidecars and re-wrap matching layers with `LoRAGPTQLinear` during load for save/load round-trips (`onecomp/quantized_model_loader.py`)
+  - Resolves adapter layers by exact match or `layers.{idx}.*` suffix when module prefixes differ, and fails fast on ambiguous LoRA suffix matches while keeping the first-match behavior for the quantized-layer load path
+  - Raises `ValueError` when not all adapter layers are applied, reporting applied/expected/skipped counts and pointing to the WARNING logs for skipped layer names and reasons
+
+### GPTQ Pack State and Post-Processing
+
+- Updated post-process workflows to keep GPTQ models packed across the Runner boundary: `Runner.run_post_processes()` passes a packed CPU quantized model to post-processors, and `PostProcessLoraSFT` temporarily unpacks GPTQ base layers for training before restoring the incoming pack state (`onecomp/runner.py`, `onecomp/post_process/post_process_lora_sft.py`)
+- Added in-place pack/unpack utilities to `GPTQLinear` (`pack_in_place()`, `unpack_in_place()`) plus a shared `is_packable_wbits()` helper for AutoGPTQ-compatible packed bit-widths (`onecomp/quantizer/gptq/gptq_layer.py`)
+
+### Examples: legacy backups
+
+- Preserved the previous `example/post_process/example_lora_sft.py` workflow as `example/post_process/example_lora_sft_legacy.py`
+- Preserved the previous `example/post_process/example_lora_sft_knowledge.py` workflow as `example/post_process/example_lora_sft_knowledge_legacy.py`
+
+### Examples
+
+- Updated `example/post_process/example_lora_sft.py`: end-to-end GPTQ + LoRA SFT workflow using HF-compatible save/load with a PEFT LoRA adapter sidecar, PPL evaluation, and loaded-model generation check
+- Updated `example/post_process/example_lora_sft_knowledge.py`: knowledge-injection LoRA SFT example using `onecomp_knowledge.jsonl`, including save/load round-trip and output comparison
+- Added `example/post_process/example_lora_sft_knowledge_jointq.py`: JointQ counterpart of the knowledge-injection LoRA SFT workflow
+- Added `example/post_process/example_lora_gptq_vllm_inference.py`: end-to-end GPTQ + LoRA SFT workflow validating vLLM inference with saved LoRA adapters, including GPTQ-only vs GPTQ+LoRA output comparison
+
+### Tests
+
+- Extended LoRA SFT post-process tests with a JointQ smoke test (conditional on JointQ/CUDA availability), packed-in/packed-out behavior, and helper coverage for `LoRAGPTQLinear.base_layer` (`tests/onecomp/post_process/test_post_process_lora_sft.py`)
+- Added `GPTQLinear` pack/unpack in-place tests covering forward-output round-trips, idempotent no-op behavior, and non-packable bit-width handling (`tests/onecomp/quantizer/gptq/test_gptq_layer_pack.py`)
+- Added CPU-only save/load round-trip tests for GPTQ + LoRA SFT and non-LoRA GPTQ paths, including packed base tensors, sidecar output, reload wrapping, and logits preservation (`tests/onecomp/runner/test_lora_save_load_roundtrip.py`)
+- Added `_resolve_name_by_layer_suffix()` tests covering exact, unique suffix, no-match, and ambiguous first/error modes (`tests/onecomp/runner/test_resolve_name_by_layer_suffix.py`)
+- Added CPU-only LoRA adapter sidecar dtype tests covering base-dtype saves, unexpected dtype failures, and PEFT key/config conventions (`tests/onecomp/runner/test_save_lora_adapter_sidecar_dtype.py`)
+
+## [v1.2.0+feature/legacy-vllm] 2026-06-09
+
+### Environment updates
+
+- Added `envs/vllm/` with versioned vLLM environment definitions (`0.12.0`, `0.15.1`).
+
 ## [v1.3.0] 2026-MM-DD (WIP)
 
 (TODO: Add changelog for v1.3.0)
