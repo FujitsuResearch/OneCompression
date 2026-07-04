@@ -506,14 +506,14 @@ def test_rank_from_bpw_matches_paper_formula():
 
 
 def test_lowrank_osvd_beats_plain_svd_in_hessian_error():
-    """The fixed OSVD (H^{1/2}=Q diag(sqrt(λ)) Q^T) must achieve a Hessian-weighted
+    """OSVD (H^{1/2}=Q diag(sqrt(λ)) Q^T whitening) must achieve a Hessian-weighted
     output error no larger than plain rank-r SVD for a non-diagonal H
     (Test plan: OSVD in activation-aware mode)."""
     torch.manual_seed(0)
     n, m, r = 32, 24, 4
     W = torch.randn(n, m, dtype=torch.float64)
 
-    # Non-diagonal SPD Hessian (bug only manifests when Q != I).
+    # Non-diagonal SPD Hessian (the H-weighting only matters when Q != I).
     A = torch.randn(m, m, dtype=torch.float64)
     H = A @ A.T + 0.1 * torch.eye(m, dtype=torch.float64)
 
@@ -536,5 +536,5 @@ def test_lowrank_osvd_beats_plain_svd_in_hessian_error():
     )
     # For a genuinely non-diagonal H the two solutions must differ.
     assert abs(err_osvd - err_svd) > 1e-8 * abs(err_svd), (
-        "OSVD and plain SVD errors are identical: bug fix is not being exercised"
+        "OSVD and plain SVD errors are identical: the H-weighting is not being exercised"
     )
