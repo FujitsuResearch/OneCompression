@@ -14,8 +14,11 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from onecomp.quantizer.mdbf._mdbf import MDBF, MDBFResult
-from onecomp.quantizer.mdbf.initialize import MDBFParams
-from onecomp.quantizer.mdbf.utils import reconstruct_weight
+from onecomp.quantizer.mdbf.initialize import MDBFParams, lowrank_osvd
+from onecomp.quantizer.mdbf import mdbf_layer
+from onecomp.quantizer.mdbf.mdbf_layer import MDBFLinear, MultipathMDBFLinear
+from onecomp.quantizer.mdbf.utils import bpw_from_rank, rank_from_bpw, reconstruct_weight
+from onecomp.quantizer.gemlite import is_gemlite_available
 
 from test_module import BaseQuantizeSpec
 
@@ -309,3 +312,229 @@ class TestMDBF(BaseQuantizeSpec):
         ]
         module.MDBF_params = params_list
         module.is_quantized = True
+
+
+def _random_sign(shape, device, dtype=torch.float16):
+    return (torch.randint(0, 2, shape, device=device, dtype=torch.int8) * 2 - 1).to(dtype)
+
+
+def _make_mdbf_params(n, m, r, l, device, dtype=torch.float16):
+    return MDBFParams(
+        A_sign=_random_sign((n, r), device, dtype),
+        B_sign=_random_sign((r, m), device, dtype),
+        A_amp=torch.randn(n, l, device=device, dtype=dtype),
+        B_amp=torch.randn(m, l, device=device, dtype=dtype),
+        Q_U_amp=torch.randn(r, l, device=device, dtype=dtype),
+        Q_V_amp=torch.randn(r, l, device=device, dtype=dtype),
+    )
+
+
+def _assert_gemlite_output_matches_dense(y_dense, y_gemlite):
+    diff = (y_dense.float() - y_gemlite.float()).abs()
+    rel = (torch.norm(y_dense.float() - y_gemlite.float()) / torch.norm(y_dense.float())).item()
+    assert rel < 1e-3, f"GemLite relative output error too large: {rel}"
+    assert diff.max().item() < 4.0, f"GemLite max abs output error too large: {diff.max().item()}"
+
+
+def _quantize_linear_for_inference_test(in_features, out_features, device, p=1):
+    layer = torch.nn.Linear(in_features, out_features, bias=False, device=device, dtype=torch.float32)
+    inp = torch.randn(3, 4, in_features, device=device, dtype=torch.float32)
+    quantizer = MDBF(
+        target_bits=1.0,
+        l=1,
+        P=p,
+        svd_mode="svd",
+        use_admm=False,
+        use_gradient_refine=False,
+    )
+    hessian, nsamples = quantizer.calculate_hessian(layer, inp)
+    result = quantizer.quantize_layer(layer, inp, hessian=hessian, nsamples=nsamples)
+    return layer, inp, quantizer, result
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not is_gemlite_available(),
+    reason="GemLite unavailable or CUDA not available",
+)
+def test_mdbflinear_gemlite_matches_dense_forward():
+    torch.manual_seed(0)
+    device = torch.device("cuda")
+    params = _make_mdbf_params(n=96, m=256, r=128, l=1, device=device)
+
+    dense_layer = MDBFLinear(params, device=device, use_gemlite=False)
+    gemlite_layer = MDBFLinear(params, device=device, use_gemlite=True)
+
+    assert gemlite_layer.use_gemlite
+    assert set(gemlite_layer._gemlite_layers) == {"A", "B"}
+
+    x = torch.randn(7, 256, device=device, dtype=torch.float16)
+    with torch.no_grad():
+        y_dense = dense_layer(x)
+        y_gemlite = gemlite_layer(x)
+
+    assert y_dense.shape == y_gemlite.shape
+    _assert_gemlite_output_matches_dense(y_dense, y_gemlite)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not is_gemlite_available(),
+    reason="GemLite unavailable or CUDA not available",
+)
+def test_multipath_mdbflinear_gemlite_matches_dense_forward():
+    torch.manual_seed(1)
+    device = torch.device("cuda")
+    params_list = [
+        _make_mdbf_params(n=80, m=256, r=128, l=2, device=device),
+        _make_mdbf_params(n=80, m=256, r=128, l=2, device=device),
+    ]
+    bias = torch.randn(80, device=device, dtype=torch.float16)
+
+    dense_layer = MultipathMDBFLinear(
+        params_list=params_list,
+        bias=bias,
+        device=device,
+        use_gemlite=False,
+    )
+    gemlite_layer = MultipathMDBFLinear(
+        params_list=params_list,
+        bias=bias,
+        device=device,
+        use_gemlite=True,
+    )
+
+    assert all(path.use_gemlite for path in gemlite_layer.paths)
+
+    x = torch.randn(5, 256, device=device, dtype=torch.float16)
+    with torch.no_grad():
+        y_dense = dense_layer(x)
+        y_gemlite = gemlite_layer(x)
+
+    assert y_dense.shape == y_gemlite.shape
+    _assert_gemlite_output_matches_dense(y_dense, y_gemlite)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not is_gemlite_available(),
+    reason="GemLite unavailable or CUDA not available",
+)
+@pytest.mark.parametrize("p", [1, 2])
+def test_mdbf_create_inference_layer_gemlite_matches_dequantized_forward(p):
+    torch.manual_seed(7 + p)
+    device = torch.device("cuda")
+    layer, inp, quantizer, result = _quantize_linear_for_inference_test(
+        in_features=256,
+        out_features=128,
+        device=device,
+        p=p,
+    )
+
+    dequantized_layer = torch.nn.Linear(256, 128, bias=False, device=device, dtype=torch.float32)
+    dequantized_layer.weight.data.copy_(result.compute_dequantized_weight().to(device=device, dtype=torch.float32))
+
+    dense_layer = quantizer.create_inference_layer(
+        result=result,
+        linear_module=layer,
+        use_gemlite=False,
+    )
+    gemlite_layer = quantizer.create_inference_layer(
+        result=result,
+        linear_module=layer,
+        use_gemlite=True,
+    )
+
+    assert isinstance(dense_layer, MultipathMDBFLinear)
+    assert isinstance(gemlite_layer, MultipathMDBFLinear)
+    assert all(path.use_gemlite for path in gemlite_layer.paths)
+
+    with torch.no_grad():
+        y_dequantized = dequantized_layer(inp).float()
+        y_dense = dense_layer(inp.to(torch.float16)).float()
+        y_gemlite = gemlite_layer(inp.to(torch.float16)).float()
+
+    _assert_gemlite_output_matches_dense(y_dense, y_gemlite)
+    _assert_gemlite_output_matches_dense(y_dequantized, y_gemlite)
+
+
+def test_mdbflinear_falls_back_to_dense_when_gemlite_unavailable(monkeypatch):
+    """When GemLite is not installed, forcing use_gemlite=True must fall back to
+    the dense path instead of raising (Test plan: dense fallback)."""
+    # Simulate an environment without GemLite support.
+    monkeypatch.setattr(mdbf_layer, "HAS_GEMLITE_SUPPORT", False)
+
+    device = torch.device("cpu")
+    torch.manual_seed(0)
+    params = _make_mdbf_params(n=16, m=32, r=8, l=1, device=device, dtype=torch.float32)
+
+    forced_layer = MDBFLinear(params, device=device, use_gemlite=True)
+    dense_layer = MDBFLinear(params, device=device, use_gemlite=False)
+
+    # GemLite is unavailable, so even use_gemlite=True must not enable a kernel.
+    assert forced_layer.use_gemlite is False
+    assert forced_layer._gemlite_layers == {}
+
+    x = torch.randn(4, 32, device=device, dtype=torch.float32)
+    with torch.no_grad():
+        y_forced = forced_layer(x)
+        y_dense = dense_layer(x)
+
+    # The fallback must take the exact same dense forward path.
+    assert y_forced.shape == (4, 16)
+    assert torch.equal(y_forced, y_dense)
+
+
+def test_rank_from_bpw_matches_paper_formula():
+    """rank_from_bpw() with scale_bits=16 must be consistent with the paper's BPW
+    formula b = P * [r(n+m) + 16*l*(n+m+2r)] / (nm) (Test plan: rank_from_bpw)."""
+    n, m, l, P = 512, 2048, 8, 1
+
+    for r_true in (16, 64, 128, 256):
+        # bpw_from_rank uses scale_bits=16, the paper default.
+        b = bpw_from_rank(n, m, r_true, l=l, P=P)
+        # floor rounding must never exceed the requested budget.
+        r_floor = rank_from_bpw(n, m, b, l=l, P=P, scale_bits=16, rounding="floor")
+        assert r_floor <= r_true
+        assert bpw_from_rank(n, m, r_floor, l=l, P=P) <= b + 1e-9
+        # round-trip: rounding to nearest recovers the exact rank.
+        r_round = rank_from_bpw(n, m, b, l=l, P=P, scale_bits=16, rounding="round")
+        assert r_round == r_true
+
+    # scale_bits=0 drops the envelope cost, so more rank fits in the same budget.
+    b = bpw_from_rank(n, m, 64, l=l, P=P)
+    r_with_scale = rank_from_bpw(n, m, b, l=l, P=P, scale_bits=16, rounding="round")
+    r_without_scale = rank_from_bpw(n, m, b, l=l, P=P, scale_bits=0, rounding="round")
+    assert r_without_scale > r_with_scale
+
+
+def test_lowrank_osvd_beats_plain_svd_in_hessian_error():
+    """OSVD (H^{1/2}=Q diag(sqrt(λ)) Q^T whitening) must achieve a Hessian-weighted
+    output error no larger than plain rank-r SVD for a non-diagonal H
+    (Test plan: OSVD in activation-aware mode)."""
+    torch.manual_seed(0)
+    n, m, r = 32, 24, 4
+    W = torch.randn(n, m, dtype=torch.float64)
+
+    # Non-diagonal SPD Hessian (the H-weighting only matters when Q != I).
+    A = torch.randn(m, m, dtype=torch.float64)
+    H = A @ A.T + 0.1 * torch.eye(m, dtype=torch.float64)
+
+    def hessian_error(W_hat):
+        E = W - W_hat
+        return torch.trace(E @ H @ E.T).item()
+
+    # OSVD reconstruction: W_hat = U' @ V'^T.
+    U_prime, V_prime = lowrank_osvd(W, H, r, ridge=0.0)
+    err_osvd = hessian_error(U_prime @ V_prime.T)
+
+    # Plain rank-r SVD (ignores H).
+    U_s, S_s, Vh_s = torch.linalg.svd(W, full_matrices=False)
+    W_svd = (U_s[:, :r] * S_s[:r]) @ Vh_s[:r, :]
+    err_svd = hessian_error(W_svd)
+
+    # OSVD is tailored to the H-weighted objective, so it must not be worse.
+    assert err_osvd <= err_svd + 1e-6 * abs(err_svd), (
+        f"OSVD H-weighted error ({err_osvd:.6e}) should be <= plain SVD ({err_svd:.6e})"
+    )
+    # For a genuinely non-diagonal H the two solutions must differ.
+    assert abs(err_osvd - err_svd) > 1e-8 * abs(err_svd), (
+        "OSVD and plain SVD errors are identical: the H-weighting is not being exercised"
+    )
