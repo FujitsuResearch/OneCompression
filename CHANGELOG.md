@@ -91,6 +91,15 @@
 - Fixed VLM (e.g. Gemma3) quantized model save/load: safetensors key prefixes from `save_pretrained` (`model.language_model.model.layers.*`) did not match the `from_config` model (`model.language_model.layers.*`), so `load_state_dict(..., assign=True)` left `qweight` / `scales` / `qzeros` at zero and generation degraded (`onecomp/quantized_model_loader.py`)
   - Added `_remap_state_dict_keys()` to normalize checkpoint keys before `_replace_quantized_layers`; `_apply_known_state_dict_key_rewrites()` rewrites `.language_model.model.` → `.language_model.` (pattern-based, without requiring keys to exist in the empty model yet)
 
+## [v1.2.1] 2026-07-03
+
+### Security
+
+- **Unsafe deserialization hardening (CWE-502)**: `QuantizedModelLoader.load_quantized_model_pt()` (alias `onecomp.load_quantized_model_pt()`) previously called `torch.load(model.pt, weights_only=False)` unconditionally, allowing arbitrary code execution when loading a malicious `.pt` checkpoint. It now refuses to load unless the caller explicitly opts in via `allow_unsafe_deserialization=True`, and emits a strong warning when it does load. For untrusted models, use the safetensors-based `load_quantized_model()`, which does not execute code.
+  - **Breaking change**: existing callers of `load_quantized_model_pt()` must pass `allow_unsafe_deserialization=True` for trusted `.pt` files.
+- **`Quantizer.load_results()` / `ResultLoader`**: same hardening applied. Loading with `weights_only=False` now requires `allow_unsafe_deserialization=True` (added as a `ResultLoader` field), and logs a warning. The safe `weights_only=True` path is unchanged.
+- Updated docstrings, docs, and the LoRA SFT example to document the risk and the required opt-in.
+
 ## [v1.2.0] 2026-06-08
 
 ### Save/Load Support for JointQ, RTN, and OneBit Quantizers
