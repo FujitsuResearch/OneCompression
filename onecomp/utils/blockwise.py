@@ -177,6 +177,8 @@ def get_blocks_and_inputs(
 
     blocks = _get_blocks(model)
 
+
+
     # Detect models with heterogeneous layer types (e.g. Gemma4 with
     # full_attention / sliding_attention)
     blocks_parent = _find_blocks_parent(model, blocks)
@@ -193,7 +195,7 @@ def get_blocks_and_inputs(
         "full_attention",
     } and "linear_attention" in unique_layer_types
 
-    has_mixed_types = is_gemma_like_mixed_attention
+    has_mixed_types = is_gemma_like_mixed_attention or is_qwen35_like_hybrid
 
     rotary_hook_handle = None
     pos_emb_map: dict[str, tuple[torch.Tensor, ...]] = {}
@@ -269,6 +271,30 @@ def get_blocks_and_inputs(
     return (blocks, inps, kwargs)
 
 
+def _create_linear_attention_mask(
+    config,
+    inputs_embeds,
+    attention_mask,
+    cache_position=None,
+    *,
+    past_key_values=None,
+    position_ids=None,
+    **kwargs,
+):
+    if attention_mask is None:
+        return None
+
+    if past_key_values is not None and past_key_values.has_previous_state():
+        return None
+
+    attention_mask = attention_mask.to(device=inputs_embeds.device, dtype=torch.bool)
+
+    if torch.all(attention_mask):
+        return None
+
+    return attention_mask
+
+
 def _compute_per_type_attention_masks(blocks_parent, kwargs, unique_layer_types):
     """Compute attention masks for each layer type.
 
@@ -280,8 +306,6 @@ def _compute_per_type_attention_masks(blocks_parent, kwargs, unique_layer_types)
         create_sliding_window_causal_mask,
     )
 
-    if unique_layer_types <= {"linear_attention", "full_attention"}:
-        return None
 
     from transformers.masking_utils import (
         create_causal_mask,
@@ -299,12 +323,18 @@ def _compute_per_type_attention_masks(blocks_parent, kwargs, unique_layer_types)
     dummy_embeds = torch.zeros(1, seq_len, config.hidden_size, device=device, dtype=dtype)
     attn_mask_1d = torch.ones(1, seq_len, device=device, dtype=torch.long)
 
-    # tmp: Gemma4 only has full_attention and sliding_attention layer types.
-    _mask_creators = {
+    # tmp: Qwen3.5 has linear_attention layer type.
+    if unique_layer_types <= {"linear_attention", "full_attention"}:
+        _mask_creators = {
+            "linear_attention": _create_linear_attention_mask,
+            "full_attention": create_causal_mask,
+        }
+    else:
+        _mask_creators = {
         "full_attention": create_causal_mask,
         "sliding_attention": create_sliding_window_causal_mask,
-    }
-
+        }
+        
     mask_map = {}
     for lt in unique_layer_types:
         creator = _mask_creators.get(lt)
@@ -392,23 +422,27 @@ def prepare_block_kwargs(batch_kwargs, block, pli, offset, batch_size, device):
     # 2) Per-type position embeddings
     pos_map = batch_kwargs.pop(_POS_EMB_MAP_KEY, None)
     if pos_map is not None:
-        layer_type = getattr(block, "layer_type", None) or getattr(
-            getattr(block, "self_attn", None), "layer_type", None
-        )
+        layer_type = _get_block_layer_type(block)
         if layer_type and layer_type in pos_map:
             batch_kwargs["position_embeddings"] = pos_map[layer_type]
 
     # 3) Per-type attention mask
     mask_map = batch_kwargs.pop(_ATTN_MASK_MAP_KEY, None)
     if mask_map is not None:
-        layer_type = getattr(block, "layer_type", None) or getattr(
-            getattr(block, "self_attn", None), "layer_type", None
-        )
+        layer_type = _get_block_layer_type(block)
         if layer_type and layer_type in mask_map:
             batch_kwargs["attention_mask"] = mask_map[layer_type]
 
     return batch_kwargs
 
+
+def _get_block_layer_type(block: nn.Module) -> str | None:
+    return (
+        getattr(block, "layer_type", None)
+        or getattr(block, "block_type", None)
+        or getattr(getattr(block, "self_attn", None), "layer_type", None)
+        or getattr(getattr(block, "linear_attn", None), "layer_type", None)
+    )
 
 @torch.no_grad()
 def forward_input(
