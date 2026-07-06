@@ -196,6 +196,7 @@ class QuantizedModelLoader:
         *,
         device_map: str = "auto",
         local_files_only: bool = True,
+        allow_unsafe_deserialization: bool = False,
     ) -> Tuple[Any, Any]:
         """Load a quantized model and tokenizer saved as a PyTorch .pt file.
 
@@ -207,18 +208,39 @@ class QuantizedModelLoader:
         - ``model.pt`` (serialized with ``torch.save``)
         - Tokenizer files
 
+        .. warning::
+            This method deserializes ``model.pt`` with
+            ``torch.load(..., weights_only=False)``. Because PyTorch ``.pt``
+            checkpoints use Python's ``pickle``, a maliciously crafted
+            ``model.pt`` can execute arbitrary code during deserialization
+            (CWE-502). ``weights_only=False`` is required here because the
+            ``.pt`` format preserves full custom module objects (e.g.
+            ``LoRAGPTQLinear``) that cannot be reconstructed from tensors
+            alone. Only load ``model.pt`` files that you produced yourself
+            or obtained from a fully trusted source. For untrusted or
+            third-party models, prefer the safetensors-based
+            :meth:`load_quantized_model`, which does not execute code.
+
         Args:
             save_directory: Path to the saved model directory.
             device_map: Device placement (default: ``"auto"``).
                 Set to ``""`` or ``None`` to skip device placement.
             local_files_only: Passed to ``AutoTokenizer.from_pretrained``.
+            allow_unsafe_deserialization: Must be explicitly set to ``True``
+                to acknowledge the unsafe-deserialization risk described
+                above and permit loading. Defaults to ``False``, in which
+                case this method raises before any code can be executed.
 
         Returns:
             (model, tokenizer)
 
+        Raises:
+            ValueError: If ``allow_unsafe_deserialization`` is not ``True``.
+
         Example:
             >>> model, tokenizer = QuantizedModelLoader.load_quantized_model_pt(
-            ...     "./quantized_model_lora"
+            ...     "./quantized_model_lora",
+            ...     allow_unsafe_deserialization=True,  # trusted source only
             ... )
         """
         save_directory = os.path.abspath(save_directory)
@@ -233,6 +255,24 @@ class QuantizedModelLoader:
                 "(safetensors format); use load_quantized_model() instead."
             )
 
+        if not allow_unsafe_deserialization:
+            raise ValueError(
+                f"Refusing to load '{model_path}': loading a .pt model uses "
+                "torch.load(weights_only=False), which deserializes arbitrary "
+                "Python objects via pickle and can execute code embedded in a "
+                "malicious file (CWE-502). Only load model.pt files you produced "
+                "yourself or obtained from a fully trusted source, then pass "
+                "allow_unsafe_deserialization=True to acknowledge this risk. "
+                "For untrusted or third-party models, use the safetensors-based "
+                "load_quantized_model() instead."
+            )
+
+        logger.warning(
+            "Loading '%s' with torch.load(weights_only=False); arbitrary code in "
+            "a malicious checkpoint can execute during deserialization. Ensure "
+            "this model.pt comes from a trusted source.",
+            model_path,
+        )
         model = torch.load(model_path, map_location="cpu", weights_only=False)
 
         if device_map:
