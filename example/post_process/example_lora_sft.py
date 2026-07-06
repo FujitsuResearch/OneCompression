@@ -133,7 +133,11 @@ print("\n" + "=" * 70)
 print(f"Step 4: Loading model from {SAVE_DIR}")
 print("=" * 70)
 
-loaded_model, loaded_tokenizer = load_quantized_model_pt(SAVE_DIR)
+# SAVE_DIR was produced by this script (trusted), so we opt in to the
+# pickle-based .pt loader. Never enable this for untrusted model.pt files.
+loaded_model, loaded_tokenizer = load_quantized_model_pt(
+    SAVE_DIR, allow_unsafe_deserialization=True
+)
 print(f"Loaded model type : {type(loaded_model).__name__}")
 print(f"Loaded model device: {next(loaded_model.parameters()).device}")
 
