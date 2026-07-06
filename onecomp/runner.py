@@ -959,17 +959,6 @@ class Runner:
                 "post_processes."
             )
 
-        logger.info("Building quantized model for post-quantization processes...")
-        # Pass a packed model to post-processes; each one keeps the incoming
-        # pack state (packed-in -> packed-out) so the result stays packed.
-        # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
-        # LoRA SFT runs with bfloat16 autocast.  Plain buffers (qweight/scales) are
-        # needed so training can call base_layer.forward() without dtype mismatch.
-        quantized_model, _ = self.create_quantized_model(
-            pack_weights=True,
-            use_gemlite=False,
-        )
-
         for process in self.post_processes:
             logger.info("Start post-quantization process: %s", process.name)
             process.run(quantized_model, self.model_config)
