@@ -1,0 +1,18 @@
+[project]
+name = "onecomp-notebook"
+version = "0.0.0"
+description = "Tutorial notebooks for OneComp"
+requires-python = ">=3.12, <3.14"
+dependencies = [
+    "onecomp[cu130,vllm,visualize]",
+    "ipykernel",
+    "jupyterlab",
+    "matplotlib",
+    "seaborn",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+onecomp = { path = "..", editable = true }

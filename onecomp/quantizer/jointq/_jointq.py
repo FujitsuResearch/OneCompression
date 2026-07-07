@@ -330,6 +330,7 @@ class JointQ(Quantizer):
         Warnings:
             bits == 1: valid, but GPTQLinear weight packing does not support
                 1-bit; the inference layer must be built with pack_weights=False.
+
         """
         bad = []
 

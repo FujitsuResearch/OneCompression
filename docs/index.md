@@ -101,6 +101,12 @@ For full control over each step, see the [step-by-step workflow](user-guide/basi
 
     [:octicons-arrow-right-24: Quick start guide](getting-started/quickstart.md)
 
+-   **Tutorial Notebook**
+
+    Learn interactively in Jupyter or Google Colab.
+
+    [:octicons-arrow-right-24: Tutorial notebook](getting-started/tutorial-notebook.md)
+
 -   **User Guide**
 
     Learn the full workflow: configure, quantize, evaluate, and save.

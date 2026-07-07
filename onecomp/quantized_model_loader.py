@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from safetensors.torch import load_file
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
 from .quantizer.dbf.config import resolve_dbf_layer_bits
@@ -25,6 +25,7 @@ from .quantizer.gptq.gptq_layer import GPTQLinear
 from .quantizer.onebit.onebit_layer import OneBitLinear
 from .utils.device import get_default_device
 from .utils.dtype import needs_bfloat16
+from .utils.lora import LORA_ADAPTER_SUBDIR
 from .utils.quant_config import get_quant_param
 
 logger = getLogger(__name__)
@@ -54,8 +55,15 @@ class QuantizedModelLoader:
         config.json and quantized layers are reconstructed directly from the safetensors
         state_dict. No quantization_results.pt is needed.
 
-        For models saved with post-processing modifications (e.g. LoRA adapters),
-        use :meth:`load_quantized_model_pt` instead.
+        If the directory additionally contains a PEFT-format LoRA adapter
+        sidecar (``adapter_model.safetensors`` + ``adapter_config.json``), the
+        matching ``GPTQLinear`` layers are automatically re-wrapped with
+        ``LoRAGPTQLinear`` populated from the sidecar. This lets
+        ``runner.save_quantized_model`` → ``load_quantized_model`` round-trip
+        models produced by a LoRA post-process such as ``PostProcessLoraSFT``.
+
+        For legacy models saved via ``torch.save`` (``.pt`` format), use
+        :meth:`load_quantized_model_pt` instead.
 
         Args:
             save_directory: Path to the saved model directory.
@@ -81,6 +89,13 @@ class QuantizedModelLoader:
 
         # Load state_dict from safetensors
         state_dict = cls._load_state_dict_from_dir(save_directory)
+
+        # Align checkpoint key prefixes with the empty model built from config.
+        # Gemma3 VLMs are a common case: weights saved from from_pretrained
+        # use model.language_model.model.layers. (language_model is a
+        # ForCausalLM wrapper) while from_config exposes
+        # model.language_model.layers.* directly.
+        state_dict = cls._remap_state_dict_keys(state_dict, model)
 
         # Replace quantized layers with empty modules
         cls._replace_quantized_layers(model, state_dict, quant_config)
@@ -133,28 +148,21 @@ class QuantizedModelLoader:
                 converted,
             )
 
+        cls._load_generation_config(model, save_directory)
+
         # Register Hadamard hooks for rotation-preprocessed models
         if quant_config.get("rotated", False):
-            from .pre_process.rotation_utils import register_online_hadamard_hooks
+            from .pre_process.rotation_utils import (
+                collect_down_proj_types,
+                register_online_hadamard_hooks,
+            )
 
             fp32_had = quant_config.get("fp32_had", False)
-            quant_method = quant_config.get("quant_method", "")
-            effective_method = (
-                quant_method[len("mixed_") :]
-                if quant_method.startswith("mixed_")
-                else quant_method
-            )
-            if effective_method == "gptq":
-                layers_cls = [GPTQLinear]
-            elif effective_method == "dbf":
-                layers_cls = [DoubleBinaryLinear]
-            elif effective_method == "onebit":
-                layers_cls = [OneBitLinear]
-            else:
-                layers_cls = None
+            down_proj_types = collect_down_proj_types(model)
+
             hooks = register_online_hadamard_hooks(
                 model,
-                layers_cls=layers_cls,
+                layers_cls=down_proj_types,
                 fp32_had=fp32_had,
             )
             logger.info(
@@ -162,6 +170,11 @@ class QuantizedModelLoader:
                 len(hooks),
                 fp32_had,
             )
+
+        # Re-apply LoRA adapter from PEFT-format sidecar if present.
+        # This must run while the model is still on CPU, before dispatch_model,
+        # so LoRA wrappers are included in the device map traversal below.
+        cls._apply_lora_adapters_from_sidecar(model, save_directory)
 
         # Device placement
         if device_map:
@@ -187,6 +200,7 @@ class QuantizedModelLoader:
         *,
         device_map: str = "auto",
         local_files_only: bool = True,
+        allow_unsafe_deserialization: bool = False,
     ) -> Tuple[Any, Any]:
         """Load a quantized model and tokenizer saved as a PyTorch .pt file.
 
@@ -198,18 +212,39 @@ class QuantizedModelLoader:
         - ``model.pt`` (serialized with ``torch.save``)
         - Tokenizer files
 
+        .. warning::
+            This method deserializes ``model.pt`` with
+            ``torch.load(..., weights_only=False)``. Because PyTorch ``.pt``
+            checkpoints use Python's ``pickle``, a maliciously crafted
+            ``model.pt`` can execute arbitrary code during deserialization
+            (CWE-502). ``weights_only=False`` is required here because the
+            ``.pt`` format preserves full custom module objects (e.g.
+            ``LoRAGPTQLinear``) that cannot be reconstructed from tensors
+            alone. Only load ``model.pt`` files that you produced yourself
+            or obtained from a fully trusted source. For untrusted or
+            third-party models, prefer the safetensors-based
+            :meth:`load_quantized_model`, which does not execute code.
+
         Args:
             save_directory: Path to the saved model directory.
             device_map: Device placement (default: ``"auto"``).
                 Set to ``""`` or ``None`` to skip device placement.
             local_files_only: Passed to ``AutoTokenizer.from_pretrained``.
+            allow_unsafe_deserialization: Must be explicitly set to ``True``
+                to acknowledge the unsafe-deserialization risk described
+                above and permit loading. Defaults to ``False``, in which
+                case this method raises before any code can be executed.
 
         Returns:
             (model, tokenizer)
 
+        Raises:
+            ValueError: If ``allow_unsafe_deserialization`` is not ``True``.
+
         Example:
             >>> model, tokenizer = QuantizedModelLoader.load_quantized_model_pt(
-            ...     "./quantized_model_lora"
+            ...     "./quantized_model_lora",
+            ...     allow_unsafe_deserialization=True,  # trusted source only
             ... )
         """
         save_directory = os.path.abspath(save_directory)
@@ -224,6 +259,24 @@ class QuantizedModelLoader:
                 "(safetensors format); use load_quantized_model() instead."
             )
 
+        if not allow_unsafe_deserialization:
+            raise ValueError(
+                f"Refusing to load '{model_path}': loading a .pt model uses "
+                "torch.load(weights_only=False), which deserializes arbitrary "
+                "Python objects via pickle and can execute code embedded in a "
+                "malicious file (CWE-502). Only load model.pt files you produced "
+                "yourself or obtained from a fully trusted source, then pass "
+                "allow_unsafe_deserialization=True to acknowledge this risk. "
+                "For untrusted or third-party models, use the safetensors-based "
+                "load_quantized_model() instead."
+            )
+
+        logger.warning(
+            "Loading '%s' with torch.load(weights_only=False); arbitrary code in "
+            "a malicious checkpoint can execute during deserialization. Ensure "
+            "this model.pt comes from a trusted source.",
+            model_path,
+        )
         model = torch.load(model_path, map_location="cpu", weights_only=False)
 
         if device_map:
@@ -241,6 +294,21 @@ class QuantizedModelLoader:
         )
 
         return model, tokenizer
+
+    @staticmethod
+    def _load_generation_config(model: torch.nn.Module, save_directory: str) -> None:
+        """Attach ``generation_config.json`` when present in the save directory.
+
+        ``AutoModel*.from_config`` builds an empty model without the
+        checkpoint's generation defaults.  Multimodal Gemma 4 models rely on
+        fields such as ``suppress_tokens`` to block modality delimiter tokens
+        during text-only ``generate()``.
+        """
+        gen_config_path = os.path.join(save_directory, "generation_config.json")
+        if not os.path.isfile(gen_config_path):
+            return
+        model.generation_config = GenerationConfig.from_pretrained(save_directory)
+        logger.info("Loaded generation_config.json from %s", save_directory)
 
     @staticmethod
     def _load_config_and_quant_config(save_directory: str) -> Tuple[Dict, Dict]:
@@ -425,6 +493,84 @@ class QuantizedModelLoader:
         parent = name_to_module.get(parent_name, model)
         setattr(parent, child_name, module)
 
+    @classmethod
+    def _remap_state_dict_keys(cls, state_dict: dict, model: torch.nn.Module) -> dict:
+        """Rewrite checkpoint keys so they match model parameter paths.
+
+        Quantized models are saved from a from_pretrained instance whose
+        submodule naming can differ from the from_config model built at
+        load time.  Without remapping, load_state_dict(..., assign=True)
+        silently skips mismatched keys and leaves layers at their empty-model
+        initial values (often all zeros for quantized buffers).
+
+        Remapping runs before _replace_quantized_layers, so the empty
+        model still exposes nn.Linear.weight rather than GPTQ buffers
+        (``qweight``, ``scales``, …).  Known prefix rewrites are therefore
+        applied from checkpoint key patterns alone; they must not require the
+        destination key to already exist in model.named_parameters().
+
+        Args:
+            state_dict: Tensors loaded from *.safetensors.
+            model: Empty model returned by _build_empty_model_from_config.
+
+        Returns:
+            A new dict with keys renamed where a unique target exists in
+            model.  Unmatched keys are kept under their original names
+            so strict=False loading can still proceed.
+        """
+        model_keys = set(dict(model.named_parameters())) | set(dict(model.named_buffers()))
+        if not any(
+            cls._apply_known_state_dict_key_rewrites(key) is not None for key in state_dict
+        ) and all(key in model_keys for key in state_dict):
+            return state_dict
+
+        remapped: dict = {}
+        rewrite_count = 0
+        for ckpt_key, tensor in state_dict.items():
+            if ckpt_key in model_keys:
+                remapped[ckpt_key] = tensor
+                continue
+
+            target_key = cls._resolve_state_dict_key(ckpt_key, model_keys)
+            if target_key is not None and target_key != ckpt_key:
+                remapped[target_key] = tensor
+                rewrite_count += 1
+            else:
+                remapped[ckpt_key] = tensor
+
+        if rewrite_count:
+            logger.info(
+                "Remapped %d state_dict key(s) to match model module paths",
+                rewrite_count,
+            )
+        return remapped
+
+    @staticmethod
+    def _apply_known_state_dict_key_rewrites(ckpt_key: str) -> Optional[str]:
+        """Return a rewritten key for known save/load prefix drift, else None."""
+        if ".language_model.model." in ckpt_key:
+            return ckpt_key.replace(".language_model.model.", ".language_model.", 1)
+        if ckpt_key.startswith("language_model.model."):
+            return "model." + ckpt_key.replace("language_model.model.", "language_model.", 1)
+        return None
+
+    @staticmethod
+    def _resolve_state_dict_key(ckpt_key: str, model_keys: set) -> Optional[str]:
+        """Return the remapped key for ckpt_key, or None if unknown."""
+        rewritten = QuantizedModelLoader._apply_known_state_dict_key_rewrites(ckpt_key)
+        if rewritten is not None:
+            return rewritten
+
+        # Suffix fallback for other prefix drift: only when the suffix maps
+        # uniquely onto the current model (non-quantized params/buffers).
+        match = re.search(r"(layers\.\d+(?:\..+)*)$", ckpt_key)
+        if match:
+            suffix = match.group(1)
+            hits = [name for name in model_keys if name.endswith(suffix)]
+            if len(hits) == 1:
+                return hits[0]
+        return None
+
     @staticmethod
     def _load_state_dict_from_dir(directory: str) -> dict:
         """Load all tensors from *.safetensors in *directory*.
@@ -442,6 +588,62 @@ class QuantizedModelLoader:
                 f"No model weights found in {directory}. " "Expected *.safetensors files."
             )
         return state_dict
+
+    @staticmethod
+    def _resolve_name_by_layer_suffix(
+        name: str,
+        candidates: Dict[str, Any],
+        *,
+        on_ambiguous: str = "first",
+    ) -> Optional[str]:
+        """Resolve *name* against *candidates* by exact or layer-suffix match.
+
+        ``on_ambiguous`` controls what happens when the suffix matches more than
+        one candidate:
+
+        - ``"first"`` (default): keep the quantized-layer load path best-effort
+          by preferring a single ``language_model`` hit, then falling back to
+          ``hits[0]``. This is intended for VLM tied/shared submodules that
+          point at the *same* weights.
+        - ``"error"``: raise ``ValueError``. Required for the LoRA re-wrap path,
+          where colliding candidates can be *distinct* layers (e.g. the same
+          ``layers.N.<suffix>`` under both ``language_model`` and ``vision``),
+          so ambiguity is rejected before applying the ``language_model``
+          preference.
+        """
+        if name in candidates:
+            return name
+
+        # For VLMs with tied/shared submodules, only the prefix may differ.
+        match = re.search(r"(layers\.\d+\..+)$", name)
+        if not match:
+            return None
+        suffix = match.group(1)
+        hits = [candidate for candidate in candidates if candidate.endswith(suffix)]
+        if len(hits) > 1:
+            if on_ambiguous == "error":
+                logger.warning(
+                    "Ambiguous suffix %s for %s: %s",
+                    suffix,
+                    name,
+                    hits,
+                )
+                raise ValueError(
+                    f"Ambiguous layer-suffix match for {name!r}: suffix {suffix!r} "
+                    f"matches multiple candidates {hits}. Refusing to guess which "
+                    "layer to target."
+                )
+            lang_hits = [candidate for candidate in hits if "language_model" in candidate]
+            if len(lang_hits) == 1:
+                hits = lang_hits
+            else:
+                logger.warning(
+                    "Ambiguous suffix %s for %s: %s",
+                    suffix,
+                    name,
+                    hits,
+                )
+        return hits[0] if hits else None
 
     @staticmethod
     def _replace_quantized_layers(model, state_dict: dict, quant_config: dict):
@@ -516,24 +718,14 @@ class QuantizedModelLoader:
             if result:
                 return result
             # Fallback: match by layer suffix (e.g. "layers.0.self_attn.q_proj")
-            m = re.search(r"(layers\.\d+\..+)$", name)
-            if m:
-                suffix = m.group(1)
-                hits = [s for s in sd_prefix_map if s.endswith(suffix)]
-                if len(hits) > 1:
-                    logger.warning(
-                        "Ambiguous suffix %s for %s: %s",
-                        suffix,
-                        name,
-                        hits,
-                    )
-                if hits:
-                    alt_prefix = hits[0] + "."
-                    return {
-                        k[len(alt_prefix) :]: v
-                        for k, v in state_dict.items()
-                        if k.startswith(alt_prefix)
-                    }
+            alt_name = QuantizedModelLoader._resolve_name_by_layer_suffix(name, sd_prefix_map)
+            if alt_name:
+                alt_prefix = alt_name + "."
+                return {
+                    k[len(alt_prefix) :]: v
+                    for k, v in state_dict.items()
+                    if k.startswith(alt_prefix)
+                }
             return {}
 
         for name in quantized_names:
@@ -582,3 +774,141 @@ class QuantizedModelLoader:
                 )
 
             QuantizedModelLoader._set_module_by_name(model, name, quantized_module)
+
+    @staticmethod
+    def _apply_lora_adapters_from_sidecar(model, save_directory: str) -> int:
+        """Re-wrap GPTQLinear layers with LoRAGPTQLinear from a PEFT-format sidecar.
+
+        Looks for ``adapter_model.safetensors`` + ``adapter_config.json`` under
+        ``save_directory/lora_adapter/``. If both are present, each referenced
+        GPTQLinear layer is replaced in-place with a ``LoRAGPTQLinear`` wrapper
+        populated with the saved LoRA weights.
+
+        For backward compatibility, also checks the legacy top-level layout
+        (``save_directory/adapter_model.safetensors``) used by an earlier
+        version of :meth:`Runner.save_quantized_model`.
+
+        Returns:
+            int: Number of layers wrapped (0 if no adapter sidecar was found).
+        """
+        adapter_dir = os.path.join(save_directory, LORA_ADAPTER_SUBDIR)
+        adapter_weights_path = os.path.join(adapter_dir, "adapter_model.safetensors")
+        adapter_config_path = os.path.join(adapter_dir, "adapter_config.json")
+        if not (os.path.isfile(adapter_weights_path) and os.path.isfile(adapter_config_path)):
+            # Fallback to legacy top-level layout.
+            legacy_weights = os.path.join(save_directory, "adapter_model.safetensors")
+            legacy_config = os.path.join(save_directory, "adapter_config.json")
+            if os.path.isfile(legacy_weights) and os.path.isfile(legacy_config):
+                adapter_weights_path = legacy_weights
+                adapter_config_path = legacy_config
+            else:
+                return 0
+
+        with open(adapter_config_path, "r", encoding="utf-8") as f:
+            adapter_config = json.load(f)
+
+        lora_r = int(adapter_config["r"])
+        lora_alpha = int(adapter_config["lora_alpha"])
+        lora_dropout = float(adapter_config.get("lora_dropout", 0.0))
+
+        adapter_sd = load_file(adapter_weights_path)
+
+        peft_prefix = "base_model.model."
+        per_layer: Dict[str, Dict[str, torch.Tensor]] = {}
+
+        for key, tensor in adapter_sd.items():
+            if not key.startswith(peft_prefix):
+                logger.warning("Skipping unexpected adapter key %s", key)
+                continue
+            body = key[len(peft_prefix) :]
+            # Support both the plain form "<path>.lora_A.weight" and PEFT's
+            # adapter-name form "<path>.lora_A.default.weight".
+            if body.endswith(".lora_A.weight"):
+                layer_path = body[: -len(".lora_A.weight")]
+                per_layer.setdefault(layer_path, {})["A"] = tensor
+            elif body.endswith(".lora_B.weight"):
+                layer_path = body[: -len(".lora_B.weight")]
+                per_layer.setdefault(layer_path, {})["B"] = tensor
+            elif body.endswith(".lora_A.default.weight"):
+                layer_path = body[: -len(".lora_A.default.weight")]
+                per_layer.setdefault(layer_path, {})["A"] = tensor
+            elif body.endswith(".lora_B.default.weight"):
+                layer_path = body[: -len(".lora_B.default.weight")]
+                per_layer.setdefault(layer_path, {})["B"] = tensor
+            else:
+                logger.warning("Skipping unrecognized adapter key %s", key)
+
+        if not per_layer:
+            return 0
+
+        # Inline import to avoid pulling post_process into module-import time
+        # and to sidestep any circular-import risk.
+        from .post_process.post_process_lora_sft import LoRAGPTQLinear
+
+        name_to_module = dict(model.named_modules())
+        wrapped = 0
+        for layer_path, ab in per_layer.items():
+            if "A" not in ab or "B" not in ab:
+                logger.warning(
+                    "Adapter layer %s missing lora_A or lora_B; skipping",
+                    layer_path,
+                )
+                continue
+            # Fail fast on ambiguity: unlike the quantized-layer path, colliding
+            # candidates here can be distinct layers, so mis-wrapping would pass
+            # the wrapped-count check below undetected.
+            resolved_layer_path = QuantizedModelLoader._resolve_name_by_layer_suffix(
+                layer_path,
+                name_to_module,
+                on_ambiguous="error",
+            )
+            if resolved_layer_path is None:
+                logger.warning(
+                    "Adapter references layer %s not found in model; skipping",
+                    layer_path,
+                )
+                continue
+            if resolved_layer_path != layer_path:
+                logger.info(
+                    "Resolved adapter layer %s -> %s by suffix match",
+                    layer_path,
+                    resolved_layer_path,
+                )
+            base_layer = name_to_module[resolved_layer_path]
+            if not isinstance(base_layer, GPTQLinear):
+                logger.warning(
+                    "Adapter layer %s is %s, expected GPTQLinear; skipping",
+                    resolved_layer_path,
+                    type(base_layer).__name__,
+                )
+                continue
+
+            wrapper = LoRAGPTQLinear(
+                base_layer=base_layer,
+                lora_r=lora_r,
+                lora_alpha=lora_alpha,
+                lora_dropout=lora_dropout,
+            )
+            with torch.no_grad():
+                wrapper.lora_A.weight.copy_(ab["A"].to(wrapper.lora_A.weight.dtype))
+                wrapper.lora_B.weight.copy_(ab["B"].to(wrapper.lora_B.weight.dtype))
+            # Match the base layer's device so the wrapper and base share placement.
+            base_device = base_layer.qweight.device
+            wrapper.to(base_device)
+            QuantizedModelLoader._set_module_by_name(model, resolved_layer_path, wrapper)
+            wrapped += 1
+
+        if wrapped < len(per_layer):
+            expected = len(per_layer)
+            skipped = expected - wrapped
+            raise ValueError(
+                "Failed to apply LoRA adapter sidecar fully: "
+                f"applied {wrapped}/{expected} layer(s), skipped {skipped}. "
+                "See preceding WARNING logs for skipped layer names and reasons."
+            )
+
+        logger.info(
+            "Re-wrapped %d GPTQLinear layers with LoRAGPTQLinear from adapter sidecar",
+            wrapped,
+        )
+        return wrapped
