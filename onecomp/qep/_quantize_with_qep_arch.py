@@ -205,13 +205,18 @@ def _compute_per_module_hessians(
     kwargs: dict[str, torch.Tensor],
     batch_size: int,
     device: torch.device,
-) -> dict[nn.Module, torch.Tensor | None]:
+) -> dict[nn.Module, tuple[torch.Tensor, int] | None]:
     """Compute independent Hessians for each module via shared forward passes.
 
     Used for MoE expert layers where the standard cross-term computation
     is invalid (the router in quantized vs full-precision blocks may route
     different tokens to the same expert).  Each module gets its own Hessian
     built solely from the quantized block's activations.
+
+    Returns:
+        Mapping from module to ``(hessian, nsamples)`` where ``nsamples`` is
+        the number of tokens routed to that module, or ``None`` if the module
+        received no tokens during calibration.
     """
     dest: dict[int, torch.Tensor] = {}
 
@@ -257,7 +262,10 @@ def _compute_per_module_hessians(
     for h in handlers:
         h.remove()
 
-    return {modules[i]: (hessians[i] if nsamples[i] > 0 else None) for i in range(len(modules))}
+    return {
+        modules[i]: ((hessians[i], nsamples[i]) if nsamples[i] > 0 else None)
+        for i in range(len(modules))
+    }
 
 
 @torch.no_grad()
@@ -475,8 +483,8 @@ def run_quantize_with_qep_arch(
             )
             for module_q in expert_modules_q:
                 name = quantizer.module_to_name[module_q]
-                H = expert_hessians[module_q]
-                if H is None:
+                entry = expert_hessians[module_q]
+                if entry is None:
                     logger.warning(
                         "Expert layer %s received no tokens during calibration; skipping",
                         name,
@@ -485,6 +493,7 @@ def run_quantize_with_qep_arch(
                     if progress is not None:
                         progress.step_complete(f"{name}, skipped: no tokens")
                     continue
+                H, nsamples_expert = entry
 
                 logger.debug(
                     "Processing layer: %s (no weight correction) =================================================",
@@ -498,6 +507,7 @@ def run_quantize_with_qep_arch(
                     perccorr=qep_config.perccorr,
                     hessian=H,
                     delta_hatX=None,
+                    nsamples=nsamples_expert if quantizer.flag_nsamples else None,
                 )
                 try:
                     dtype = module_q.weight.data.dtype
