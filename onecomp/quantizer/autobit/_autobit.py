@@ -268,6 +268,16 @@ class AutoBitQuantizer(Quantizer):
         """
         for q in self.quantizers:
             if isinstance(q, GPTQ):
+                old_value = q.bitpack_on_quantize
+                if old_value != self.bitpack_on_quantize or not isinstance(
+                    old_value, bool
+                ):
+                    self.logger.info(
+                        "Updating %s bitpack_on_quantize from %s to %s.",
+                        q.name,
+                        old_value,
+                        self.bitpack_on_quantize,
+                    )
                 q.bitpack_on_quantize = self.bitpack_on_quantize
 
     def setup(self, model):
