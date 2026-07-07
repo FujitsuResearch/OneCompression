@@ -133,6 +133,10 @@ class GPTQResult(QuantizationResult):
             if qzeros.ndim == 1:
                 qzeros = qzeros.unsqueeze(1)
             elif qzeros.ndim == 2 and qzeros.shape == (1, out_features):
+                # With bitpack_on_quantize=True, qzeros is stored in the packed
+                # AutoGPTQ-compatible layout and unpack_zeros restores it as
+                # (num_groups, out_features). Per-channel quantization has one group,
+                # so normalize (1, out_features) to (out_features, 1) for dequantize.
                 qzeros = qzeros.T
             dequantized = dequantize(qweight, scales, qzeros.float(), maxq=2**self.wbits - 1)
             return dequantized.to(torch.float16).cpu()

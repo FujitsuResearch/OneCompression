@@ -2,7 +2,7 @@
 
 ## [v1.3.0(WIP)+feature/bitpack_mode] 2026-06-19 16:45:00
 
-### New Feature: GPTQ bitpack-on-quantize mode
+### New Feature: Breaking Changes
 
 - Added `bitpack_on_quantize` support to the base `Quantizer` and enabled it by default for `GPTQ`, so `qweight` and `qzeros` can be stored in AutoGPTQ-compatible packed format immediately after each layer is quantized (`onecomp/quantizer/_quantizer.py`, `onecomp/quantizer/gptq/_gptq.py`)
 - Extended `GPTQResult` with packed-state metadata (`qweight_is_packed`, `qzeros_is_packed`, `qweight_original_shape`) and updated `compute_dequantized_weight()` so packed and unpacked results reconstruct the same dequantized weights across grouped / per-channel, symmetric / asymmetric, and act-order paths (`onecomp/quantizer/gptq/_gptq.py`)
