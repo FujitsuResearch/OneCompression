@@ -11,39 +11,28 @@ Flow:
     2. Build quantized model via create_quantized_model
     3. Generate text BEFORE LoRA SFT (model does not know OneCompression)
     4. Run LoRA SFT with OneCompression knowledge data
-    5. Save the LoRA-applied quantized model in HF-compatible format
-    6. Load the saved model and auto-apply the LoRA adapter
-    7. Generate text AFTER LoRA SFT (model can describe OneCompression)
-    8. Compare results side by side
+    5. Generate text AFTER LoRA SFT (model can describe OneCompression)
+    6. Compare results side by side
 
 Copyright 2025-2026 Fujitsu Ltd.
 
 Author: Keiji Kimura
 
 Usage:
-    python example/post_process/example_lora_sft_knowledge.py
+    python example/post_process/example_lora_sft_knowledge_legacy.py
 """
 
 from pathlib import Path
 
 import torch
 
-from onecomp import (
-    GPTQ,
-    CalibrationConfig,
-    ModelConfig,
-    PostProcessLoraSFT,
-    Runner,
-    load_quantized_model,
-    setup_logger,
-)
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, PostProcessLoraSFT, Runner, setup_logger
 
 setup_logger()
 
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 KNOWLEDGE_DATA = str(Path(__file__).parent / "onecomp_knowledge.jsonl")
 PROMPT = "Q: What is OneCompression?\nA:"
-SAVE_DIR = "./tinyllama_gptq4_lora_knowledge"
 
 
 def generate_text(model, tokenizer, prompt, device, max_new_tokens=128):
@@ -123,58 +112,28 @@ post_process = PostProcessLoraSFT(
     lora_alpha=32,
     logging_steps=5,
 )
-runner.post_processes = [post_process]
-runner.run_post_processes()
+post_process.run(model, model_config)
 
 # ================================================================
-# Step 5: Save the LoRA-applied quantized model (HF safetensors + adapter sidecar)
+# Step 5: Generate AFTER LoRA SFT
 # ================================================================
 print("\n" + "=" * 70)
-print(f"Step 5: Saving LoRA-applied model to {SAVE_DIR}")
-print("=" * 70)
-runner.save_quantized_model(SAVE_DIR)
-print(f"Model saved to: {SAVE_DIR}")
-print(
-    "  - model.safetensors, config.json                  : base GPTQ model (HF-compatible)\n"
-    "  - lora_adapter/adapter_model.safetensors           : PEFT-format LoRA adapter\n"
-    "  - lora_adapter/adapter_config.json                 : PEFT-format adapter config"
-)
-# Release references and clear CUDA cache before reload to reduce OOM risk
-del runner
-del model
-torch.cuda.empty_cache()
-
-# ================================================================
-# Step 6: Load the saved model with LoRA adapter
-# ================================================================
-print("\n" + "=" * 70)
-print(f"Step 6: Loading model from {SAVE_DIR}")
+print("Step 5: Generating text AFTER LoRA SFT")
 print("=" * 70)
 
-loaded_model, loaded_tokenizer = load_quantized_model(SAVE_DIR)
-print(f"Loaded model type : {type(loaded_model).__name__}")
-print(f"Loaded model device: {next(loaded_model.parameters()).device}")
-
-# ================================================================
-# Step 7: Generate AFTER LoRA SFT
-# ================================================================
-print("\n" + "=" * 70)
-print("Step 7: Generating text AFTER LoRA SFT")
-print("=" * 70)
-
-loaded_model.to("cuda:0")
-after_text = generate_text(loaded_model, loaded_tokenizer, PROMPT, "cuda:0")
-loaded_model.to("cpu")
+model.to("cuda:0")
+after_text = generate_text(model, tokenizer, PROMPT, "cuda:0")
+model.to("cpu")
 torch.cuda.empty_cache()
 
 print(f"\nPrompt: {PROMPT}")
 print(f"Response:\n{after_text}")
 
 # ================================================================
-# Step 8: Compare results
+# Step 6: Compare results
 # ================================================================
 print("\n" + "=" * 70)
-print("Step 8: Comparison: Before vs After LoRA SFT")
+print("Comparison: Before vs After LoRA SFT")
 print("=" * 70)
 print(f"\nPrompt: {PROMPT}")
 print(f"\n--- BEFORE LoRA SFT ---")

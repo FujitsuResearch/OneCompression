@@ -644,22 +644,40 @@ class Quantizer(metaclass=ABCMeta):
         torch.save(self.results, filepath)
         self.logger.info("Saved quantization results to %s", filepath)
 
-    def load_results(self, filepath, weights_only=False):
+    def load_results(self, filepath, *, weights_only=False, allow_unsafe_deserialization=False):
         """Load the quantization results from a file into self.results.
 
         Loads saved quantization results and stores them in self.results.
+
+        .. warning::
+            With ``weights_only=False`` this method deserializes arbitrary
+            Python objects via ``torch.load`` / ``pickle``, so a maliciously
+            crafted file can execute code during deserialization (CWE-502).
+            Only load result files you produced yourself or obtained from a
+            fully trusted source, and set ``allow_unsafe_deserialization=True``
+            to acknowledge the risk.
 
         Args:
             filepath (str): The path to load the results from.
             weights_only (bool): If True, only load tensor weights (safer but limited).
                 Default is False to support loading QuantizationResult objects.
+            allow_unsafe_deserialization (bool): Required to be True when
+                ``weights_only`` is False, to acknowledge the
+                unsafe-deserialization risk. Ignored when ``weights_only`` is
+                True (that path is safe). Defaults to False.
 
         Returns:
             dict: A dict mapping layer name -> QuantizationResult (same reference as self.results).
 
+        Raises:
+            ValueError: If ``weights_only`` is False and
+                ``allow_unsafe_deserialization`` is not True.
+
         Example:
             >>> quantizer = JointQ()
-            >>> quantizer.load_results("quantization_results.pt")
+            >>> quantizer.load_results(
+            ...     "quantization_results.pt", allow_unsafe_deserialization=True
+            ... )
             >>> for layer_name, result in quantizer.results.items():
             ...     print(f"{layer_name}: {result.dequantized_weight.shape}")
 
@@ -670,6 +688,22 @@ class Quantizer(metaclass=ABCMeta):
             - Loading files saved with older versions may fail if class
               definitions have changed.
         """
+        if not weights_only and not allow_unsafe_deserialization:
+            raise ValueError(
+                f"Refusing to load '{filepath}': loading with weights_only=False "
+                "deserializes arbitrary Python objects via pickle and can execute "
+                "code embedded in a malicious file (CWE-502). Only load result "
+                "files from a fully trusted source, then pass "
+                "allow_unsafe_deserialization=True to acknowledge this risk, or "
+                "use weights_only=True for the safe (tensors-only) path."
+            )
+        if not weights_only:
+            self.logger.warning(
+                "Loading '%s' with weights_only=False; arbitrary code in a "
+                "malicious file can execute during deserialization. Ensure this "
+                "file comes from a trusted source.",
+                filepath,
+            )
         self.results = torch.load(filepath, weights_only=weights_only)
         self.logger.info("Loaded quantization results from %s", filepath)
         return self.results
@@ -954,6 +988,9 @@ class ResultLoader(Quantizer):
     # Optional: load precomputed results at initialization time
     results_file: str = None
     weights_only: bool = False
+    # Required to be True when weights_only is False, to acknowledge the
+    # unsafe-deserialization risk of torch.load(weights_only=False) (CWE-502).
+    allow_unsafe_deserialization: bool = False
 
     # Ensure no layers are selected for quantization by default
     target_layer_types: tuple = field(default_factory=tuple)
@@ -965,7 +1002,11 @@ class ResultLoader(Quantizer):
     def __post_init__(self):
         super().__post_init__()
         if self.results_file is not None:
-            self.load_results(self.results_file, weights_only=self.weights_only)
+            self.load_results(
+                self.results_file,
+                weights_only=self.weights_only,
+                allow_unsafe_deserialization=self.allow_unsafe_deserialization,
+            )
 
     def setup(self, model):  # pylint: disable=unused-argument
         """Select no layers (no-op).

@@ -66,10 +66,54 @@ import torch
 
 from onecomp.quantizer.gptq.gptq_layer import (
     GPTQLinear,
+    is_packable_wbits,
     pack_int_weights,
     pack_zeros,
     unpack_zeros,
 )
+
+
+def _build_layer(wbits, pack_weights, device, *, with_qzero_zero=True):
+    """Construct a small GPTQLinear with optional qzero=0 columns.
+
+    Shapes (in_features=64, out_features=32, groupsize=32) satisfy the
+    divisibility constraints of every packable bit width, including the
+    3-bit cross-word packing path.
+    """
+    torch.manual_seed(0)
+    groupsize = 32
+    in_features = groupsize * 2
+    out_features = 32
+    num_groups = in_features // groupsize
+    vmax = (1 << wbits) - 1
+
+    qweight = torch.randint(
+        0, vmax + 1, (out_features, in_features), dtype=torch.int32, device=device
+    )
+    scales = torch.rand(num_groups, out_features, device=device, dtype=torch.float32) * 0.05 + 0.02
+    zeros = torch.full(
+        (num_groups, out_features), float(min(vmax, 5)), device=device, dtype=torch.float32
+    )
+    if with_qzero_zero:
+        # Exercise the v1 -1 offset round trip through pack/unpack_in_place.
+        zeros[:, :4] = 0.0
+
+    layer = GPTQLinear(
+        in_features=in_features,
+        out_features=out_features,
+        wbits=wbits,
+        groupsize=groupsize,
+        actorder=False,
+        quantized_weight=qweight,
+        scale=scales,
+        zero=zeros,
+        bias=None,
+        device=device,
+        pack_weights=pack_weights,
+        use_gemlite=False,
+    )
+    x = torch.randn(2, in_features, device=device, dtype=torch.float16)
+    return layer, x
 
 
 @pytest.mark.parametrize("wbits", [2, 3, 4, 8])
@@ -344,3 +388,90 @@ def test_forward_restores_zero_columns_exactly(wbits, pack_weights):
         f"wbits={wbits}, pack_weights={pack_weights}: expected control columns to "
         f"dequantize to -1, got sample {out[4:8].tolist()}"
     )
+
+
+@pytest.mark.parametrize("wbits", [2, 3, 4, 8])
+def test_pack_unpack_in_place_roundtrip_preserves_forward(wbits):
+    """A pack → unpack → pack round trip must leave forward output unchanged.
+
+    The dequantization math is identical in the packed and unpacked branches,
+    so the output should be (near) bit-identical. A broken pack/unpack would
+    corrupt qweight/qzeros and shift the output by ``O(scale * 2^wbits)``.
+    Columns with qzero=0 are included to exercise the v1 ``-1`` offset.
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    layer, x = _build_layer(wbits, pack_weights=True, device=device)
+
+    assert layer._weight_is_packed is True
+    ref = layer(x).clone()
+
+    layer.unpack_in_place()
+    assert layer._weight_is_packed is False
+    out_unpacked = layer(x)
+    assert (ref - out_unpacked).abs().max().item() < 1e-3, (
+        f"wbits={wbits}: unpack_in_place changed forward output "
+        f"(max |diff|={(ref - out_unpacked).abs().max().item()})"
+    )
+
+    layer.pack_in_place()
+    assert layer._weight_is_packed is True
+    out_repacked = layer(x)
+    assert (ref - out_repacked).abs().max().item() < 1e-3, (
+        f"wbits={wbits}: pack_in_place after unpack changed forward output "
+        f"(max |diff|={(ref - out_repacked).abs().max().item()})"
+    )
+
+
+@pytest.mark.parametrize("wbits", [2, 3, 4, 8])
+def test_pack_in_place_noop_when_already_packed(wbits):
+    """``pack_in_place`` on an already-packed layer must be a no-op: the buffers
+    are left untouched (same tensor objects) and the flag stays True."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    layer, _ = _build_layer(wbits, pack_weights=True, device=device)
+
+    qweight_before, qzeros_before = layer.qweight, layer.qzeros
+    layer.pack_in_place()
+
+    assert layer._weight_is_packed is True
+    assert layer.qweight is qweight_before
+    assert layer.qzeros is qzeros_before
+
+
+@pytest.mark.parametrize("wbits", [2, 3, 4, 8])
+def test_unpack_in_place_noop_when_already_unpacked(wbits):
+    """``unpack_in_place`` on an already-unpacked layer must be a no-op."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    layer, _ = _build_layer(wbits, pack_weights=False, device=device)
+
+    assert layer._weight_is_packed is False
+    qweight_before, qzeros_before = layer.qweight, layer.qzeros
+    layer.unpack_in_place()
+
+    assert layer._weight_is_packed is False
+    assert layer.qweight is qweight_before
+    assert layer.qzeros is qzeros_before
+
+
+def test_pack_in_place_noop_for_non_packable_wbits():
+    """A non-packable bit width (JointQ 1-bit) has no AutoGPTQ packing layout,
+    so ``pack_in_place`` must safely leave the layer unpacked."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # 1-bit layers are constructed unpacked (pack_weights=False); no qzero=0
+    # columns since the v1 offset is orthogonal to this guard.
+    layer, _ = _build_layer(1, pack_weights=False, device=device, with_qzero_zero=False)
+
+    assert layer._weight_is_packed is False
+    qweight_before, qzeros_before = layer.qweight, layer.qzeros
+    layer.pack_in_place()
+
+    assert layer._weight_is_packed is False, "pack_in_place must not pack a non-packable wbits"
+    assert layer.qweight is qweight_before
+    assert layer.qzeros is qzeros_before
+
+
+def test_is_packable_wbits():
+    """The shared packable-width predicate must accept {2, 3, 4, 8} and reject
+    everything else (notably JointQ's 1-bit)."""
+    assert all(is_packable_wbits(w) for w in (2, 3, 4, 8))
+    assert not is_packable_wbits(1)
+    assert not is_packable_wbits(16)

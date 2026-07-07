@@ -184,6 +184,22 @@ def unpack_zeros(packed_zeros: torch.Tensor, wbits: int, out_features: int) -> t
     return _unpack_rows(packed_zeros.t().contiguous(), wbits, out_features).t().contiguous()
 
 
+# Bit widths OneComp can store in the AutoGPTQ packed INT32 format
+# (see ``_pack_rows`` / ``_unpack_rows``). Widths outside this set — notably
+# JointQ's 1-bit weights — have no packing layout and are kept unpacked.
+PACKABLE_WBITS = (2, 3, 4, 8)
+
+
+def is_packable_wbits(wbits: int) -> bool:
+    """Return whether GPTQ INT tensors of this bit width can be packed.
+
+    Single source of truth for the packable-width check used by
+    ``GPTQLinear.pack_in_place`` and (later) the save path's
+    ``_packable_gptq_wbits`` helper, so the two cannot drift apart.
+    """
+    return int(wbits) in PACKABLE_WBITS
+
+
 # ========================================
 # GPTQ quantized Linear layer
 # ========================================
@@ -382,6 +398,85 @@ class GPTQLinear(nn.Module):
         if tensor.dim() == 2 and tensor.shape == (out_features, 1):
             return tensor.t()  # (out_features, 1) → (1, out_features)
         return tensor  # (num_groups, out_features)
+
+    def unpack_in_place(self) -> None:
+        """Expand ``qweight``/``qzeros`` to dense INT form, in place.
+
+        Re-registers the ``qweight`` and ``qzeros`` buffers as their unpacked
+        equivalents and flips ``_weight_is_packed`` to ``False``.
+
+        Intended for post-processes (e.g. LoRA SFT) that train against a base
+        layer: keeping the weights unpacked avoids re-running the unpack on
+        every forward, which is costly over many epochs.
+
+        Idempotent — a no-op when the layer is already unpacked. The v1 qzeros
+        ``-1`` offset is preserved verbatim because ``unpack_zeros`` does not
+        reinterpret the stored integers (a stored ``-1`` simply re-reads as
+        ``2^wbits - 1``, which ``forward`` wraps back to ``0`` modularly).
+        """
+        if not self._weight_is_packed:
+            return  # already unpacked → idempotent no-op
+        if self.using_gemlite:
+            # GemLite holds the dequantized weights; the qweight buffer is not
+            # the source of truth, so mutating it would be meaningless. Post-
+            # process and save paths always pass use_gemlite=False, so this
+            # guard is purely defensive.
+            logger.warning(
+                "unpack_in_place skipped: GPTQLinear is using GemLite "
+                "(qweight buffer is not the source of truth)."
+            )
+            return
+
+        device = self.qweight.device
+        weight_int = unpack_int_weights(
+            self.qweight, self.wbits, (self.out_features, self.in_features)
+        )
+        zeros_int = unpack_zeros(self.qzeros, self.wbits, self.out_features)
+        self.register_buffer("qweight", weight_int.contiguous().to(device))
+        self.register_buffer("qzeros", zeros_int.contiguous().to(device))
+        self._weight_is_packed = False
+
+    def pack_in_place(self) -> None:
+        """Re-pack ``qweight``/``qzeros`` into the AutoGPTQ INT32 form, in place.
+
+        Re-registers the ``qweight`` and ``qzeros`` buffers as their packed
+        equivalents and flips ``_weight_is_packed`` to ``True``. Used to restore
+        a layer to its packed state after a post-process unpacked it for
+        training.
+
+        Idempotent — a no-op when the layer is already packed. Guards:
+
+        - Non-packable ``wbits`` (anything outside :data:`PACKABLE_WBITS`, e.g.
+          JointQ's 1-bit) → no-op with a log message; the layer stays unpacked.
+        - ``using_gemlite=True`` → no-op (qweight is not the source of truth).
+
+        The v1 qzeros ``-1`` offset is preserved verbatim because ``pack_zeros``
+        does not reinterpret the stored integers (``_pack_rows`` masks a stored
+        ``-1`` to ``2^wbits - 1`` rather than corrupting neighboring slots).
+        """
+        if self._weight_is_packed:
+            return  # already packed → idempotent no-op
+        if self.using_gemlite:
+            logger.warning(
+                "pack_in_place skipped: GPTQLinear is using GemLite "
+                "(qweight buffer is not the source of truth)."
+            )
+            return
+        if not is_packable_wbits(self.wbits):
+            # e.g. JointQ 1-bit: no AutoGPTQ packing layout exists, so leave the
+            # weights unpacked (matches how such layers are constructed/saved).
+            logger.info(
+                "pack_in_place no-op: wbits=%d is not packable; " "leaving GPTQLinear unpacked.",
+                self.wbits,
+            )
+            return
+
+        device = self.qweight.device
+        packed_weight = pack_int_weights(self.qweight.to(torch.int32), self.wbits)
+        packed_zeros = pack_zeros(self.qzeros.to(torch.int32), self.wbits)
+        self.register_buffer("qweight", packed_weight.contiguous().to(device))
+        self.register_buffer("qzeros", packed_zeros.contiguous().to(device))
+        self._weight_is_packed = True
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
