@@ -107,12 +107,13 @@ def rank_from_bpw(
             - "floor": Round down (ensure b_target is not exceeded)
             - "ceil": Round up (prioritize approximation accuracy)
             - "round": Round to nearest (balance)
-        scale_bits: Bit-width used to *account* for the FP16 amplitude scales.
-            Defaults to DEFAULT_SCALE_BITS (16, FP16). Accounting only — does not
-            change the dtype the scales are stored in. Set to 0 to size the rank
-            from the binary matrices only, ignoring the scale overhead. Must match
-            the value passed to bpw_from_rank() so that the rank-selection and the
-            reported BPW stay consistent.
+        scale_bits: Bit-width used to *account* for the FP16 amplitude (envelope)
+            scales in the BPW budget. Defaults to DEFAULT_SCALE_BITS (16, FP16),
+            matching the paper's formula b = P * [r(n+m) + 16*l*(n+m+2r)] / (nm).
+            Accounting only — does not change the dtype the scales are stored in.
+            Set to 0 to size the rank from the binary sign matrices only. Must
+            match the value passed to bpw_from_rank() so that rank selection and
+            the reported BPW stay consistent.
 
     Returns:
         Calculated rank r

@@ -1,6 +1,25 @@
 # Change log
 
-## [v1.2.0+feature/mdbf] 2026-06-17
+## [v1.1.1+feature/mdbf] 2026-06-18
+
+### New Feature: GemLite 1-bit inference for MDBF
+
+- Added a GemLite-accelerated inference path to `MDBFLinear` / `MultipathMDBFLinear` for the ±1 sign matrices (`A_sign`, `B_sign`), mirroring the DBF layer design; when GemLite is available the sign matmuls are delegated to GemLite 1-bit Triton kernels, and the layer transparently falls back to the dense path otherwise (`onecomp/quantizer/mdbf/mdbf_layer.py`)
+- In auto mode (`use_gemlite=None`) GemLite is enabled only for `l == 1`; for `l > 1` the outer rank-`l` amplitude makes the GemLite path slower than dense, so it is skipped unless `use_gemlite=True` forces it
+- Freed the redundant GPU packed-sign buffers for any sign matrix served by GemLite, roughly halving the in-memory weight footprint
+- Propagated `use_gemlite` through `MDBF.create_inference_layer()` (`onecomp/quantizer/mdbf/_mdbf.py`)
+
+### Bug Fixes
+
+- Fixed the Hessian definition in `lowrank_osvd()` (OSVD initialization): the whitening term now applies the full `H^{1/2} = Q diag(sqrt(λ)) Q^T`. The trailing `@ Q^T` was missing, so the previous `W @ Q diag(sqrt(λ))` computed `W @ H^{1/2} @ Q` and did not minimize the intended Hessian-weighted output error (`onecomp/quantizer/mdbf/initialize.py`)
+- Fixed `rank_from_bpw()` which effectively hard-coded `scale_bits=0`: `scale_bits` is now an argument defaulting to 16, so the FP16 envelope parameters are counted in the BPW budget, consistent with the paper formula `b = P * [r(n+m) + 16*l*(n+m+2r)] / (nm)`; target and actual BPW now agree (`onecomp/quantizer/mdbf/utils.py`)
+
+### Tests
+
+- Added GemLite inference tests to `tests/onecomp/quantizer/mdbf/test_mdbf.py`: `MDBFLinear` / `MultipathMDBFLinear` GemLite output matches the dense path at `l == 1`, `create_inference_layer` GemLite output matches the dequantized weight, dense fallback when GemLite is unavailable, `rank_from_bpw()` consistency with the paper BPW formula (`scale_bits=16`), and a `lowrank_osvd` regression test asserting the OSVD Hessian-weighted error is no worse than plain rank-`r` SVD
+- Added `tests/onecomp/quantizer/mdbf/test_osvd_hessian_bug.py`: a numerical proof-of-concept that the previous `H^{1/2}` formulation inflated the Hessian-weighted reconstruction error for non-diagonal Hessians
+
+## [v1.3.0(WIP)+feature/mdbf] 2026-06-17
 
 ### New Feature: MDBF (Multi-Envelope Double Binary Factorization) Quantizer
 
