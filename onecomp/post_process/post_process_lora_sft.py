@@ -346,6 +346,8 @@ class PostProcessLoraSFT(PostQuantizationProcess):
             >>> import torch
             >>> from onecomp import ModelConfig, PostProcessLoraSFT
             >>> model_config = ModelConfig(model_id="meta-llama/Llama-2-7b-hf")
+            >>> # weights_only=False uses pickle and can execute code from a
+            >>> # malicious file (CWE-502); only load trusted checkpoints.
             >>> quantized_model = torch.load(
             ...     "quantized_model.pt",
             ...     map_location="cpu",

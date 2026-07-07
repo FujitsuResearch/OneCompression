@@ -1,6 +1,6 @@
 # Change log
 
-## [v1.3.0(WIP)+feature/blockwise_save_load] 2026-06-19
+## [v1.3.0(WIP)+feature/blockwise_save_load] 2026-07-07
 
 ### Load → Post-process → Re-save for Quantized Models
 
@@ -45,6 +45,17 @@
 
 - Added `tests/onecomp/utils/test_quant_config.py` for `validate_quant_config()` / `validate_quantized_model_config()` (with `tests/onecomp/fixtures/quant_config.py`)
 - Added `tests/onecomp/post_process/test_base_metadata.py` and `test_base_run.py` for `build_metadata()` and the `run()` template method (validate/CPU/eval restore, metadata-on-success behavior), plus `test_runtime.py` for the `_runtime.py` helpers, backed by `tests/onecomp/post_process/_doubles.py`
+
+## [v1.3.0(WIP)+fix/partial-quant-with-rotation-bug] 2026-07-03
+
+### Bug fix
+- Fixed Hadamard online hook registration for rotation + **partial quantization** models. Previously the `down_proj` target layer classes were derived from the recorded `quant_method` (`gptq`/`dbf`/`onebit`), or by sampling the **first** `down_proj` layer's type. When a model is only partially quantized (mixed quantized / unquantized `down_proj` layers) or contains multiple `down_proj` types, hooks were registered on the wrong classes — either missing quantized layers or firing on plain `nn.Linear` — degrading rotated-model inference (`onecomp/quantized_model_loader.py`, `onecomp/runner.py`, `onecomp/pre_process/rotation_utils.py`)
+  - Hadamard hook target types are now derived from the actual model instead of `quant_method`. Added `collect_down_proj_types()` and `collect_quantized_down_proj_types()` to `rotation_utils.py`
+  - `QuantizedModelLoader` (loading from disk) uses `collect_down_proj_types()` to collect **all** distinct `down_proj` layer types from the loaded model, **including** `nn.Linear` when present (e.g. unquantized `down_proj` in a saved partial-quantization model); it intentionally does **not** filter `nn.Linear`
+  - `Runner` hook re-registration (during a quantization run, where some `down_proj` may still be `nn.Linear`) uses `collect_quantized_down_proj_types()`, which **excludes** `nn.Linear` so unquantized `down_proj` layers do not receive hooks; skips registration entirely when no quantized `down_proj` exists
+
+### Test
+- Added regression tests for Hadamard hook target-type collection, pinning `down_proj` type discovery for both full and partial quantization (`tests/onecomp/runner/test_hadamard_hook_type_collection.py`)
 
 ## [v1.3.0(WIP)+feature/lora-save-load-vllm-infer_jointq] 2026-06-19 16:45:00
 
@@ -97,6 +108,15 @@
 - Text-only `generate()` on multimodal models (e.g. Gemma-4 12B) could emit modality delimiter tokens and degrade output after quantize→reload, because `load_quantized_model()` did not restore `generation_config.json` (including `suppress_tokens`). Now loads it from the save directory when present (`quantized_model_loader.py`).
 - Fixed VLM (e.g. Gemma3) quantized model save/load: safetensors key prefixes from `save_pretrained` (`model.language_model.model.layers.*`) did not match the `from_config` model (`model.language_model.layers.*`), so `load_state_dict(..., assign=True)` left `qweight` / `scales` / `qzeros` at zero and generation degraded (`onecomp/quantized_model_loader.py`)
   - Added `_remap_state_dict_keys()` to normalize checkpoint keys before `_replace_quantized_layers`; `_apply_known_state_dict_key_rewrites()` rewrites `.language_model.model.` → `.language_model.` (pattern-based, without requiring keys to exist in the empty model yet)
+
+## [v1.2.1] 2026-07-03
+
+### Security
+
+- **Unsafe deserialization hardening (CWE-502)**: `QuantizedModelLoader.load_quantized_model_pt()` (alias `onecomp.load_quantized_model_pt()`) previously called `torch.load(model.pt, weights_only=False)` unconditionally, allowing arbitrary code execution when loading a malicious `.pt` checkpoint. It now refuses to load unless the caller explicitly opts in via `allow_unsafe_deserialization=True`, and emits a strong warning when it does load. For untrusted models, use the safetensors-based `load_quantized_model()`, which does not execute code.
+  - **Breaking change**: existing callers of `load_quantized_model_pt()` must pass `allow_unsafe_deserialization=True` for trusted `.pt` files.
+- **`Quantizer.load_results()` / `ResultLoader`**: same hardening applied. Loading with `weights_only=False` now requires `allow_unsafe_deserialization=True` (added as a `ResultLoader` field), and logs a warning. The safe `weights_only=True` path is unchanged.
+- Updated docstrings, docs, and the LoRA SFT example to document the risk and the required opt-in.
 
 ## [v1.2.0] 2026-06-08
 

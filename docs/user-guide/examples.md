@@ -636,10 +636,19 @@ LoRA-applied models use a dedicated save/load API:
 # Save after LoRA SFT
 runner.save_quantized_model_pt("./my_model_lora")
 
-# Load
+# Load (opt-in required: the .pt loader uses torch.load(weights_only=False),
+# which can execute code from a malicious file. Trusted sources only.)
 from onecomp import load_quantized_model_pt
-model, tokenizer = load_quantized_model_pt("./my_model_lora")
+model, tokenizer = load_quantized_model_pt(
+    "./my_model_lora", allow_unsafe_deserialization=True
+)
 ```
+
+!!! warning "Unsafe deserialization (.pt loader)"
+    `load_quantized_model_pt()` loads `model.pt` via `torch.load(weights_only=False)`
+    (Python `pickle`), so a malicious file can execute arbitrary code (CWE-502).
+    It refuses to load unless you pass `allow_unsafe_deserialization=True`; only
+    opt in for fully trusted models.
 
 !!! note
     For standard quantized models, and for post-processes that keep the

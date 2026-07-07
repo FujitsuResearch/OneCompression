@@ -440,8 +440,20 @@ runner.save_quantized_model_pt("./my_model_lora")
 ```python
 from onecomp import load_quantized_model_pt
 
-model, tokenizer = load_quantized_model_pt("./my_model_lora")
+# The .pt loader uses torch.load(weights_only=False) and requires an explicit
+# opt-in. Only enable it for models from a fully trusted source (see warning).
+model, tokenizer = load_quantized_model_pt(
+    "./my_model_lora", allow_unsafe_deserialization=True
+)
 ```
+
+!!! warning "Unsafe deserialization (.pt loader)"
+    `load_quantized_model_pt()` deserializes `model.pt` with
+    `torch.load(..., weights_only=False)`, which uses Python `pickle` and can
+    execute arbitrary code from a malicious file (CWE-502). It refuses to load
+    unless you pass `allow_unsafe_deserialization=True`. Only opt in for models
+    you produced yourself or trust completely; otherwise use the safetensors
+    `load_quantized_model()`, which does not execute code.
 
 !!! info "save_quantized_model vs save_quantized_model_pt"
     | Method | Format | Use Case |
