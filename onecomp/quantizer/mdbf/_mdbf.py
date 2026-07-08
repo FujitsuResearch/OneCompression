@@ -48,8 +48,13 @@ class MDBFResult(QuantizationResult):
         use_gradient_refine (bool): Whether gradient refinement was used.
         gradient_iters (int): Gradient refinement iterations.
         gradient_lr (float): Gradient refinement learning rate.
-        activation_aware (bool): Whether activation-aware mode was used.
+        activation_aware (bool): Requested activation-aware setting (as configured
+            on the quantizer). See actual_activation_aware for what was used.
         act_init (str): Activation initialization mode.
+        actual_activation_aware (bool): Whether activation-aware mode was actually
+            used. run_mdbf falls back to non-aware mode when P != 1 or when no
+            Hessian is supplied, so this may be False even if activation_aware
+            is True.
         scale_bits (int): Bit-width used to account for the FP16 amplitude scales
             when sizing the rank and reporting BPW (accounting only; does not
             change the stored dtype). 16 = FP16, 0 = binary-only.
@@ -434,7 +439,13 @@ class MDBF(Quantizer):
         return mdbf_result
 
     def get_quant_config(self) -> dict:
-        """Return quantization_config dict for save_quantized_model."""
+        """Return quantization_config dict for save_quantized_model.
+
+        All values record the *requested* quantizer configuration.
+        finalize_quant_config_for_save() additionally records
+        "actual_activation_aware" (what was actually used after any
+        per-layer fallback).
+        """
         result: dict[str, Any] = {
             "quant_method": "mdbf",
             "bits": self.target_bits,
@@ -464,7 +475,12 @@ class MDBF(Quantizer):
         quant_config: dict[str, Any],
         num_layers: int,
     ) -> list[dict[str, Any]]:
-        """Build per-layer quantization_bits list; length is num_layers."""
+        """Build per-layer quantization_bits list; length is num_layers.
+
+        The per-layer "params" entries echo the requested quantizer
+        configuration from quant_config (e.g. "activation_aware" is the
+        requested setting, not the per-layer outcome).
+        """
         _LAYER_RE = re.compile(r"\.layers\.(\d+)\.(.*)")
         default_bits = quant_config.get("bits", 1.0)
         mlp_target_bits = get_quant_param(quant_config, "mlp_target_bits")
@@ -524,6 +540,18 @@ class MDBF(Quantizer):
         quant_config["quantization_bits"] = MDBF._build_quantization_bits(
             quantized_layer_names, quant_config, num_hidden_layers
         )
+        # "activation_aware" records the *requested* setting; run_mdbf may fall
+        # back to non-aware mode per layer (e.g. P != 1, or no Hessian supplied).
+        # Record whether every quantized layer actually ran activation-aware so
+        # the saved config reflects what was done, not just what was asked.
+        layer_results = (self.results.get(name) for name in quantized_layer_names)
+        actual_flags = [
+            result.actual_activation_aware
+            for result in layer_results
+            if isinstance(result, MDBFResult) and result.actual_activation_aware is not None
+        ]
+        if actual_flags:
+            quant_config["actual_activation_aware"] = all(actual_flags)
         return quant_config
 
     def create_inference_layer(self, result, linear_module, **kwargs):
