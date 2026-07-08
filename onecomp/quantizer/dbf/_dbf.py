@@ -390,7 +390,12 @@ class DBF(Quantizer):
         # Only pack when DBF actually produced both binary factors; on DBF
         # failure / is_dbf_quantized=False the factors are left untouched so
         # the existing compute/dequant error behavior is preserved.
-        if self.bitpack_on_quantize and is_dbf_quantized and dbf_A is not None and dbf_B is not None:
+        if (
+            self.bitpack_on_quantize
+            and is_dbf_quantized
+            and dbf_A is not None
+            and dbf_B is not None
+        ):
             dbf_A_original_shape = tuple(dbf_A.shape)
             dbf_B_original_shape = tuple(dbf_B.shape)
             packed_A = pack_binary_factor(dbf_A).to(torch.uint8).cpu()

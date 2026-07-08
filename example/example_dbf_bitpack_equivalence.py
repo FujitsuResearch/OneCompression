@@ -90,13 +90,9 @@ def compare_modes(device, target_bits, **params):
     hessian = q_unpacked.calculate_hessian(layer, inp)
 
     _seed(SEED)
-    result_bitpack = q_packed.quantize_layer(
-        copy.deepcopy(layer), inp, hessian=hessian.clone()
-    )
+    result_bitpack = q_packed.quantize_layer(copy.deepcopy(layer), inp, hessian=hessian.clone())
     _seed(SEED)
-    result_normal = q_unpacked.quantize_layer(
-        copy.deepcopy(layer), inp, hessian=hessian.clone()
-    )
+    result_normal = q_unpacked.quantize_layer(copy.deepcopy(layer), inp, hessian=hessian.clone())
 
     # Sanity check: the two results really do take different storage paths.
     assert result_normal.dbf_A_is_packed is False

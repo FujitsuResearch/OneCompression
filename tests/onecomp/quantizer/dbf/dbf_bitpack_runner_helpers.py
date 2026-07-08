@@ -8,7 +8,15 @@ import math
 
 import torch
 
-from onecomp import CalibrationConfig, DBF, LPCDConfig, ModelConfig, QEPConfig, Runner, setup_logger
+from onecomp import (
+    DBF,
+    CalibrationConfig,
+    LPCDConfig,
+    ModelConfig,
+    QEPConfig,
+    Runner,
+    setup_logger,
+)
 
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 

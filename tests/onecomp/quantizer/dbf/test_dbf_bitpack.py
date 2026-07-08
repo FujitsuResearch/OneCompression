@@ -171,6 +171,7 @@ def test_update_weights_packed_unpacked_equivalent():
 
     assert torch.equal(model_p.proj.weight.data, model_u.proj.weight.data)
 
+
 def test_bitpack_missing_shape_raises_clear_error():
     """Packed flag without original shape is an explicit error."""
     result = _make_dbf_result(4, 3, 5, packed=True, seed=1)
@@ -178,8 +179,6 @@ def test_bitpack_missing_shape_raises_clear_error():
 
     with pytest.raises(ValueError, match="dbf_A_original_shape"):
         result.get_unpacked_binary_factors()
-
-
 
 
 def test_bitpack_on_quantize_invalid_type_raises():

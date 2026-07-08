@@ -36,9 +36,7 @@ def _make_factors(out_dim=6, mid_dim=5, in_dim=7, seed=0):
 
 def _reference_weight(dbf_Da, dbf_A, dbf_mid, dbf_B, dbf_Db):
     return (
-        dbf_Da.unsqueeze(1)
-        * (dbf_A @ (dbf_mid.unsqueeze(1) * dbf_B))
-        * dbf_Db.unsqueeze(0)
+        dbf_Da.unsqueeze(1) * (dbf_A @ (dbf_mid.unsqueeze(1) * dbf_B)) * dbf_Db.unsqueeze(0)
     ).to(torch.float16)
 
 
@@ -76,7 +74,9 @@ def test_double_binary_linear_packs_unpacked_factors_to_bp_buffers():
     assert torch.equal(layer.bp3, pack_binary_factor(dbf_A))
 
     x = torch.randn(2, dbf_B.shape[1], dtype=torch.float16)
-    expected = torch.nn.functional.linear(x, _reference_weight(dbf_Da, dbf_A, dbf_mid, dbf_B, dbf_Db))
+    expected = torch.nn.functional.linear(
+        x, _reference_weight(dbf_Da, dbf_A, dbf_mid, dbf_B, dbf_Db)
+    )
     assert torch.allclose(layer(x), expected, atol=5e-2, rtol=5e-2)
 
 
@@ -105,7 +105,9 @@ def test_double_binary_linear_keeps_already_packed_factors_without_repack():
     assert torch.equal(layer.bp3, packed_A)
 
     x = torch.randn(2, dbf_B.shape[1], dtype=torch.float16)
-    expected = torch.nn.functional.linear(x, _reference_weight(dbf_Da, dbf_A, dbf_mid, dbf_B, dbf_Db))
+    expected = torch.nn.functional.linear(
+        x, _reference_weight(dbf_Da, dbf_A, dbf_mid, dbf_B, dbf_Db)
+    )
     assert torch.allclose(layer(x), expected, atol=5e-2, rtol=5e-2)
 
 

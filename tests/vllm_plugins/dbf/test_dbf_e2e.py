@@ -99,9 +99,9 @@ class TestDbfQuantizeSaveConfig:
             for mod_cfg in layer_cfg.values():
                 methods.add(mod_cfg.get("method"))
 
-        assert methods == {"dbf"}, (
-            f"Expected every module to be quantized with method 'dbf', found {methods}."
-        )
+        assert methods == {
+            "dbf"
+        }, f"Expected every module to be quantized with method 'dbf', found {methods}."
 
 
 # ---------------------------------------------------------------------------

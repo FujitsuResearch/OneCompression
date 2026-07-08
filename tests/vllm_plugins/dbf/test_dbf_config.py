@@ -45,11 +45,7 @@ class TestDbfConfig:
 
     def test_get_quant_method_attaches_module_config(self):
         cfg = DbfConfig.from_config(
-            {
-                "quantization_bits": [
-                    {"self_attn.q_proj": {"bits": 1.5, "method": "dbf"}}
-                ]
-            }
+            {"quantization_bits": [{"self_attn.q_proj": {"bits": 1.5, "method": "dbf"}}]}
         )
         layer = MagicMock(spec=LinearBase)
 
@@ -61,11 +57,7 @@ class TestDbfConfig:
 
     def test_get_quant_method_returns_unquantized_for_bits_zero(self):
         cfg = DbfConfig.from_config(
-            {
-                "quantization_bits": [
-                    {"self_attn.q_proj": {"bits": 0, "method": "dbf"}}
-                ]
-            }
+            {"quantization_bits": [{"self_attn.q_proj": {"bits": 0, "method": "dbf"}}]}
         )
         layer = MagicMock(spec=LinearBase)
 
