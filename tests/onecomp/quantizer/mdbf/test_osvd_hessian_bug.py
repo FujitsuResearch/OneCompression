@@ -100,11 +100,14 @@ class TestOsvdHessianWhitening:
     OSVD H^{1/2} whitening: numerical verification.
     """
 
-    @pytest.mark.parametrize("n,m,r,seed", [
-        (16, 12, 3, 0),
-        (32, 24, 4, 1),
-        (8,  6,  2, 42),
-    ])
+    @pytest.mark.parametrize(
+        "n,m,r,seed",
+        [
+            (16, 12, 3, 0),
+            (32, 24, 4, 1),
+            (8, 6, 2, 42),
+        ],
+    )
     def test_no_qt_has_larger_hessian_error(self, n, m, r, seed):
         """
         The no-Q^T variant yields a larger H-weighted output error than the full
@@ -118,10 +121,10 @@ class TestOsvdHessianWhitening:
         W = torch.randn(n, m, dtype=torch.float64)
         H = _make_pd_matrix(m, seed=seed + 100).to(torch.float64)
 
-        W_hat_full  = _osvd_full(W, H, r)
+        W_hat_full = _osvd_full(W, H, r)
         W_hat_no_qt = _osvd_no_qt(W, H, r)
 
-        err_full  = _hessian_error(W, W_hat_full, H)
+        err_full = _hessian_error(W, W_hat_full, H)
         err_no_qt = _hessian_error(W, W_hat_no_qt, H)
 
         print(
@@ -131,9 +134,9 @@ class TestOsvdHessianWhitening:
         )
 
         # The full formulation is optimal, so it is always <= the no-Q^T variant
-        assert err_full <= err_no_qt + 1e-6 * abs(err_full), (
-            f"full ({err_full:.6e}) should be <= no_qt ({err_no_qt:.6e})"
-        )
+        assert err_full <= err_no_qt + 1e-6 * abs(
+            err_full
+        ), f"full ({err_full:.6e}) should be <= no_qt ({err_no_qt:.6e})"
         # For non-diagonal H the two must genuinely differ (else Q^T does not matter here)
         assert abs(err_no_qt - err_full) > 1e-8 * abs(err_full), (
             "Both errors are equal: the trailing Q^T is not being exercised "
@@ -149,15 +152,15 @@ class TestOsvdHessianWhitening:
         W = torch.randn(n, m, dtype=torch.float64)
         H = _make_pd_matrix(m, seed=77).to(torch.float64)
 
-        W_hat_full  = _osvd_full(W, H, r)
+        W_hat_full = _osvd_full(W, H, r)
         W_hat_no_qt = _osvd_no_qt(W, H, r)
 
         max_diff = (W_hat_full - W_hat_no_qt).abs().max().item()
         print(f"\nmax |W_hat_full - W_hat_no_qt| = {max_diff:.6e}")
 
-        assert max_diff > 1e-6, (
-            f"Expected a visible difference between full and no-Q^T W_hat, got {max_diff:.2e}"
-        )
+        assert (
+            max_diff > 1e-6
+        ), f"Expected a visible difference between full and no-Q^T W_hat, got {max_diff:.2e}"
 
     def test_diagonal_H_matches(self):
         """
@@ -180,16 +183,15 @@ class TestOsvdHessianWhitening:
 
         # Pre-check that eigh returns the identity matrix
         eig_vals, eig_vecs = torch.linalg.eigh(H)
-        assert torch.allclose(eig_vecs.abs(), torch.eye(m, dtype=torch.float64), atol=1e-10), \
-            "For sorted diagonal H, eig_vecs should be identity"
+        assert torch.allclose(
+            eig_vecs.abs(), torch.eye(m, dtype=torch.float64), atol=1e-10
+        ), "For sorted diagonal H, eig_vecs should be identity"
 
-        W_hat_full  = _osvd_full(W, H, r)
+        W_hat_full = _osvd_full(W, H, r)
         W_hat_no_qt = _osvd_no_qt(W, H, r)
 
         max_diff = (W_hat_full - W_hat_no_qt).abs().max().item()
-        err_diff = abs(
-            _hessian_error(W, W_hat_full, H) - _hessian_error(W, W_hat_no_qt, H)
-        )
+        err_diff = abs(_hessian_error(W, W_hat_full, H) - _hessian_error(W, W_hat_no_qt, H))
         print(f"\nDiagonal H (sorted): max diff = {max_diff:.2e}, error diff = {err_diff:.2e}")
 
         # When Q = I the two agree (the trailing Q^T becomes the identity)
@@ -218,19 +220,22 @@ class TestOsvdHessianWhitening:
 
         # Confirm H^{1/2} @ Q = Q @ diag(sqrt(λ))
         H_half = Q @ torch.diag(sqrt_eig) @ Q.T
-        assert torch.allclose(H_half @ Q, Q @ torch.diag(sqrt_eig), atol=1e-10), \
-            "H^{1/2} @ Q should equal Q @ diag(sqrt_eig)"
+        assert torch.allclose(
+            H_half @ Q, Q @ torch.diag(sqrt_eig), atol=1e-10
+        ), "H^{1/2} @ Q should equal Q @ diag(sqrt_eig)"
 
         # W_tilde_no_qt = W @ Q @ diag(sqrt(λ)) = W @ H^{1/2} @ Q != W @ H^{1/2}
         torch.manual_seed(13)
         W = torch.randn(8, m, dtype=torch.float64)
         W_tilde_no_qt = W @ Q @ torch.diag(sqrt_eig)
-        W_tilde_full  = W @ H_half
+        W_tilde_full = W @ H_half
 
-        assert not torch.allclose(W_tilde_no_qt, W_tilde_full, atol=1e-8), \
-            "W_tilde_no_qt and W_tilde_full should differ for non-diagonal H"
+        assert not torch.allclose(
+            W_tilde_no_qt, W_tilde_full, atol=1e-8
+        ), "W_tilde_no_qt and W_tilde_full should differ for non-diagonal H"
 
         # Confirm Q^T @ Q^T != I (the source of the spurious factor)
         QtQt = Q.T @ Q.T
-        assert not torch.allclose(QtQt, torch.eye(m, dtype=torch.float64), atol=1e-6), \
-            "Q^T @ Q^T should not be identity (confirming the extra rotation is spurious)"
+        assert not torch.allclose(
+            QtQt, torch.eye(m, dtype=torch.float64), atol=1e-6
+        ), "Q^T @ Q^T should not be identity (confirming the extra rotation is spurious)"

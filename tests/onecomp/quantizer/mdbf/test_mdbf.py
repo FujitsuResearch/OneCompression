@@ -18,12 +18,12 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from test_module import BaseQuantizeSpec
 
+from onecomp.quantizer.gemlite import is_gemlite_available
+from onecomp.quantizer.mdbf import mdbf_layer
 from onecomp.quantizer.mdbf._mdbf import MDBF, MDBFResult
 from onecomp.quantizer.mdbf.initialize import MDBFParams, lowrank_osvd
-from onecomp.quantizer.mdbf import mdbf_layer
 from onecomp.quantizer.mdbf.mdbf_layer import MDBFLinear, MultipathMDBFLinear
 from onecomp.quantizer.mdbf.utils import bpw_from_rank, rank_from_bpw, reconstruct_weight
-from onecomp.quantizer.gemlite import is_gemlite_available
 
 
 class TestMDBF(BaseQuantizeSpec):
@@ -383,7 +383,9 @@ def _assert_gemlite_output_matches_dense(y_dense, y_gemlite):
 
 
 def _quantize_linear_for_inference_test(in_features, out_features, device, p=1):
-    layer = torch.nn.Linear(in_features, out_features, bias=False, device=device, dtype=torch.float32)
+    layer = torch.nn.Linear(
+        in_features, out_features, bias=False, device=device, dtype=torch.float32
+    )
     inp = torch.randn(3, 4, in_features, device=device, dtype=torch.float32)
     quantizer = MDBF(
         target_bits=1.0,
@@ -475,7 +477,9 @@ def test_mdbf_create_inference_layer_gemlite_matches_dequantized_forward(p):
     )
 
     dequantized_layer = torch.nn.Linear(256, 128, bias=False, device=device, dtype=torch.float32)
-    dequantized_layer.weight.data.copy_(result.compute_dequantized_weight().to(device=device, dtype=torch.float32))
+    dequantized_layer.weight.data.copy_(
+        result.compute_dequantized_weight().to(device=device, dtype=torch.float32)
+    )
 
     dense_layer = quantizer.create_inference_layer(
         result=result,
@@ -577,10 +581,10 @@ def test_lowrank_osvd_beats_plain_svd_in_hessian_error():
     err_svd = hessian_error(W_svd)
 
     # OSVD is tailored to the H-weighted objective, so it must not be worse.
-    assert err_osvd <= err_svd + 1e-6 * abs(err_svd), (
-        f"OSVD H-weighted error ({err_osvd:.6e}) should be <= plain SVD ({err_svd:.6e})"
-    )
+    assert err_osvd <= err_svd + 1e-6 * abs(
+        err_svd
+    ), f"OSVD H-weighted error ({err_osvd:.6e}) should be <= plain SVD ({err_svd:.6e})"
     # For a genuinely non-diagonal H the two solutions must differ.
-    assert abs(err_osvd - err_svd) > 1e-8 * abs(err_svd), (
-        "OSVD and plain SVD errors are identical: the H-weighting is not being exercised"
-    )
+    assert abs(err_osvd - err_svd) > 1e-8 * abs(
+        err_svd
+    ), "OSVD and plain SVD errors are identical: the H-weighting is not being exercised"

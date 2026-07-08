@@ -369,7 +369,13 @@ class QuantizedModelLoader:
         converted: List[str] = []
         if target_dtype == torch.float16:
             return converted
-        skip_types = (GPTQLinear, DoubleBinaryLinear, MDBFLinear, MultipathMDBFLinear, OneBitLinear)
+        skip_types = (
+            GPTQLinear,
+            DoubleBinaryLinear,
+            MDBFLinear,
+            MultipathMDBFLinear,
+            OneBitLinear,
+        )
         for mod_name, mod in model.named_modules():
             if isinstance(mod, skip_types):
                 continue

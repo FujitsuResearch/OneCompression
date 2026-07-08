@@ -317,9 +317,7 @@ class MDBFLinear(nn.Module):
         F, G = self._get_factor_matrices(dtype)
         return F @ G
 
-    def enable_gemlite(
-        self, device: Optional[torch.device] = None, force: bool = False
-    ) -> bool:
+    def enable_gemlite(self, device: Optional[torch.device] = None, force: bool = False) -> bool:
         """Build GemLite kernels from the packed sign buffers (e.g. after load).
 
         Returns True if at least one sign matmul is GemLite-accelerated.
@@ -386,9 +384,7 @@ class MultipathMDBFLinear(nn.Module):
             W = W + self.paths[i].get_weight(dtype)
         return W
 
-    def enable_gemlite(
-        self, device: Optional[torch.device] = None, force: bool = False
-    ) -> bool:
+    def enable_gemlite(self, device: Optional[torch.device] = None, force: bool = False) -> bool:
         """Enable GemLite on every path (e.g. after ``from_saved_state``).
 
         Returns True if any path ended up GemLite-accelerated.
