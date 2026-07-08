@@ -232,8 +232,8 @@ class GPTQLinear(nn.Module):
         bias: Bias (optional)
         pack_weights: Whether to store qweight/qzeros in packed AutoGPTQ format
         use_gemlite: GemLite flag (None=auto)
-        weight_is_packed: Whether quantized_weight is already packed
-        zero_is_packed: Whether zero is already packed
+        input_weight_is_packed: Whether quantized_weight is already packed
+        input_zero_is_packed: Whether zero is already packed
     """
 
     def __init__(  # pylint: disable=too-many-positional-arguments
@@ -251,8 +251,8 @@ class GPTQLinear(nn.Module):
         device: Union[str, torch.device] = "cuda",
         pack_weights: bool = True,  # Pack INT weights for memory efficiency
         use_gemlite: Optional[bool] = None,  # GemLite flag
-        weight_is_packed: bool = False,
-        zero_is_packed: bool = False,
+        input_weight_is_packed: bool = False,
+        input_zero_is_packed: bool = False,
     ):
         super().__init__()
 
@@ -265,6 +265,7 @@ class GPTQLinear(nn.Module):
         device = torch.device(device) if isinstance(device, str) else device
         original_shape = (out_features, in_features)
         wbits_mask = (1 << wbits) - 1
+        should_pack_weights = bool(pack_weights and wbits <= 8)
 
         quantized_weight_unpacked = None
         zero_int = None
@@ -273,7 +274,7 @@ class GPTQLinear(nn.Module):
         def _get_quantized_weight_unpacked():
             nonlocal quantized_weight_unpacked
             if quantized_weight_unpacked is None:
-                if weight_is_packed:
+                if input_weight_is_packed:
                     quantized_weight_unpacked = unpack_int_weights(
                         quantized_weight.to(torch.int32), wbits, original_shape
                     )
@@ -284,7 +285,7 @@ class GPTQLinear(nn.Module):
         def _get_zero_raw():
             nonlocal zero_raw
             if zero_raw is None:
-                if zero_is_packed:
+                if input_zero_is_packed:
                     zero_raw = (_get_zero_int() + 1) & wbits_mask
                 else:
                     # Normalize to the saved/inference layout used by AutoGPTQ.
@@ -294,7 +295,7 @@ class GPTQLinear(nn.Module):
         def _get_zero_int():
             nonlocal zero_int
             if zero_int is None:
-                if zero_is_packed:
+                if input_zero_is_packed:
                     zero_int = unpack_zeros(zero.to(torch.int32), wbits, out_features)
                 else:
                     zero_int = _get_zero_raw().round().to(torch.int32) - 1
@@ -338,9 +339,8 @@ class GPTQLinear(nn.Module):
 
         # --- Weight: AutoGPTQ-compatible packed format ---
         self.checkpoint_format = "gptq"  # always v1: OneComp generates v1 tensors unconditionally
-        self._weight_is_packed = bool(pack_weights and wbits <= 8)
-        if self._weight_is_packed:
-            if weight_is_packed:
+        if should_pack_weights:
+            if input_weight_is_packed:
                 packed = quantized_weight.to(torch.int32)
             else:
                 packed = pack_int_weights(_get_quantized_weight_unpacked(), wbits)
@@ -354,8 +354,8 @@ class GPTQLinear(nn.Module):
 
         # --- Zeros: normalize then pack (AutoGPTQ v1 convention) ---
         # v1: store (raw_zero - 1); vLLM exllama kernel restores via stored + 1
-        if self._weight_is_packed:
-            if zero_is_packed:
+        if should_pack_weights:
+            if input_zero_is_packed:
                 self.register_buffer("qzeros", zero.to(torch.int32).to(device))
             else:
                 self.register_buffer("qzeros", pack_zeros(_get_zero_int(), wbits).to(device))
@@ -389,6 +389,7 @@ class GPTQLinear(nn.Module):
         else:
             g_idx = torch.zeros(in_features, dtype=torch.int32, device=device)
         self.register_buffer("g_idx", g_idx)
+        self._weight_is_packed = should_pack_weights
 
     @staticmethod
     def _normalize_scale_zero(tensor: torch.Tensor, out_features: int) -> torch.Tensor:
@@ -589,8 +590,8 @@ class GPTQLinear(nn.Module):
             device=device,
             pack_weights=pack_weights,
             use_gemlite=use_gemlite,
-            weight_is_packed=bool(getattr(result, "qweight_is_packed", False)),
-            zero_is_packed=bool(getattr(result, "qzeros_is_packed", False)),
+            input_weight_is_packed=bool(getattr(result, "qweight_is_packed", False)),
+            input_zero_is_packed=bool(getattr(result, "qzeros_is_packed", False)),
         )
 
     @classmethod
