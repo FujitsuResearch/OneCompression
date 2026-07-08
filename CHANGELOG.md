@@ -1,5 +1,42 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/bitpack_dbf] 2026-07-08
+
+### New Feature: DBF bitpack-on-quantize mode
+
+- Added `bitpack_on_quantize` support to `DBF` (enabled by default), so the binary factors `dbf_A` / `dbf_B` are packed into `uint8` immediately after each layer is quantized instead of being kept as unpacked +/-1 `float16` matrices (`onecomp/quantizer/dbf/_dbf.py`)
+- Extended `DBFResult` with packed-state metadata (`dbf_A_is_packed`, `dbf_B_is_packed`, `dbf_A_original_shape`, `dbf_B_original_shape`) and a `get_unpacked_binary_factors()` helper, and updated `compute_dequantized_weight()` so packed and unpacked results reconstruct bit-identical dequantized weights (`onecomp/quantizer/dbf/_dbf.py`)
+- Updated `DoubleBinaryLinear` to consume pre-packed `DBFResult` factors without repacking (registering them directly into `bp1` / `bp3`), still pack unpacked inputs, and preserve the existing `from_saved_state()` behavior (`onecomp/quantizer/dbf/dbf_layer.py`)
+
+### Validation / compatibility tweaks
+
+- Added `bool` validation for `bitpack_on_quantize` in `DBF.validate_params()` (`onecomp/quantizer/dbf/_dbf.py`)
+- Added `bitpack_on_quantize` to `AutoBitQuantizer` and propagated it to DBF child candidates and to the `inject_dbf` DBF fallback quantizers (`onecomp/quantizer/autobit/_autobit.py`, `onecomp/quantizer/autobit/dbf_fallback.py`)
+- DBF bitpacking applies to every configuration because the factors are always +/-1 (1-bit) and arbitrary shapes are handled via padding (no bit-width restriction)
+
+### Bug Fix
+
+- Exposed `in_features` / `out_features` on `DoubleBinaryLinear` (derived from the original unpacked binary-factor shapes `_bp1_shape` / `_bp3_shape`, and also set in `from_saved_state()`). `register_online_hadamard_hooks()` -> `get_hadK()` introspects `module.in_features`, but `DoubleBinaryLinear` previously stored only `_bp1_shape` / `_bp3_shape`, raising `AttributeError` when re-registering Hadamard hooks on saved DBF-quantized rotation-preprocessed models (`onecomp/quantizer/dbf/dbf_layer.py`).
+
+### Examples
+
+- Added `example/example_dbf_bitpack_equivalence.py`, which compares DBF quantization with and without `bitpack_on_quantize` across several configurations and reports whether the reconstructed dequantized weights match bit-exactly.
+- Added `example/vllm_inference/example_dbf_vllm_inference.py`, which quantizes a model with DBF, saves it, and runs vLLM inference through the DBF plugin.
+
+### Documentation
+
+- Documented `bitpack_on_quantize` in the DBF and AutoBit algorithm docs (`docs/algorithms/dbf.md`, `docs/algorithms/autobit.md`).
+
+### Tests
+
+- Added `tests/onecomp/quantizer/dbf/test_dbf_bitpack.py` for packed result metadata, dequantization, `DoubleBinaryLinear.from_quantization_result()` inference, and downstream-consumer handling of packed results.
+- Added `tests/onecomp/quantizer/dbf/test_dbf_bitpack_equivalence.py` for packed-vs-unpacked equivalence of `compute_dequantized_weight()` and the built inference layers.
+- Added `tests/onecomp/quantizer/dbf/test_dbf_layer_pack.py` for unpacked-input packing, packed-input repack avoidance, and `from_saved_state()` forward.
+- Added DBF bitpack runner smoke tests sharing `tests/onecomp/quantizer/dbf/dbf_bitpack_runner_helpers.py`: QEP (`tests/onecomp/test_qep_dbf_bitpack_smoke.py`), LPCD (`tests/onecomp/lpcd/test_lpcd_dbf_bitpack_runner.py`), and chunked-calibration `calc_quant_error` (`tests/onecomp/test_dbf_bitpack_chunked_calc_error.py`) all accept packed DBF results.
+- Added DBF vLLM plugin tests: config parsing/dispatch (`tests/vllm_plugins/dbf/test_dbf_config.py`) and quantize -> save -> vLLM generation e2e (`tests/vllm_plugins/dbf/test_dbf_e2e.py`).
+- Added DBF quantized/dequantized save/load round-trip cases to the rotation + quantization pipeline tests (`tests/onecomp/pre_process/test_save_load_pipeline_tinyllama.py`, `tests/onecomp/pre_process/test_save_load_pipeline_qwen3.py`).
+- Updated `tests/onecomp/quantizer/dbf/test_dbf.py` to be packed/unpacked agnostic and `tests/onecomp/quantizer/autobit/test_fused_group_validation.py` for AutoBit-to-DBF `bitpack_on_quantize` propagation.
+
 ## [v1.3.0(WIP)+fix/partial-quant-with-rotation-bug] 2026-07-03
 
 ### Bug fix
