@@ -217,16 +217,24 @@ def test_load_quantized_model_safety_net_preserves_fp32(tmp_path):
 
 
 def test_cast_fp16_to_target_dtype_skips_quantized_layers():
-    """``GPTQLinear`` / ``DoubleBinaryLinear`` instances must not be cast.
+    """Quantized layers (GPTQ / DBF / MDBF / OneBit) must not be cast.
 
     GPTQ stores its ``scales`` (and similar metadata) in fp16 by design;
     dragging the safety-net cast through quantized modules would
     silently corrupt their format.  This test pins the skip behaviour
     using stub instances that bypass the heavy real ``__init__``.
+    MDBF uses a real ``MultipathMDBFLinear`` because its fp16 amplitude
+    buffers live on nested ``MDBFLinear`` children, and the skip applies
+    per visited module (skipping a parent does not skip its children).
+    The OneBit stub keeps its ``a``/``b`` scaling vectors as fp16
+    buffers (not parameters), covering the buffer branch of the helper.
     """
     from onecomp.quantized_model_loader import QuantizedModelLoader
     from onecomp.quantizer.dbf.dbf_layer import DoubleBinaryLinear
     from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
+    from onecomp.quantizer.mdbf.initialize import MDBFParams
+    from onecomp.quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
+    from onecomp.quantizer.onebit.onebit_layer import OneBitLinear
 
     class _StubGPTQ(GPTQLinear):
         def __init__(self):
@@ -238,6 +246,23 @@ def test_cast_fp16_to_target_dtype_skips_quantized_layers():
             torch.nn.Module.__init__(self)
             self.scaling0 = torch.nn.Parameter(torch.ones(2, 2, dtype=torch.float16))
 
+    class _StubOneBit(OneBitLinear):
+        def __init__(self):
+            torch.nn.Module.__init__(self)
+            self.register_buffer("a", torch.ones(4, dtype=torch.float16))
+            self.register_buffer("b", torch.ones(4, dtype=torch.float16))
+
+    def _make_mdbf():
+        params = MDBFParams(
+            A_sign=torch.ones(4, 2),
+            B_sign=torch.ones(2, 4),
+            A_amp=torch.ones(4, 1),
+            B_amp=torch.ones(4, 1),
+            Q_U_amp=torch.ones(2, 1),
+            Q_V_amp=torch.ones(2, 1),
+        )
+        return MultipathMDBFLinear([params], use_gemlite=False)
+
     class _Wrapper(torch.nn.Module):
         def __init__(self):
             super().__init__()
@@ -246,6 +271,8 @@ def test_cast_fp16_to_target_dtype_skips_quantized_layers():
             self.regular.bias.data = self.regular.bias.data.to(torch.float16)
             self.gptq = _StubGPTQ()
             self.dbf = _StubDBF()
+            self.mdbf = _make_mdbf()
+            self.onebit = _StubOneBit()
 
     model = _Wrapper()
     converted = QuantizedModelLoader._cast_fp16_to_target_dtype(model, torch.bfloat16)
@@ -254,6 +281,10 @@ def test_cast_fp16_to_target_dtype_skips_quantized_layers():
     assert model.regular.bias.dtype == torch.bfloat16
     assert model.gptq.scales.dtype == torch.float16
     assert model.dbf.scaling0.dtype == torch.float16
+    for amp_name in ("A_amp", "B_amp", "Q_U_amp", "Q_V_amp"):
+        assert getattr(model.mdbf.paths[0], amp_name).dtype == torch.float16
+    assert model.onebit.a.dtype == torch.float16
+    assert model.onebit.b.dtype == torch.float16
     # The helper returns a list of fully-qualified names so callers
     # (and tests) can see exactly which submodules were touched.
     assert isinstance(converted, list)

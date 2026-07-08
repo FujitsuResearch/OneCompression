@@ -23,7 +23,7 @@ from .quantizer.dbf.dbf_layer import DoubleBinaryLinear
 from .quantizer.gptq.config import resolve_gptq_layer_group_size, resolve_gptq_layer_wbits
 from .quantizer.gptq.gptq_layer import GPTQLinear
 from .quantizer.mdbf.config import resolve_mdbf_layer_bits
-from .quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
+from .quantizer.mdbf.mdbf_layer import MDBFLinear, MultipathMDBFLinear
 from .quantizer.onebit.onebit_layer import OneBitLinear
 from .utils.device import get_default_device
 from .utils.dtype import needs_bfloat16
@@ -301,9 +301,13 @@ class QuantizedModelLoader:
         """Cast fp16 params/buffers of non-quantized modules to ``target_dtype``.
 
         Quantized layers (``GPTQLinear``, ``DoubleBinaryLinear``,
-        ``MultipathMDBFLinear``,
+        ``MultipathMDBFLinear`` and its per-path ``MDBFLinear`` children,
         ``OneBitLinear``) are skipped so their fp16 metadata (e.g. GPTQ
-        ``scales``, OneBit ``a``/``b`` scaling vectors) is preserved.
+        ``scales``, OneBit ``a``/``b`` scaling vectors, MDBF amplitude
+        buffers) is preserved.  The skip applies per visited module —
+        skipping a parent does not skip its children — so ``MDBFLinear``
+        (where the MDBF amplitudes actually live) must be listed in
+        addition to its ``MultipathMDBFLinear`` parent.
         Only fp16 tensors are cast: fp32 params (e.g. fp32 LayerNorm in
         mixed-precision models) and other dtypes are left untouched.
 
@@ -323,7 +327,7 @@ class QuantizedModelLoader:
         converted: List[str] = []
         if target_dtype == torch.float16:
             return converted
-        skip_types = (GPTQLinear, DoubleBinaryLinear, MultipathMDBFLinear, OneBitLinear)
+        skip_types = (GPTQLinear, DoubleBinaryLinear, MDBFLinear, MultipathMDBFLinear, OneBitLinear)
         for mod_name, mod in model.named_modules():
             if isinstance(mod, skip_types):
                 continue

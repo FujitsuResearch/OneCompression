@@ -40,7 +40,7 @@
 
 - Added `MultipathMDBFLinear.from_saved_state()` to reconstruct an MDBF inference layer from a saved state_dict (`onecomp/quantizer/mdbf/mdbf_layer.py`)
 - Wired MDBF into `QuantizedModelLoader`: layer-class detection (`MultipathMDBFLinear`) and `from_saved_state` loading path, aligned with the existing DBF/GPTQ branches (`onecomp/quantized_model_loader.py`)
-- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now also skips `MultipathMDBFLinear` so fp16 metadata in MDBF quantized layers is preserved during post-load dtype normalization (`onecomp/quantized_model_loader.py`).
+- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now also skips `MultipathMDBFLinear` and its per-path `MDBFLinear` children (the skip applies per module, and the fp16 amplitude buffers live on the children) so fp16 metadata in MDBF quantized layers is preserved during post-load dtype normalization (`onecomp/quantized_model_loader.py`).
 - Added `MDBF.get_quant_config()` returning `quant_method: "mdbf"` with all quantization parameters for `save_quantized_model()` (`onecomp/quantizer/mdbf/_mdbf.py`)
 - Added `MDBF.finalize_quant_config_for_save()` to build per-layer `quantization_bits` list in the saved config (`onecomp/quantizer/mdbf/_mdbf.py`)
 - Added `MDBF.create_inference_layer()` to build `MultipathMDBFLinear` from `MDBFResult` (`onecomp/quantizer/mdbf/_mdbf.py`)
