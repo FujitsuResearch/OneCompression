@@ -14,7 +14,6 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-GPTQ_PACK_SUPPORTED_BITS = frozenset((2, 3, 4, 8))
 GPTQ_MAX_BITS = 15
 
 import torch
@@ -22,6 +21,7 @@ from torch import nn
 from transformers import Conv1D
 
 from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
+from onecomp.quantizer.gptq.gptq_layer import PACKABLE_WBITS, is_packable_wbits
 from onecomp.utils.device import empty_cache
 from onecomp.utils.quant_config import get_quant_param
 
@@ -358,13 +358,13 @@ class GPTQ(Quantizer):
                 f"(expected bool)."
             )
         elif self.bitpack_on_quantize:
-            supported_bits = sorted(GPTQ_PACK_SUPPORTED_BITS)
+            supported_bits = sorted(PACKABLE_WBITS)
 
             def check_pack_supported(param_name: str, bits: Any) -> None:
                 if (
                     isinstance(bits, int)
                     and 1 <= bits <= GPTQ_MAX_BITS
-                    and bits not in GPTQ_PACK_SUPPORTED_BITS
+                    and not is_packable_wbits(bits)
                 ):
                     bad.append(
                         f"Invalid GPTQ parameter '{param_name}': {bits!r} cannot be used "
@@ -413,8 +413,8 @@ class GPTQ(Quantizer):
                 f"(expected int in 1..{GPTQ_MAX_BITS})."
             )
 
-        if self.bitpack_on_quantize and resolved_wbits not in GPTQ_PACK_SUPPORTED_BITS:
-            supported_bits = tuple(sorted(GPTQ_PACK_SUPPORTED_BITS))
+        if self.bitpack_on_quantize and not is_packable_wbits(resolved_wbits):
+            supported_bits = tuple(sorted(PACKABLE_WBITS))
             raise ValueError(
                 f"bitpack_on_quantize=True supports only wbits in {supported_bits}; "
                 f"got {resolved_wbits}. Use bitpack_on_quantize=False for unpacked GPTQ results."
@@ -572,6 +572,12 @@ class GPTQ(Quantizer):
         from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
 
         pack_weights = kwargs.get("pack_weights", True)
+        if pack_weights and not is_packable_wbits(result.wbits):
+            supported_bits = tuple(sorted(PACKABLE_WBITS))
+            raise ValueError(
+                f"pack_weights=True supports only GPTQ wbits in {supported_bits}; "
+                f"got {result.wbits}. Use pack_weights=False for unpacked GPTQ results."
+            )
         return GPTQLinear.from_quantization_result(
             result=result,
             bias=(

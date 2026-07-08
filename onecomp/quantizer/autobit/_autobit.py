@@ -17,6 +17,7 @@ from onecomp.calibration import CalibrationConfig
 from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
 from onecomp.quantizer.dbf import DBF
 from onecomp.quantizer.gptq import GPTQ
+from onecomp.quantizer.gptq.gptq_layer import PACKABLE_WBITS
 from onecomp.utils import effective_bits_for_quantizer, effective_bits_per_param
 
 from .dbf_fallback import inject_dbf, reject_mps_dbf_fallback
@@ -240,7 +241,6 @@ class AutoBitQuantizer(Quantizer):
             except (ValueError, TypeError) as e:
                 bad.append(f"quantizers[{i}] ({type(q).__name__}): {e}")
 
-        _VLLM_SUPPORTED_BITS = {2, 3, 4, 8}
         if self.enable_fused_groups:
             for i, q in enumerate(self.quantizers):
                 if not isinstance(q, GPTQ):
@@ -248,10 +248,10 @@ class AutoBitQuantizer(Quantizer):
                         f"quantizers[{i}] ({type(q).__name__}): "
                         f"enable_fused_groups=True requires all quantizers to be GPTQ"
                     )
-                elif q.wbits not in _VLLM_SUPPORTED_BITS:
+                elif q.wbits not in PACKABLE_WBITS:
                     bad.append(
                         f"quantizers[{i}] (GPTQ wbits={q.wbits}): "
-                        f"vLLM only supports GPTQ bit-widths {sorted(_VLLM_SUPPORTED_BITS)}"
+                        f"vLLM only supports GPTQ bit-widths {sorted(PACKABLE_WBITS)}"
                     )
 
             if self.assignment_strategy == AssignmentStrategy.MANUAL:
