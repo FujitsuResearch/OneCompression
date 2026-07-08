@@ -360,10 +360,10 @@ class GPTQ(Quantizer):
         elif self.bitpack_on_quantize:
             supported_bits = sorted(GPTQ_PACK_SUPPORTED_BITS)
 
-            def check_pack_supported(param_name: str, bits: Any, max_bits: int) -> None:
+            def check_pack_supported(param_name: str, bits: Any) -> None:
                 if (
                     isinstance(bits, int)
-                    and 1 <= bits <= max_bits
+                    and 1 <= bits <= GPTQ_MAX_BITS
                     and bits not in GPTQ_PACK_SUPPORTED_BITS
                 ):
                     bad.append(
@@ -371,13 +371,13 @@ class GPTQ(Quantizer):
                         f"with bitpack_on_quantize=True (expected one of {supported_bits})."
                     )
 
-            check_pack_supported("wbits", self.wbits, GPTQ_MAX_BITS)
+            check_pack_supported("wbits", self.wbits)
             if self.mlp_wbits is not None:
-                check_pack_supported("mlp_wbits", self.mlp_wbits, GPTQ_MAX_BITS)
+                check_pack_supported("mlp_wbits", self.mlp_wbits)
             if isinstance(self.module_wbits, dict):
                 for layer_name, bits in self.module_wbits.items():
                     if isinstance(layer_name, str):
-                        check_pack_supported(f"module_wbits[{layer_name!r}]", bits, GPTQ_MAX_BITS)
+                        check_pack_supported(f"module_wbits[{layer_name!r}]", bits)
 
         if bad:
             raise ValueError("; ".join(bad))
