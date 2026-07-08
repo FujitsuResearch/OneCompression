@@ -66,6 +66,60 @@
 - Added `tests/onecomp/quantizer/mdbf/test_mdbf.py`: MDBF quantizer unit tests covering `quantize_layer` result validation (type, shape, device, dtype), reproducibility, boundary parameters (`target_bits`, `l`, `P`, `svd_mode`, `use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`, `use_gradient_refine`, `gradient_iters`, `gradient_lr`, `activation_aware`, `act_init`, `mlp_target_bits`, `module_target_bits`), abnormal parameter validation (negative/zero/invalid values raise `ValueError`), CPU/GPU output match, quantization error tolerance, and forward error of the inference layer
 - Updated shared quantizer test helpers to unpack `calculate_hessian()` return tuples and forward `nsamples` when required; updated affected JointQ tests to use the shared helper (`tests/onecomp/quantizer/test_module.py`, `tests/onecomp/quantizer/jointq/test_jointq.py`)
 
+## [v1.3.0(WIP)+fix/partial-quant-with-rotation-bug] 2026-07-03
+
+### Bug fix
+- Fixed Hadamard online hook registration for rotation + **partial quantization** models. Previously the `down_proj` target layer classes were derived from the recorded `quant_method` (`gptq`/`dbf`/`onebit`), or by sampling the **first** `down_proj` layer's type. When a model is only partially quantized (mixed quantized / unquantized `down_proj` layers) or contains multiple `down_proj` types, hooks were registered on the wrong classes — either missing quantized layers or firing on plain `nn.Linear` — degrading rotated-model inference (`onecomp/quantized_model_loader.py`, `onecomp/runner.py`, `onecomp/pre_process/rotation_utils.py`)
+  - Hadamard hook target types are now derived from the actual model instead of `quant_method`. Added `collect_down_proj_types()` and `collect_quantized_down_proj_types()` to `rotation_utils.py`
+  - `QuantizedModelLoader` (loading from disk) uses `collect_down_proj_types()` to collect **all** distinct `down_proj` layer types from the loaded model, **including** `nn.Linear` when present (e.g. unquantized `down_proj` in a saved partial-quantization model); it intentionally does **not** filter `nn.Linear`
+  - `Runner` hook re-registration (during a quantization run, where some `down_proj` may still be `nn.Linear`) uses `collect_quantized_down_proj_types()`, which **excludes** `nn.Linear` so unquantized `down_proj` layers do not receive hooks; skips registration entirely when no quantized `down_proj` exists
+
+### Test
+- Added regression tests for Hadamard hook target-type collection, pinning `down_proj` type discovery for both full and partial quantization (`tests/onecomp/runner/test_hadamard_hook_type_collection.py`)
+
+## [v1.3.0(WIP)+feature/lora-save-load-vllm-infer_jointq] 2026-06-19 16:45:00
+
+### LoRA Adapter Sidecar Save/Load
+
+- Updated `Runner.save_quantized_model()` to save GPTQ + LoRA SFT outputs in HF/vLLM-compatible form when `LoRAGPTQLinear` modules are present: the base quantized model is saved as normal safetensors, while LoRA weights are written as a PEFT sidecar in `lora_adapter/` (`adapter_model.safetensors`, `adapter_config.json`) (`onecomp/runner.py`)
+  - Uses the in-memory `self.quantized_model` when available, preserving post-process changes; falls back to `create_quantized_model()` only when no quantized model is cached
+  - Flattens `LoRAGPTQLinear.base_layer` tensors back to the base GPTQ key layout, excludes `lora_A` / `lora_B` tensors from base safetensors, and packs GPTQ export tensors when possible without mutating the in-memory model
+  - Saves LoRA adapter tensors in the base model dtype from `model_config.dtype`, avoiding an extra rounding step for bf16 models
+- Updated `QuantizedModelLoader.load_quantized_model()` to auto-detect LoRA sidecars and re-wrap matching layers with `LoRAGPTQLinear` during load for save/load round-trips (`onecomp/quantized_model_loader.py`)
+  - Resolves adapter layers by exact match or `layers.{idx}.*` suffix when module prefixes differ, and fails fast on ambiguous LoRA suffix matches while keeping the first-match behavior for the quantized-layer load path
+  - Raises `ValueError` when not all adapter layers are applied, reporting applied/expected/skipped counts and pointing to the WARNING logs for skipped layer names and reasons
+
+### GPTQ Pack State and Post-Processing
+
+- Updated post-process workflows to keep GPTQ models packed across the Runner boundary: `Runner.run_post_processes()` passes a packed CPU quantized model to post-processors, and `PostProcessLoraSFT` temporarily unpacks GPTQ base layers for training before restoring the incoming pack state (`onecomp/runner.py`, `onecomp/post_process/post_process_lora_sft.py`)
+- Added in-place pack/unpack utilities to `GPTQLinear` (`pack_in_place()`, `unpack_in_place()`) plus a shared `is_packable_wbits()` helper for AutoGPTQ-compatible packed bit-widths (`onecomp/quantizer/gptq/gptq_layer.py`)
+
+### Examples: legacy backups
+
+- Preserved the previous `example/post_process/example_lora_sft.py` workflow as `example/post_process/example_lora_sft_legacy.py`
+- Preserved the previous `example/post_process/example_lora_sft_knowledge.py` workflow as `example/post_process/example_lora_sft_knowledge_legacy.py`
+
+### Examples
+
+- Updated `example/post_process/example_lora_sft.py`: end-to-end GPTQ + LoRA SFT workflow using HF-compatible save/load with a PEFT LoRA adapter sidecar, PPL evaluation, and loaded-model generation check
+- Updated `example/post_process/example_lora_sft_knowledge.py`: knowledge-injection LoRA SFT example using `onecomp_knowledge.jsonl`, including save/load round-trip and output comparison
+- Added `example/post_process/example_lora_sft_knowledge_jointq.py`: JointQ counterpart of the knowledge-injection LoRA SFT workflow
+- Added `example/post_process/example_lora_gptq_vllm_inference.py`: end-to-end GPTQ + LoRA SFT workflow validating vLLM inference with saved LoRA adapters, including GPTQ-only vs GPTQ+LoRA output comparison
+
+### Tests
+
+- Extended LoRA SFT post-process tests with a JointQ smoke test (conditional on JointQ/CUDA availability), packed-in/packed-out behavior, and helper coverage for `LoRAGPTQLinear.base_layer` (`tests/onecomp/post_process/test_post_process_lora_sft.py`)
+- Added `GPTQLinear` pack/unpack in-place tests covering forward-output round-trips, idempotent no-op behavior, and non-packable bit-width handling (`tests/onecomp/quantizer/gptq/test_gptq_layer_pack.py`)
+- Added CPU-only save/load round-trip tests for GPTQ + LoRA SFT and non-LoRA GPTQ paths, including packed base tensors, sidecar output, reload wrapping, and logits preservation (`tests/onecomp/runner/test_lora_save_load_roundtrip.py`)
+- Added `_resolve_name_by_layer_suffix()` tests covering exact, unique suffix, no-match, and ambiguous first/error modes (`tests/onecomp/runner/test_resolve_name_by_layer_suffix.py`)
+- Added CPU-only LoRA adapter sidecar dtype tests covering base-dtype saves, unexpected dtype failures, and PEFT key/config conventions (`tests/onecomp/runner/test_save_lora_adapter_sidecar_dtype.py`)
+
+## [v1.2.0+feature/legacy-vllm] 2026-06-09
+
+### Environment updates
+
+- Added `envs/vllm/` with versioned vLLM environment definitions (`0.12.0`, `0.15.1`).
+
 ## [v1.3.0] 2026-MM-DD (WIP)
 
 (TODO: Add changelog for v1.3.0)
@@ -74,6 +128,15 @@
 - Text-only `generate()` on multimodal models (e.g. Gemma-4 12B) could emit modality delimiter tokens and degrade output after quantize→reload, because `load_quantized_model()` did not restore `generation_config.json` (including `suppress_tokens`). Now loads it from the save directory when present (`quantized_model_loader.py`).
 - Fixed VLM (e.g. Gemma3) quantized model save/load: safetensors key prefixes from `save_pretrained` (`model.language_model.model.layers.*`) did not match the `from_config` model (`model.language_model.layers.*`), so `load_state_dict(..., assign=True)` left `qweight` / `scales` / `qzeros` at zero and generation degraded (`onecomp/quantized_model_loader.py`)
   - Added `_remap_state_dict_keys()` to normalize checkpoint keys before `_replace_quantized_layers`; `_apply_known_state_dict_key_rewrites()` rewrites `.language_model.model.` → `.language_model.` (pattern-based, without requiring keys to exist in the empty model yet)
+
+## [v1.2.1] 2026-07-03
+
+### Security
+
+- **Unsafe deserialization hardening (CWE-502)**: `QuantizedModelLoader.load_quantized_model_pt()` (alias `onecomp.load_quantized_model_pt()`) previously called `torch.load(model.pt, weights_only=False)` unconditionally, allowing arbitrary code execution when loading a malicious `.pt` checkpoint. It now refuses to load unless the caller explicitly opts in via `allow_unsafe_deserialization=True`, and emits a strong warning when it does load. For untrusted models, use the safetensors-based `load_quantized_model()`, which does not execute code.
+  - **Breaking change**: existing callers of `load_quantized_model_pt()` must pass `allow_unsafe_deserialization=True` for trusted `.pt` files.
+- **`Quantizer.load_results()` / `ResultLoader`**: same hardening applied. Loading with `weights_only=False` now requires `allow_unsafe_deserialization=True` (added as a `ResultLoader` field), and logs a warning. The safe `weights_only=True` path is unchanged.
+- Updated docstrings, docs, and the LoRA SFT example to document the risk and the required opt-in.
 
 ## [v1.2.0] 2026-06-08
 
