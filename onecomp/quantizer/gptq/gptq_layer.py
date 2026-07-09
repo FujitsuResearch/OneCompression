@@ -265,7 +265,7 @@ class GPTQLinear(nn.Module):
         device = torch.device(device) if isinstance(device, str) else device
         original_shape = (out_features, in_features)
         wbits_mask = (1 << wbits) - 1
-        should_pack_weights = bool(pack_weights and wbits <= 8)
+        should_pack_weights = bool(pack_weights and is_packable_wbits(wbits))
 
         quantized_weight_unpacked = None
         zero_int = None
