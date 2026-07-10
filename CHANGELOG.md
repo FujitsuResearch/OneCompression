@@ -58,6 +58,9 @@
 
 (TODO: Add changelog for v1.3.0)
 
+## vLLM ROCm support
+Add a separate, opt-in vLLM plugin for AMD ROCm (vLLM `0.24.0+rocm*`). Install from `envs/vllm/v0_24_0_rocm/`; it is not part of the main `uv sync --extra vllm` workflow.
+
 ### Bug fix
 - Text-only `generate()` on multimodal models (e.g. Gemma-4 12B) could emit modality delimiter tokens and degrade output after quantize→reload, because `load_quantized_model()` did not restore `generation_config.json` (including `suppress_tokens`). Now loads it from the save directory when present (`quantized_model_loader.py`).
 - Fixed VLM (e.g. Gemma3) quantized model save/load: safetensors key prefixes from `save_pretrained` (`model.language_model.model.layers.*`) did not match the `from_config` model (`model.language_model.layers.*`), so `load_state_dict(..., assign=True)` left `qweight` / `scales` / `qzeros` at zero and generation degraded (`onecomp/quantized_model_loader.py`)

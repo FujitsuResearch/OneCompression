@@ -270,6 +270,18 @@ python your_vllm_script.py
 
 Both variables are read directly by vLLM; OneComp does not interpret them.
 
+## ROCm support (AMD GPUs)
+
+GPTQ models can be served on AMD GPUs via ROCm using a dedicated opt-in venv and
+the `onecomp-vllm-v0-24-0-rocm` patch package, not the main `--extra vllm` workflow.
+
+!!! warning "Experimental / opt-in"
+    ROCm is not part of `uv sync --extra vllm`. The main project pins `vllm<0.22`
+    for CUDA (Exllama GPTQ compatibility); ROCm requires vLLM `0.24.0+rocm*`
+    from the [AMD wheel index](https://wheels.vllm.ai/rocm/).
+
+see [ROCm setup guide](https://github.com/FujitsuResearch/OneCompression/blob/main/envs/vllm/v0_24_0_rocm/README.md) for details.
+
 ## See also
 
 - [Evaluation](evaluation.md) — `onecomp-eval` for MT-Bench and throughput benchmarks on vLLM-served models
