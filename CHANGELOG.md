@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.2.2] 2026-07-10
+
+### Bug Fix
+
+- Fixed `device="auto"` evaluation crashes in `Runner.calculate_perplexity()` and related paths by adding `ModelConfig.get_device()` and using a resolved `torch.device` for PyTorch operations such as `model.to()` and `empty_cache()`. Hugging Face `device_map="auto"` remains unchanged for model loading, but PyTorch no longer receives the raw `"auto"` string.
+
 ## [v1.2.1] 2026-07-03
 
 ### Security
