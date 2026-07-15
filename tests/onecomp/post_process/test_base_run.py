@@ -28,7 +28,6 @@ from onecomp.post_process._runtime import POST_PROCESS_HISTORY_KEY
 from tests.onecomp.fixtures.quant_config import valid_quant_config
 from tests.onecomp.post_process._doubles import FakeModel, PlainModelConfig
 
-
 # ---------------------------------------------------------------------------
 # Process doubles
 # ---------------------------------------------------------------------------

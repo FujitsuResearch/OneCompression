@@ -16,8 +16,8 @@ from onecomp.utils.quant_config import (
     validate_quant_config,
     validate_quantized_model_config,
 )
+from tests.onecomp.fixtures.quant_config import FakeConfig as _FakeModelConfig
 from tests.onecomp.fixtures.quant_config import (
-    FakeConfig as _FakeModelConfig,
     valid_quant_config,
 )
 
@@ -108,9 +108,7 @@ def test_validate_config_not_a_dict():
 def test_validate_config_missing_quant_method():
     """A missing ``quant_method`` is rejected via the model wrapper."""
     model = _FakeModel(
-        config=_FakeModelConfig(
-            quantization_config={"modules_in_block_to_quantize": []}
-        )
+        config=_FakeModelConfig(quantization_config={"modules_in_block_to_quantize": []})
     )
     with pytest.raises(ValueError):
         validate_quantized_model_config(model, context="post_process")
@@ -132,9 +130,7 @@ def test_validate_config_empty_quant_method():
 
 def test_validate_config_missing_modules():
     """A missing ``modules_in_block_to_quantize`` is rejected."""
-    model = _FakeModel(
-        config=_FakeModelConfig(quantization_config={"quant_method": "gptq"})
-    )
+    model = _FakeModel(config=_FakeModelConfig(quantization_config={"quant_method": "gptq"}))
     with pytest.raises(ValueError):
         validate_quantized_model_config(model, context="post_process")
 

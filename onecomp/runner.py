@@ -31,10 +31,10 @@ from .quantizer.autobit import AssignmentStrategy, AutoBitQuantizer
 from .quantizer.autobit.dbf_fallback import MPS_DBF_FALLBACK_ERROR
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
-from .utils.quant_config import validate_quantized_model_config
 from .utils import empty_cache
 from .utils.device import is_mps_device
 from .utils.lora import LORA_ADAPTER_SUBDIR
+from .utils.quant_config import validate_quantized_model_config
 from .utils.quantization_progress import QuantizationProgressTracker
 
 

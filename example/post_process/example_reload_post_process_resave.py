@@ -23,9 +23,9 @@ from pathlib import Path
 import torch
 
 from onecomp import (
+    GPTQ,
     BlockWisePTQ,
     CalibrationConfig,
-    GPTQ,
     ModelConfig,
     Runner,
     load_quantized_model,

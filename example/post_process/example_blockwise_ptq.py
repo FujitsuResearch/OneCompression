@@ -17,12 +17,12 @@ Usage:
 
 import torch
 
+from onecomp import DBF  # noqa: F401
+from onecomp import RTN  # noqa: F401
+from onecomp import JointQ  # noqa: F401
+from onecomp import Onebit  # noqa: F401
 from onecomp import (
-    DBF,  # noqa: F401
     GPTQ,
-    JointQ,  # noqa: F401
-    Onebit,  # noqa: F401
-    RTN,  # noqa: F401
     BlockWisePTQ,
     CalibrationConfig,
     ModelConfig,

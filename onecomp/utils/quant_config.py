@@ -52,8 +52,7 @@ def validate_quant_config(quant_config: Any, context: str) -> dict:
         raise ValueError(f"{context}: quantization_config must contain 'quant_method'.")
     if "modules_in_block_to_quantize" not in quant_config:
         raise ValueError(
-            f"{context}: quantization_config must contain "
-            "'modules_in_block_to_quantize'."
+            f"{context}: quantization_config must contain " "'modules_in_block_to_quantize'."
         )
     return quant_config
 

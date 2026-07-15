@@ -28,7 +28,6 @@ from tests.onecomp.post_process._doubles import (
     make_rotated_model_config,
 )
 
-
 # ===========================================================================
 # validate_rotated_checkpoint_consistency
 # ===========================================================================
@@ -45,9 +44,7 @@ def test_plain_checkpoint_rejects_rotated_model_config():
     """A plain checkpoint paired with a RotatedModelConfig is rejected."""
     quant_config = {"rotated": False}
     with pytest.raises(RuntimeError):
-        validate_rotated_checkpoint_consistency(
-            quant_config, make_rotated_model_config()
-        )
+        validate_rotated_checkpoint_consistency(quant_config, make_rotated_model_config())
 
 
 def test_rotated_checkpoint_rejects_fp32_had_mismatch():
@@ -87,9 +84,7 @@ def test_missing_rotated_keys_reject_rotated_model_config():
     """A key-less checkpoint paired with a RotatedModelConfig is rejected."""
     quant_config = {}  # no 'rotated' key -> treated as plain
     with pytest.raises(RuntimeError):
-        validate_rotated_checkpoint_consistency(
-            quant_config, make_rotated_model_config()
-        )
+        validate_rotated_checkpoint_consistency(quant_config, make_rotated_model_config())
 
 
 def test_missing_fp32_had_defaults_false_for_rotated_checkpoint():
@@ -118,9 +113,7 @@ def test_prepare_requires_model_config():
 def test_prepare_moves_model_to_cpu():
     """The model is moved to CPU and returned unchanged."""
     model = FakeModel(valid_quant_config())
-    result = prepare_quantized_model_for_post_process(
-        model, PlainModelConfig(), context="ctx"
-    )
+    result = prepare_quantized_model_for_post_process(model, PlainModelConfig(), context="ctx")
     assert model.cpu_called is True
     assert result is model
 
@@ -130,9 +123,7 @@ def test_prepare_rejects_invalid_quant_config():
     # Missing 'quant_method' -> fails schema validation.
     model = FakeModel({"modules_in_block_to_quantize": []})
     with pytest.raises(ValueError):
-        prepare_quantized_model_for_post_process(
-            model, PlainModelConfig(), context="ctx"
-        )
+        prepare_quantized_model_for_post_process(model, PlainModelConfig(), context="ctx")
 
 
 def test_prepare_rejects_rotated_mismatch():
@@ -140,17 +131,13 @@ def test_prepare_rejects_rotated_mismatch():
     # Schema-valid but rotated checkpoint paired with a plain model_config.
     model = FakeModel(valid_quant_config(rotated=True))
     with pytest.raises(RuntimeError):
-        prepare_quantized_model_for_post_process(
-            model, PlainModelConfig(), context="ctx"
-        )
+        prepare_quantized_model_for_post_process(model, PlainModelConfig(), context="ctx")
 
 
 def test_prepare_returns_model_for_valid_input():
     """A valid input returns the same model."""
     model = FakeModel(valid_quant_config(rotated=False))
-    result = prepare_quantized_model_for_post_process(
-        model, PlainModelConfig(), context="ctx"
-    )
+    result = prepare_quantized_model_for_post_process(model, PlainModelConfig(), context="ctx")
     assert result is model
 
 

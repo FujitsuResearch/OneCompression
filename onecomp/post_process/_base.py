@@ -7,9 +7,9 @@ Author: Keiji Kimura
 
 """
 
+import json
 from abc import ABCMeta, abstractmethod
 from dataclasses import asdict, dataclass
-import json
 from typing import Optional
 
 import torch.nn as nn

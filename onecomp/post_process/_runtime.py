@@ -8,7 +8,6 @@ from typing import Iterable
 from ..rotated_model_config import RotatedModelConfig
 from ..utils.quant_config import validate_quantized_model_config
 
-
 # Key under ``model.config.quantization_config`` that accumulates one audit
 # entry per applied post-process, preserved across save/load cycles.
 POST_PROCESS_HISTORY_KEY = "onecomp_post_processes"
@@ -132,9 +131,7 @@ def append_post_process_metadata(
     if existing_metadata is None:
         existing_metadata = []
     if not isinstance(existing_metadata, list):
-        raise ValueError(
-            f"quantization_config['{POST_PROCESS_HISTORY_KEY}'] must be a list."
-        )
+        raise ValueError(f"quantization_config['{POST_PROCESS_HISTORY_KEY}'] must be a list.")
 
     quant_config[POST_PROCESS_HISTORY_KEY] = existing_metadata + pending_metadata
     return True

@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from onecomp.post_process._base import PostQuantizationProcess
 from onecomp.post_process.blockwise_ptq import BlockWisePTQ
 
-
 # ---------------------------------------------------------------------------
 # Concrete test doubles
 # ---------------------------------------------------------------------------
@@ -137,9 +136,7 @@ def test_metadata_is_json_serializable():
 
 def test_nested_dataclass_field_is_expanded():
     """A nested dataclass field is recorded as a dict."""
-    metadata = _NestedFieldProcess(
-        inner=_InnerConfig(alpha=9, beta="y")
-    ).build_metadata()
+    metadata = _NestedFieldProcess(inner=_InnerConfig(alpha=9, beta="y")).build_metadata()
     assert metadata["config"]["inner"] == {"alpha": 9, "beta": "y"}
 
 
