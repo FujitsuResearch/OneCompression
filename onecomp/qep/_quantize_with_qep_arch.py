@@ -13,26 +13,29 @@ input activations, so they can be captured once and reused.
 
 """
 
-import math
 import copy
-from logging import getLogger
+import math
 from collections import OrderedDict
+from logging import getLogger
 
 import torch
 import torch.nn.functional as F
 from torch import nn
+
 from onecomp.calibration import CalibrationConfig, prepare_calibration_dataset
 from onecomp.model_config import ModelConfig
 from onecomp.qep._qep_config import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
 from onecomp.utils.blockwise import (
     _PER_LAYER_INPUTS_KEY,
-    prepare_block_kwargs,
-    get_blocks_and_inputs,
-    forward_input,
-    move_kwargs_to_device,
     expand_kwargs_batch,
+    forward_input,
+    get_blocks_and_inputs,
+    move_kwargs_to_device,
+    prepare_block_kwargs,
 )
+from onecomp.utils.device import empty_cache
+from onecomp.utils.quantization_progress import QuantizationProgressTracker
 
 logger = getLogger(__name__)
 
@@ -143,6 +146,7 @@ def compute_hessian_and_crossterm(
     def make_hook(name):
         def hook(module, inp, out):
             dest[name] = inp[0] if isinstance(inp, tuple) else inp
+
         return hook
 
     handlers = [
@@ -213,6 +217,7 @@ def _compute_per_module_hessians(
     def _make_hook(key):
         def hook(_, inp, __):
             dest[key] = inp[0] if isinstance(inp, tuple) else inp
+
         return hook
 
     handlers = [m.register_forward_hook(_make_hook(i)) for i, m in enumerate(modules)]
@@ -251,10 +256,7 @@ def _compute_per_module_hessians(
     for h in handlers:
         h.remove()
 
-    return {
-        modules[i]: (hessians[i] if nsamples[i] > 0 else None)
-        for i in range(len(modules))
-    }
+    return {modules[i]: (hessians[i] if nsamples[i] > 0 else None) for i in range(len(modules))}
 
 
 @torch.no_grad()
@@ -263,6 +265,8 @@ def run_quantize_with_qep_arch(
     quantizer: Quantizer,
     qep_config: QEPConfig,
     calibration_config: CalibrationConfig,
+    *,
+    report_progress: bool = True,
 ):
     """Run architecture-aware quantization with QEP.
 
@@ -279,6 +283,7 @@ def run_quantize_with_qep_arch(
         qep_config (QEPConfig): Configuration for QEP
             (percdamp, perccorr, exclude_layer_keywords).
         calibration_config (CalibrationConfig): Calibration parameters.
+        report_progress (bool): When True, log ``[progress]`` with ETA per target layer.
 
     """
 
@@ -318,10 +323,18 @@ def run_quantize_with_qep_arch(
         name for module, name in quantizer.module_to_name.items() if module in block_modules
     }
 
+    progress = None
+    if report_progress:
+        progress = QuantizationProgressTracker(
+            logger,
+            len(remaining_targets),
+            "QEP",
+        )
+
     # 2. For each target transformer block, perform the following sequentially
     for block_idx, block in enumerate(blocks):
 
-        logger.info(
+        logger.debug(
             "Processing : %2d-th Transformer Block -------------------------------------------------",
             block_idx + 1,
         )
@@ -365,9 +378,7 @@ def run_quantize_with_qep_arch(
             targets = [m for m in group_q if m in quantizer.module_to_name]
             if not targets:
                 continue
-            is_expert = any(
-                ".experts." in quantizer.module_to_name[m] for m in targets
-            )
+            is_expert = any(".experts." in quantizer.module_to_name[m] for m in targets)
             if is_expert:
                 expert_modules_q.extend(targets)
             else:
@@ -376,7 +387,7 @@ def run_quantize_with_qep_arch(
         # 3. Process regular (non-expert) groups with full QEP
         for group_q, group_f in regular_pairs:
 
-            logger.info(
+            logger.debug(
                 "Processing group of layers: %s",
                 ", ".join([quantizer.module_to_name.get(m, "N/A") for m in group_q]),
             )
@@ -412,7 +423,7 @@ def run_quantize_with_qep_arch(
                 exclude = any(kw in name for kw in qep_config.exclude_layer_keywords)
                 layer_delta = None if exclude else delta_hatX.clone()
 
-                logger.info(
+                logger.debug(
                     "Processing layer: %s %s=================================================",
                     name,
                     "(no weight correction) " if exclude else "",
@@ -442,6 +453,8 @@ def run_quantize_with_qep_arch(
                         name,
                     )
                 remaining_targets.discard(name)
+                if progress is not None:
+                    progress.step_complete(f"{name}, no weight correction" if exclude else name)
 
         # 4. Process MoE expert layers with per-module Hessians (no cross-term)
         if expert_modules_q:
@@ -451,7 +464,12 @@ def run_quantize_with_qep_arch(
                 len(expert_modules_q),
             )
             expert_hessians = _compute_per_module_hessians(
-                block_q, expert_modules_q, inps_q, kwargs, batch_size, device,
+                block_q,
+                expert_modules_q,
+                inps_q,
+                kwargs,
+                batch_size,
+                device,
             )
             for module_q in expert_modules_q:
                 name = quantizer.module_to_name[module_q]
@@ -462,9 +480,11 @@ def run_quantize_with_qep_arch(
                         name,
                     )
                     remaining_targets.discard(name)
+                    if progress is not None:
+                        progress.step_complete(f"{name}, skipped: no tokens")
                     continue
 
-                logger.info(
+                logger.debug(
                     "Processing layer: %s (no weight correction) =================================================",
                     name,
                 )
@@ -489,6 +509,8 @@ def run_quantize_with_qep_arch(
                         name,
                     )
                 remaining_targets.discard(name)
+                if progress is not None:
+                    progress.step_complete(name)
 
         # forward input to the next block
         inps_q = forward_input(inps_q, block_q, kwargs, batch_size, device)
@@ -496,10 +518,10 @@ def run_quantize_with_qep_arch(
 
         # Compute MSE between quantized and full-precision block outputs
         mse = F.mse_loss(inps_q.float(), inps_f.float()).item()
-        logger.info(f"[INFO] Layer {block_idx + 1} MSE: {mse:.6e}")
+        logger.info("Block %d MSE: %.6e", block_idx + 1, mse)
 
         # free memory
         block_q.cpu()
-        torch.cuda.empty_cache()
+        empty_cache(device)
 
     quantizer.execute_post_processing()

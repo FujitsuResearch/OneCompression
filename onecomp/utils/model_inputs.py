@@ -23,8 +23,7 @@ def add_model_specific_inputs(inputs, model):
         dict: The same inputs dict, possibly augmented with extra keys.
     """
     config = getattr(model, "config", None)
-    if getattr(config, "model_type", "") == "gemma4":
-        inputs["mm_token_type_ids"] = torch.zeros_like(
-            inputs["input_ids"], dtype=torch.long
-        )
+    model_type = getattr(config, "model_type", "") or ""
+    if model_type.startswith("gemma4"):
+        inputs["mm_token_type_ids"] = torch.zeros_like(inputs["input_ids"], dtype=torch.long)
     return inputs

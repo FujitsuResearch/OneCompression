@@ -1,0 +1,33 @@
+repos:
+  - repo: https://github.com/pycqa/isort
+    rev: 8.0.1
+    hooks:
+      - id: isort
+
+  - repo: https://github.com/psf/black
+    rev: 26.5.1
+    hooks:
+      - id: black
+        args: [--line-length=99]
+
+  - repo: local
+    hooks:
+      - id: no-japanese
+        name: Forbid Japanese characters
+        language: system
+        entry: bash scripts/run_venv_python_for_precommit.sh scripts/check_no_japanese.py
+        exclude: '\.md$|\.gitignore$'
+        types: [text]
+
+      - id: copyright-header
+        name: Check Fujitsu copyright header
+        language: system
+        entry: bash scripts/run_venv_python_for_precommit.sh scripts/check_copyright_header.py
+        types: [python]
+        exclude: '(__init__|__main__)\.py$|^tests/|^benchmark/'
+
+      - id: no-email-address
+        name: Forbid email addresses
+        language: pygrep
+        entry: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        types: [python]

@@ -2,44 +2,43 @@
 Copyright 2025-2026 Fujitsu Ltd.
 
 """
+
 import torch
 from transformers.models.qwen3.modeling_qwen3 import (
-    Qwen3DecoderLayer,
     Qwen3Attention,
+    Qwen3DecoderLayer,
     apply_rotary_pos_emb,
-    repeat_kv
+    repeat_kv,
 )
-
 
 from .._lpcd_config import LPCDConfig
 from .._metric import LpcdMetric, LpcdMetricGroup
-from ._llama import (
-    LlamaQueryKey,
-    LlamaValueOut,
-    LlamaOut,
-    LlamaUpDown,
-    LlamaDown,
-)
+from ._llama import LlamaDown, LlamaOut, LlamaQueryKey, LlamaUpDown, LlamaValueOut
+
 
 # q_proj / k_proj
 class Qwen3QueryKey(LlamaQueryKey):
 
     def forward(
-        self, 
-        block_inps: torch.Tensor, 
+        self,
+        block_inps: torch.Tensor,
         position_embeddings: tuple[torch.Tensor, torch.Tensor],
         attention_mask: torch.Tensor | None = None,
-        **kwargs: dict
+        **kwargs: dict,
     ) -> torch.Tensor:
         self_attn: Qwen3Attention = self.block.self_attn
 
         hidden_states = self.block.input_layernorm(block_inps)
-        
+
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self_attn.head_dim)
 
-        query_states = self_attn.q_norm(self_attn.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        key_states = self_attn.k_norm(self_attn.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+        query_states = self_attn.q_norm(
+            self_attn.q_proj(hidden_states).view(hidden_shape)
+        ).transpose(1, 2)
+        key_states = self_attn.k_norm(
+            self_attn.k_proj(hidden_states).view(hidden_shape)
+        ).transpose(1, 2)
 
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
@@ -50,7 +49,7 @@ class Qwen3QueryKey(LlamaQueryKey):
         # apply logical attention mask
         if attention_mask is not None:
             addition_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-            bool_mask = (addition_mask == 0)
+            bool_mask = addition_mask == 0
             attn_weights = attn_weights * bool_mask
 
         return attn_weights
@@ -59,6 +58,7 @@ class Qwen3QueryKey(LlamaQueryKey):
 # v_proj / o_proj (same as Llama)
 class Qwen3ValueOut(LlamaValueOut):
     pass
+
 
 # Only o_proj (same as Llama)
 class Qwen3Out(LlamaOut):
@@ -69,17 +69,18 @@ class Qwen3Out(LlamaOut):
 class Qwen3UpDown(LlamaUpDown):
     pass
 
+
 # Only down_proj (same as Llama)
 class Qwen3Down(LlamaDown):
     pass
 
 
 def make_qwen3_lpcd_metrics(
-    lpcd_config: LPCDConfig, 
+    lpcd_config: LPCDConfig,
     block_q: Qwen3DecoderLayer,
     block_f: Qwen3DecoderLayer,
 ) -> LpcdMetricGroup:
-    """ Make LPCD metrics for Qwen3 models.
+    """Make LPCD metrics for Qwen3 models.
 
     Args:
         lpcd_config (LPCDConfig): LPCD configuration

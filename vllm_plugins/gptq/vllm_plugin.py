@@ -27,8 +27,9 @@ Per-module ``group_size`` is resolved in order:
   3. global ``group_size`` from top-level config   (fallback)
 
 Kernel dispatch per module (automatic, Marlin preferred):
-  - bits 4/8 + sym=True:  GPTQ Marlin kernel (try first, fastest)
-  - bits 4/8 + sym=True:  GPTQ Exllama kernel (fallback if Marlin fails)
+  - bits in GPTQ_MARLIN_SUPPORTED_BITS (4/8) + sym=True (explicit) + desc_act=False:
+    GPTQ Marlin kernel (try first, fastest)
+  - bits 4/8 + sym unknown/false: GPTQ Exllama kernel (fallback if Marlin fails)
   - bits 2/3:             GPTQ Exllama kernel (gptq_v2 format)
   - bits 0 or not listed: UnquantizedLinearMethod
 """
@@ -36,25 +37,20 @@ Kernel dispatch per module (automatic, Marlin preferred):
 from typing import Any, List
 
 import torch
-
 from vllm.logger import init_logger
-from vllm.model_executor.layers.linear import (
-    LinearBase,
-    UnquantizedLinearMethod,
-)
+from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
 from vllm.model_executor.layers.quantization import register_quantization_config
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig,
     QuantizeMethodBase,
 )
-from vllm.model_executor.layers.quantization.gptq import (
-    GPTQConfig,
-    GPTQLinearMethod,
-)
+from vllm.model_executor.layers.quantization.gptq import GPTQConfig, GPTQLinearMethod
 from vllm.model_executor.layers.quantization.gptq_marlin import (
     GPTQMarlinConfig,
     GPTQMarlinLinearMethod,
 )
+
+from vllm_plugins.gptq.constants import GPTQ_MARLIN_SUPPORTED_BITS, should_use_gptq_marlin
 from vllm_plugins.utils.module import (
     _lookup_module_config,
     _parse_layer_and_module,
@@ -72,7 +68,7 @@ class MixedGPTQConfig(QuantizationConfig):
         quantization_bits,
         group_size=-1,
         desc_act=False,
-        sym=True,
+        sym=False,
         lm_head_quantized=False,
         checkpoint_format="gptq_v2",
     ):
@@ -129,7 +125,7 @@ class MixedGPTQConfig(QuantizationConfig):
 
         group_size = config.get("group_size", -1)
         desc_act = config.get("desc_act", False)
-        sym = config.get("sym", True)
+        sym = config.get("sym", False)
         lm_head_quantized = config.get("lm_head", False)
         checkpoint_format = config.get("checkpoint_format", "gptq_v2")
         return cls(
@@ -216,7 +212,12 @@ class MixedGPTQConfig(QuantizationConfig):
 
         int_bits = int(bits)
 
-        if method == "gptq" and int_bits in (4, 8) and self.sym:
+        if should_use_gptq_marlin(
+            bits=int_bits,
+            sym=self.sym,
+            desc_act=self.desc_act,
+            method=method,
+        ):
             try:
                 cfg = self._make_marlin_config(int_bits, group_size)
                 return GPTQMarlinLinearMethod(cfg)

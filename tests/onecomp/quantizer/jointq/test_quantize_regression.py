@@ -26,11 +26,7 @@ import math
 import pytest
 import torch
 
-from .regression_quantize_helper import (
-    DEFAULT_DATA_PATH,
-    EXPECTED_MSE,
-    run_quantize,
-)
+from .regression_quantize_helper import DEFAULT_DATA_PATH, EXPECTED_MSE, run_quantize
 
 _SKIP_NO_CUDA = not torch.cuda.is_available()
 _SKIP_NO_DATA = not DEFAULT_DATA_PATH.exists()

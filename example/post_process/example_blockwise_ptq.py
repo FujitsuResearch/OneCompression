@@ -15,14 +15,7 @@ Usage:
     python example/post_process/example_blockwise_ptq.py
 """
 
-from onecomp import (
-    GPTQ,
-    BlockWisePTQ,
-    CalibrationConfig,
-    ModelConfig,
-    Runner,
-    setup_logger,
-)
+from onecomp import GPTQ, BlockWisePTQ, CalibrationConfig, ModelConfig, Runner, setup_logger
 
 setup_logger()
 

@@ -613,6 +613,34 @@ def rotate_model(
     cleanup_memory()
 
 
+def collect_down_proj_types(model):
+    """Return distinct types of the model's ``down_proj`` layers.
+
+    Use this to derive ``layers_cls`` for :func:`register_online_hadamard_hooks`
+    from an already-quantized model (e.g. loaded from disk), where the
+    ``down_proj`` layers are quantized modules regardless of the recorded
+    ``quant_method``.
+    """
+    return list({type(module) for name, module in model.named_modules() if "down_proj" in name})
+
+
+def collect_quantized_down_proj_types(model):
+    """Return distinct non-``nn.Linear`` types of the model's ``down_proj`` layers.
+
+    Like :func:`collect_down_proj_types` but excludes plain ``nn.Linear`` so that
+    unquantized ``down_proj`` layers do not receive hooks (which would otherwise
+    fire on every ``nn.Linear``).  Use after ``apply_results_to_model`` has
+    replaced ``nn.Linear`` with quantized modules; empty when none are quantized.
+    """
+    return list(
+        {
+            type(module)
+            for name, module in model.named_modules()
+            if "down_proj" in name and not isinstance(module, nn.Linear)
+        }
+    )
+
+
 def register_online_hadamard_hooks(model, fp32_had: bool = False, layers_cls=None):
     """Register Hadamard ``forward_pre_hook`` on all ``down_proj`` layers.
 

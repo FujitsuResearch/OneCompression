@@ -63,12 +63,10 @@ def test_get_float_zeros_restores_packed_v1_qzero_zero():
     zeros = _get_float_zeros(layer)
 
     assert torch.all(zeros[0, :4] == 0), (
-        f"expected bug columns to restore to 0, "
-        f"got {zeros[0, :8].tolist()}"
+        f"expected bug columns to restore to 0, " f"got {zeros[0, :8].tolist()}"
     )
     assert torch.all(zeros[0, 4:] == 1), (
-        f"expected control columns to stay at 1, "
-        f"got sample {zeros[0, 4:8].tolist()}"
+        f"expected control columns to stay at 1, " f"got sample {zeros[0, 4:8].tolist()}"
     )
 
 
@@ -85,10 +83,12 @@ def test_get_float_zeros_keeps_unpacked_v1_behavior():
 
     zeros = _get_float_zeros(layer)
 
-    assert torch.all(zeros[0, :4] == 0), f"expected bug columns to stay at 0, got {zeros[0, :8].tolist()}"
-    assert torch.all(zeros[0, 4:] == 1), (
-        f"expected control columns to stay at 1, got sample {zeros[0, 4:8].tolist()}"
-    )
+    assert torch.all(
+        zeros[0, :4] == 0
+    ), f"expected bug columns to stay at 0, got {zeros[0, :8].tolist()}"
+    assert torch.all(
+        zeros[0, 4:] == 1
+    ), f"expected control columns to stay at 1, got sample {zeros[0, 4:8].tolist()}"
 
 
 @pytest.mark.parametrize("pack_weights", [True, False])

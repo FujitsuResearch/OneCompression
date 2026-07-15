@@ -114,7 +114,7 @@ def _find_blocks_parent(model, blocks):
 def _compute_per_layer_inputs(model, blocks, input_ids, batch_size):
     """Compute per-layer input embeddings for all calibration samples.
 
-    Gemma4 supply a per-layer embedding (per_layer_input) as 
+    Gemma4 supply a per-layer embedding (per_layer_input) as
     an extra positional argument to each decoder layer.
     This function detects such models, computes the tensor
     [N, seq, num_layers, hidden_per_layer] from input_ids in
@@ -126,8 +126,7 @@ def _compute_per_layer_inputs(model, blocks, input_ids, batch_size):
 
     for _name, module in model.named_modules():
         if not (
-            hasattr(module, "get_per_layer_inputs")
-            and hasattr(module, "project_per_layer_inputs")
+            hasattr(module, "get_per_layer_inputs") and hasattr(module, "project_per_layer_inputs")
         ):
             continue
         for child in module.modules():
@@ -136,9 +135,7 @@ def _compute_per_layer_inputs(model, blocks, input_ids, batch_size):
                 for ids_batch in input_ids.split(batch_size):
                     embeds = module.embed_tokens(ids_batch)
                     pli = module.get_per_layer_inputs(ids_batch, embeds)
-                    chunks.append(
-                        module.project_per_layer_inputs(embeds, pli).cpu()
-                    )
+                    chunks.append(module.project_per_layer_inputs(embeds, pli).cpu())
                 return torch.cat(chunks)
 
     logger.warning(
@@ -205,10 +202,12 @@ def get_blocks_and_inputs(
     if has_mixed_types:
         rotary_emb = getattr(blocks_parent, "rotary_emb", None)
         if rotary_emb is not None:
+
             def _capture_rotary(_mod, args, output):
                 lt = args[2] if len(args) > 2 else None
                 if lt is not None:
                     pos_emb_map[lt] = tuple(t.clone() for t in output)
+
             rotary_hook_handle = rotary_emb.register_forward_hook(_capture_rotary)
 
     # replace the first transformer block with a input catcher.
@@ -262,7 +261,9 @@ def get_blocks_and_inputs(
     # Store per-type attention masks when the model uses heterogeneous layer types.
     if has_mixed_types and blocks_parent is not None:
         attn_mask_map = _compute_per_type_attention_masks(
-            blocks_parent, kwargs, unique_layer_types,
+            blocks_parent,
+            kwargs,
+            unique_layer_types,
         )
         if attn_mask_map is not None:
             kwargs[_ATTN_MASK_MAP_KEY] = attn_mask_map
@@ -301,7 +302,6 @@ def _compute_per_type_attention_masks(blocks_parent, kwargs, unique_layer_types)
     from transformers to produce the correct mask per layer type.
     """
 
-
     from transformers.masking_utils import (
         create_causal_mask,
         create_sliding_window_causal_mask,
@@ -335,8 +335,11 @@ def _compute_per_type_attention_masks(blocks_parent, kwargs, unique_layer_types)
         creator = _mask_creators.get(lt)
         if creator is not None:
             mask_map[lt] = creator(
-                config, dummy_embeds, attn_mask_1d,
-                past_key_values=None, position_ids=position_ids,
+                config,
+                dummy_embeds,
+                attn_mask_1d,
+                past_key_values=None,
+                position_ids=position_ids,
             )
         else:
             logger.warning("No mask creator found for layer type: %s", lt)
@@ -397,7 +400,7 @@ def prepare_block_kwargs(batch_kwargs, block, pli, offset, batch_size, device):
     """Adjust batch_kwargs so that they are correct for block.
 
     Three following concerns are handled for Gemma4:
-    1. per_layer_input: token-dependent, per-layer embedding sliced 
+    1. per_layer_input: token-dependent, per-layer embedding sliced
     from the full _per_layer_inputs tensor.
     2. position_embeddings: differ between full_attention and sliding_attention layer types.
     3. attention_mask: causal vs sliding-window mask.
@@ -407,9 +410,9 @@ def prepare_block_kwargs(batch_kwargs, block, pli, offset, batch_size, device):
     if pli is not None:
         layer_idx = getattr(block, "layer_idx", None)
         if layer_idx is not None:
-            batch_kwargs["per_layer_input"] = (
-                pli[offset : offset + batch_size, :, layer_idx, :].to(device)
-            )
+            batch_kwargs["per_layer_input"] = pli[
+                offset : offset + batch_size, :, layer_idx, :
+            ].to(device)
 
     # 2) Per-type position embeddings
     pos_map = batch_kwargs.pop(_POS_EMB_MAP_KEY, None)

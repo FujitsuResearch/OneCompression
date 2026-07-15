@@ -8,7 +8,7 @@ Author: Keiji Kimura
 
 """
 
-from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner, setup_logger
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, Runner, setup_logger
 
 # Set up logger (output logs to stdout)
 setup_logger()

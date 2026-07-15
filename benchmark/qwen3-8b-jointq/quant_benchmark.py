@@ -15,7 +15,7 @@ import itertools
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from onecomp import CalibrationConfig, GPTQ, JointQ, ModelConfig, Runner
+from onecomp import GPTQ, CalibrationConfig, JointQ, ModelConfig, Runner
 
 
 def create_quantizers(cfg: DictConfig):
@@ -93,9 +93,7 @@ def main(cfg: DictConfig):
     runner.run()
 
     for q in quantizers:
-        runner.save_quantization_statistics(
-            f"quantization_statistics_{q.name}.json", quantizer=q
-        )
+        runner.save_quantization_statistics(f"quantization_statistics_{q.name}.json", quantizer=q)
 
     if cfg.calc_ppl:
         runner.benchmark_perplexity(
