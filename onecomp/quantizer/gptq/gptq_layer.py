@@ -266,6 +266,12 @@ class GPTQLinear(nn.Module):
         original_shape = (out_features, in_features)
         wbits_mask = (1 << wbits) - 1
         should_pack_weights = bool(pack_weights and is_packable_wbits(wbits))
+        if pack_weights and not should_pack_weights:
+            logger.warning(
+                "pack_weights=True was requested, but GPTQ wbits=%d does not support "
+                "packing; storing weights unpacked.",
+                wbits,
+            )
 
         quantized_weight_unpacked = None
         zero_int = None
