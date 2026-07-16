@@ -119,12 +119,12 @@ print(f"Reloaded quantized model device: {next(blockwise_model.parameters()).dev
 
 blockwise_ptq = BlockWisePTQ(
     lr=1e-4,
-    epochs=10,
+    epochs=3,
     cbq_enable=True,
     gptq_lr=1e-3,
     calibration_config=CalibrationConfig(
         num_calibration_samples=128,
-        max_length=2048,
+        max_length=512,
     ),
 )
 
