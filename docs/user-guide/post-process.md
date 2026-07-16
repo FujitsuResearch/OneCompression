@@ -118,16 +118,16 @@ runner.quantized_model = model
 
 The direct path uses the same post-process metadata recording as
 `run_post_processes()`. For explicit unpacked buffers, use
-`runner.create_quantized_model(pack_weights=False, use_gemlite=False)` or the
-unpacked example below.
+`runner.create_quantized_model(pack_weights=False, use_gemlite=False)`; this is
+only needed when GPTQLinear bit packing cannot represent the quantizer output
+(e.g. 1-bit JointQ, or GPTQ/RTN bit widths outside `{2, 3, 4, 8}`), and is
+documented in the `GlobalPTQ` API reference.
 
 !!! tip
-    Complete working examples are available for both layouts:
-
-    - Packed/default (GPTQ by default; uncomment `DBF(target_bits=1.5)` in the script to run DBF):
-      [`example/post_process/example_global_ptq.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_global_ptq.py)
-    - Explicit unpacked:
-      [`example/post_process/example_global_ptq_unpacked.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_global_ptq_unpacked.py)
+    A complete working example of the Runner-managed packed/default path (GPTQ
+    by default; uncomment `DBF(target_bits=1.5)` in the script to run DBF) is
+    available at
+    [`example/post_process/example_global_ptq.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_global_ptq.py).
 
 ### Multi-GPU with DeepSpeed (GlobalPTQDistributed)
 
@@ -295,12 +295,13 @@ _, _, improved_ppl = runner.calculate_perplexity(quantized_model=True)
 ```
 
 !!! tip
-    Complete working examples are available for both paths:
-
-    - Runner-managed packed/default:
-      [`example/post_process/example_blockwise_ptq.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_blockwise_ptq.py)
-    - Explicit unpacked/direct:
-      [`example/post_process/example_blockwise_ptq_unpacked.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_blockwise_ptq_unpacked.py)
+    A complete working example of the Runner-managed packed/default path is
+    available at
+    [`example/post_process/example_blockwise_ptq.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_blockwise_ptq.py).
+    The explicit unpacked path (`create_quantized_model(pack_weights=False)`
+    → `BlockWisePTQ.run()`) is only needed when GPTQLinear bit packing cannot
+    represent the quantizer output (e.g. 1-bit JointQ, or GPTQ/RTN bit widths
+    outside `{2, 3, 4, 8}`); see the `BlockWisePTQ` API reference for that path.
 
 ### Key Parameters
 

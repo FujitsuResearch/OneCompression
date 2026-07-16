@@ -454,8 +454,10 @@ invocation path using `post_process.run(model, model_config)`. Use that path
 when you want to inspect or evaluate the quantized-only model before applying
 GlobalPTQ.
 
-For the explicit unpacked buffer path, see
-[`example/post_process/example_global_ptq_unpacked.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_global_ptq_unpacked.py).
+The explicit unpacked buffer path (`create_quantized_model(pack_weights=False)`
+→ `GlobalPTQ.run()`) is documented in the `GlobalPTQ` API reference and is only
+needed when GPTQLinear bit packing cannot represent the quantizer output (e.g.
+1-bit JointQ, or GPTQ/RTN bit widths outside `{2, 3, 4, 8}`).
 
 ## Global PTQ: Multi-GPU with DeepSpeed
 
@@ -555,8 +557,10 @@ print(f"BlockWisePTQ PPL:  {blockwise_ppl:.4f}")
 ```
 
 See [Post-Process](post-process.md#block-wise-ptq) for the full guide including parameter reference.
-For the explicit unpacked buffer path, see
-[`example/post_process/example_blockwise_ptq_unpacked.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_blockwise_ptq_unpacked.py).
+The explicit unpacked buffer path (`create_quantized_model(pack_weights=False)`
+→ `BlockWisePTQ.run()`) is documented in the `BlockWisePTQ` API reference and is
+only needed when GPTQLinear bit packing cannot represent the quantizer output
+(e.g. 1-bit JointQ, or GPTQ/RTN bit widths outside `{2, 3, 4, 8}`).
 
 ## LoRA SFT: Accuracy Recovery
 

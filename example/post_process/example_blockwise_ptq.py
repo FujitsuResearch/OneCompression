@@ -85,12 +85,6 @@ runner = Runner(
 #   )
 # so that Runner.quantize_with_calibration_chunked runs instead of a
 # single all-at-once forward pass.
-#
-# NOTE: This is the normal Runner-managed path. Runner.run() quantizes, builds
-# the post-process input with packed buffers by default, applies BlockWisePTQ,
-# and stores the result in runner.quantized_model. Use
-# example_blockwise_ptq_unpacked.py only when you explicitly need unpacked
-# GPTQLinear buffers for research/debug workflows.
 runner.run()
 
 # ================================================================

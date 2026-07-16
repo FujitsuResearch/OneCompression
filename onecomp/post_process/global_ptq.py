@@ -75,7 +75,27 @@ class GlobalPTQ(PostQuantizationProcess):
             Number of gradient accumulation steps before each
             optimiser update.  Default is 1 (no accumulation).
 
+    Buffer layout:
+        ``GlobalPTQ`` accepts a quantized model with either packed or unpacked
+        ``GPTQLinear`` buffers.  The recommended Runner-managed path
+        (``post_processes=[GlobalPTQ(...)]`` + ``Runner.run()``) builds packed
+        buffers by default, and packed outputs are what the save / load and vLLM
+        workflows expect, so prefer it for reusable checkpoints.
+
+        Unpacked buffers are required only when ``GPTQLinear`` bit packing cannot
+        represent the quantizer output:
+
+        - ``JointQ(bits=1, ...)`` — 1-bit JointQ output is not supported by the
+          ``GPTQLinear`` packing helpers.
+        - ``GPTQ`` / ``RTN`` bit widths in ``{1, 5, 6, 7}`` — the packing helpers
+          currently support only ``{2, 3, 4, 8}``.
+
+        For those cases, build the post-process input with ``pack_weights=False``
+        and call :meth:`run` directly instead of going through ``Runner.run()``.
+
     Examples:
+        Recommended Runner-managed path (packed buffers by default):
+
         >>> from onecomp import Runner, ModelConfig, GPTQ, GlobalPTQ, CalibrationConfig
         >>> model_config = ModelConfig(model_id="Qwen/Qwen3-0.6B")
         >>> quantizer = GPTQ(wbits=4, groupsize=128)
@@ -85,6 +105,18 @@ class GlobalPTQ(PostQuantizationProcess):
         ...     post_processes=[GlobalPTQ(epochs=5, gptq_lr=1e-5)],
         ... )
         >>> runner.run()
+
+        Explicit unpacked path (e.g. 1-bit JointQ or GPTQ/RTN bit widths
+        outside ``{2, 3, 4, 8}``):
+
+        >>> runner = Runner(model_config=model_config, quantizer=quantizer)
+        >>> runner.run()
+        >>> global_ptq = GlobalPTQ(epochs=5, gptq_lr=1e-5)
+        >>> model, _ = runner.create_quantized_model(
+        ...     pack_weights=False, use_gemlite=False
+        ... )
+        >>> global_ptq.run(model, model_config)
+        >>> runner.quantized_model = model
 
     """
 

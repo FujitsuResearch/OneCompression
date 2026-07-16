@@ -83,28 +83,6 @@ def main():
     # single all-at-once forward pass.
     runner.run()
 
-    # NOTE: The Runner-managed path above is the standard example. To call the
-    # post-process directly instead, replace the Runner block above with the
-    # commented flow below. This is useful when you want to evaluate the
-    # quantized-only model before GlobalPTQ. For explicit unpacked buffers, use
-    # example_global_ptq_unpacked.py instead.
-    #
-    # runner = Runner(
-    #     model_config=model_config,
-    #     quantizer=quantizer,
-    #     calibration_config=CalibrationConfig(
-    #         max_length=512,
-    #         num_calibration_samples=128,
-    #     ),
-    # )
-    # runner.run()
-    # _, _, baseline_ppl = runner.calculate_perplexity(quantized_model=True)
-    # print(f"Quantized baseline PPL:        {baseline_ppl:.4f}")
-    # model, _ = runner.create_quantized_model(use_gemlite=False)
-    # post_process = global_ptq
-    # post_process.run(model, model_config)
-    # runner.quantized_model = model
-
     original_ppl, _, quantized_ppl = runner.calculate_perplexity(
         original_model=True,
         quantized_model=True,
