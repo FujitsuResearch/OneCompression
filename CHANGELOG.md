@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.3.0(WIP)+lab/test-quip-error]
+
+### Test
+
+- Stabilized quantizer error-bound tests by seeding Python, NumPy, and PyTorch RNGs and enabling deterministic PyTorch behavior in `BaseQuantizeSpec.test_quantize_error`. Added a QUIP-specific `test_quantize_error` override that uses a smaller test model and higher-rank Hessian inputs to avoid environment-dependent Cholesky failures without changing production QUIP code (`tests/onecomp/quantizer/test_module.py`, `tests/onecomp/quantizer/quip/test_quip.py`)
+
 ## [v1.3.0(WIP)+fix/partial-quant-with-rotation-bug] 2026-07-03
 
 ### Bug fix
