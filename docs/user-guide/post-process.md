@@ -424,7 +424,12 @@ After training, the model can generate responses based on the injected knowledge
 
 ## Saving and Loading LoRA Models
 
-LoRA-applied models contain custom module types (`LoRAGPTQLinear`) that are not compatible with the standard safetensors format. Use the dedicated PyTorch `.pt` save/load methods instead:
+LoRA-applied models are saved in the HuggingFace-compatible safetensors format
+with `save_quantized_model()`: the base quantized weights are written as normal
+safetensors, and the LoRA adapter is written as a PEFT-compatible sidecar in a
+`lora_adapter/` subdirectory (`adapter_model.safetensors` + `adapter_config.json`).
+Loading with `load_quantized_model()` auto-detects the sidecar and re-wraps the
+matching layers with `LoRAGPTQLinear`, so the round-trip needs no `.pt` file.
 
 ### Save
 
@@ -432,21 +437,40 @@ LoRA-applied models contain custom module types (`LoRAGPTQLinear`) that are not 
 # After quantization + LoRA SFT
 runner.run()
 
-# Save the LoRA-applied model (PyTorch .pt format)
-runner.save_quantized_model_pt("./my_model_lora")
+# Save base weights (safetensors) + LoRA adapter sidecar (lora_adapter/)
+runner.save_quantized_model("./my_model_lora")
 ```
 
 ### Load
 
 ```python
-from onecomp import load_quantized_model_pt
+from onecomp import load_quantized_model
 
-# The .pt loader uses torch.load(weights_only=False) and requires an explicit
-# opt-in. Only enable it for models from a fully trusted source (see warning).
-model, tokenizer = load_quantized_model_pt(
-    "./my_model_lora", allow_unsafe_deserialization=True
-)
+# The LoRA adapter sidecar is auto-detected and applied.
+model, tokenizer = load_quantized_model("./my_model_lora")
 ```
+
+The saved directory is also servable by vLLM via its native LoRA mechanism
+(`enable_lora=True` + `LoRARequest(lora_path="./my_model_lora/lora_adapter")`).
+See
+[`example/post_process/example_lora_gptq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_lora_gptq_vllm_inference.py)
+for the end-to-end flow.
+
+!!! note "Legacy `.pt` save/load"
+    `save_quantized_model_pt()` / `load_quantized_model_pt()` remain available as
+    an alternative that serializes the whole model object (including custom
+    module types such as `LoRAGPTQLinear`) via `torch.save` / `torch.load`.
+    Prefer the safetensors path above; use `.pt` only if you specifically need a
+    single-file model object.
+
+    ```python
+    runner.save_quantized_model_pt("./my_model_lora_pt")
+
+    from onecomp import load_quantized_model_pt
+    model, tokenizer = load_quantized_model_pt(
+        "./my_model_lora_pt", allow_unsafe_deserialization=True
+    )
+    ```
 
 !!! warning "Unsafe deserialization (.pt loader)"
     `load_quantized_model_pt()` deserializes `model.pt` with
@@ -459,8 +483,8 @@ model, tokenizer = load_quantized_model_pt(
 !!! info "save_quantized_model vs save_quantized_model_pt"
     | Method | Format | Use Case |
     |--------|--------|----------|
-    | `save_quantized_model()` | safetensors (HF-compatible) | Quantized models, including post-processes that keep the quantized layer structure (`BlockWisePTQ`, `GlobalPTQ`, `GlobalPTQDistributed`) |
-    | `save_quantized_model_pt()` | PyTorch `.pt` | Post-processes that introduce custom module types not representable in safetensors (e.g. LoRA adapters / `LoRAGPTQLinear`) |
+    | `save_quantized_model()` | safetensors (HF-compatible) | All post-processes, including those that keep the quantized layer structure (`BlockWisePTQ`, `GlobalPTQ`, `GlobalPTQDistributed`) and LoRA (`PostProcessLoraSFT`). For LoRA, base weights are saved in safetensors with a PEFT-compatible adapter sidecar (`adapter_model.safetensors` + `adapter_config.json`) that `load_quantized_model()` auto-detects and re-wraps. |
+    | `save_quantized_model_pt()` | PyTorch `.pt` | Optional alternative that serializes the whole model object with `torch.save`, preserving custom module types such as `LoRAGPTQLinear`. Loading requires unsafe deserialization (see warning above). |
 
     Similarly, use `load_quantized_model()` for safetensors and `load_quantized_model_pt()` for `.pt` files.
 
@@ -574,8 +598,14 @@ post_process = PostProcessLoraSFT(
 
 ## Limitations
 
-!!! warning "vLLM Inference"
-    LoRA-applied models saved with `save_quantized_model_pt()` are **not currently supported** by the vLLM plugins. vLLM integration for LoRA post-processed models is planned for a future release.
+!!! info "vLLM Inference"
+    LoRA-applied models saved with `save_quantized_model()` (base safetensors +
+    PEFT adapter sidecar) can be served by vLLM via its native LoRA mechanism:
+    load with `enable_lora=True` and pass a
+    `LoRARequest(lora_path=".../lora_adapter")`. See
+    [`example/post_process/example_lora_gptq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_lora_gptq_vllm_inference.py).
+    Models saved with the legacy `save_quantized_model_pt()` (`.pt`) format are
+    **not** servable by vLLM — re-save with `save_quantized_model()` for vLLM.
 
     For standard quantized models, and for post-processes that keep the
     quantized layer structure such as `BlockWisePTQ`, `GlobalPTQ`, and

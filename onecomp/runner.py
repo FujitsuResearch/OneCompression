@@ -2369,14 +2369,16 @@ class Runner:
     def save_quantized_model_pt(self, save_directory: str):
         """Save the quantized model as a PyTorch .pt file.
 
-        Use this method to save models that include post-processing
-        modifications (e.g. LoRA adapters from ``PostProcessLoraSFT``).
-        The entire model object is serialized with ``torch.save``,
-        preserving custom module types such as ``LoRAGPTQLinear``.
-
-        For models without post-processing, prefer
-        ``save_quantized_model`` which uses the HF-compatible
-        safetensors format.
+        This serializes the entire model object with ``torch.save``,
+        preserving custom module types such as ``LoRAGPTQLinear``.  It is a
+        legacy/alternative to :meth:`save_quantized_model`, which is preferred
+        for all cases -- including LoRA post-processes, whose adapter is saved
+        as a PEFT-compatible safetensors sidecar and is loadable by
+        :func:`onecomp.load_quantized_model` and servable by vLLM.  Use this
+        ``.pt`` method only when you specifically need a single serialized
+        model object; note that loading it requires
+        ``allow_unsafe_deserialization=True`` (see
+        :func:`onecomp.load_quantized_model_pt`).
 
         The saved directory contains:
         - ``model.pt``: The model (``torch.save``)
