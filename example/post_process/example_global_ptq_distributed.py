@@ -96,15 +96,11 @@ def main():
         print(f"\nOriginal PPL:                          {original_ppl:.4f}")
         print(f"Quantized + GlobalPTQDistributed PPL:   {quantized_ppl:.4f}")
 
-        # GlobalPTQDistributed only tweaks the quantized layers' buffers (no
-        # custom modules), so the optimised model can be saved either way:
-        #   - save_quantized_model:    HF-compatible safetensors
-        #   - save_quantized_model_pt: whole-object PyTorch .pt (torch.save)
+        # GlobalPTQDistributed is structure-preserving (no custom modules), so
+        # the optimised model saves to HF-compatible safetensors with
+        # save_quantized_model().
         runner.save_quantized_model("./tinyllama-gptq-globalptq-dist")
         print("\nModel saved (safetensors) to ./tinyllama-gptq-globalptq-dist")
-
-        runner.save_quantized_model_pt("./tinyllama-gptq-globalptq-dist-pt")
-        print("Model saved (.pt) to ./tinyllama-gptq-globalptq-dist-pt")
 
     if dist.is_initialized():
         dist.barrier()

@@ -5,7 +5,7 @@ End-to-end demonstration of Global PTQ with DBF backend:
     1. Quantize TinyLlama with DBF
     2. Apply GlobalPTQ to optimise DBF scalings via KL distillation
     3. Evaluate PPL (original vs quantized+GlobalPTQ)
-    4. Save the optimised model in both safetensors and PyTorch .pt formats
+    4. Save the optimised model to HF-compatible safetensors
 
 Copyright 2025-2026 Fujitsu Ltd.
 
@@ -78,18 +78,12 @@ def main():
     print(f"\nOriginal PPL:                  {original_ppl:.4f}")
     print(f"Quantized + Global PTQ PPL:    {quantized_ppl:.4f}")
 
-    # GlobalPTQ only tweaks the quantized layers' buffers (no custom modules),
-    # so the optimised model can be saved either way:
-    #   - save_quantized_model:    HF-compatible safetensors
-    #   - save_quantized_model_pt: whole-object PyTorch .pt (torch.save)
+    # GlobalPTQ is structure-preserving (no custom modules), so the optimised
+    # model saves to HF-compatible safetensors with save_quantized_model().
     save_dir = "./tinyllama-dbf-globalptq"
-    save_dir_pt = f"{save_dir}-pt"
 
     runner.save_quantized_model(save_dir)
     print(f"\nModel saved (safetensors) to {save_dir}")
-
-    runner.save_quantized_model_pt(save_dir_pt)
-    print(f"Model saved (.pt) to {save_dir_pt}")
 
 
 if __name__ == "__main__":
