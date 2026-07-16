@@ -27,8 +27,8 @@ from onecomp import (
 
 setup_logger()
 
-MODEL_ID = "Qwen/Qwen3.6-27B"
-SAVE_DIR = "./Qwen3.6-27B_gptq4"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
+SAVE_DIR = "./tinyllama_gptq4"
 
 # ── 1. Quantize with GPTQ ────────────────────────────────────
 model_config = ModelConfig(model_id=MODEL_ID, device="cuda:0")
@@ -55,7 +55,7 @@ runner.save_quantized_model(SAVE_DIR)
 print(f"\nQuantized model saved to: {SAVE_DIR}")
 
 # ── 3. Load ───────────────────────────────────────────────────
-model, tokenizer = load_quantized_model(SAVE_DIR, torch_dtype=torch.bfloat16)
+model, tokenizer = load_quantized_model(SAVE_DIR)
 print(f"Loaded model type : {type(model).__name__}")
 print(f"Loaded model device: {next(model.parameters()).device}")
 
