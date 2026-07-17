@@ -1,5 +1,17 @@
 # Change log
 
+## [v1.3.0(WIP)+lab/delete-example]
+
+### Examples
+
+- Removed the legacy LoRA SFT examples that duplicated the current flow: `example/post_process/example_lora_sft_legacy.py` and `example/post_process/example_lora_sft_knowledge_legacy.py`. These relied on the old `.pt`-based `load_quantized_model_pt()` flow and diverged from the current HF-compatible `load_quantized_model()` workflow.
+- Completed the example list in `README.md` so it covers every existing `example/**/example*.py` script, including the Global PTQ, JointQ knowledge-injection, and LoRA + vLLM examples that were previously missing.
+
+### Documentation
+
+- Documented `QuantizedModelLoader.load_quantized_model_pt()` (alias `onecomp.load_quantized_model_pt()`) as a **research/development-only, non-recommended** API. The `.pt` loader is intentionally retained for rapid experimentation (e.g. trying a new post-process before it has a safetensors-compatible `load_quantized_model()` path), but is discouraged for general/production use due to the unsafe-deserialization risk (CWE-502) and the non-HF-compatible format. Added a note to the docstring (`onecomp/quantized_model_loader.py`) and the API reference (`docs/api/quantized_model_loader.md`).
+- Corrected the "Saving and Loading LoRA Models" docs to match the current flow: LoRA-applied models are saved/loaded with `save_quantized_model()` / `load_quantized_model()` (HF-compatible safetensors + PEFT adapter sidecar, auto-detected on load), which is now the **recommended** path. The previous docs incorrectly stated LoRA models were incompatible with safetensors and required the `.pt` format; the `.pt` API is now presented only as the legacy research/development alternative (`docs/user-guide/post-process.md`, `docs/user-guide/examples.md`).
+
 ## [v1.3.0(WIP)+lab/test-quip-error]
 
 ### Test

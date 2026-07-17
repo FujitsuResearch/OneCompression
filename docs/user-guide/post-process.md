@@ -318,7 +318,13 @@ After training, the model can generate responses based on the injected knowledge
 
 ## Saving and Loading LoRA Models
 
-LoRA-applied models contain custom module types (`LoRAGPTQLinear`) that are not compatible with the standard safetensors format. Use the dedicated PyTorch `.pt` save/load methods instead:
+LoRA-applied models are saved and loaded with the standard
+`save_quantized_model()` / `load_quantized_model()` API. When `LoRAGPTQLinear`
+modules are present, `save_quantized_model()` writes the base quantized weights
+as HF-compatible safetensors and the LoRA weights as a PEFT-format adapter
+sidecar (`lora_adapter/adapter_model.safetensors` + `adapter_config.json`).
+`load_quantized_model()` auto-detects the sidecar and re-wraps the matching
+layers with `LoRAGPTQLinear` on load.
 
 ### Save
 
@@ -326,19 +332,48 @@ LoRA-applied models contain custom module types (`LoRAGPTQLinear`) that are not 
 # After quantization + LoRA SFT
 runner.run()
 
-# Save the LoRA-applied model (PyTorch .pt format)
-runner.save_quantized_model_pt("./my_model_lora")
+# Save the LoRA-applied model (HF-compatible safetensors + PEFT sidecar)
+runner.save_quantized_model("./my_model_lora")
 ```
 
 ### Load
 
 ```python
+from onecomp import load_quantized_model
+
+# The LoRA adapter sidecar is auto-detected and re-applied on load.
+model, tokenizer = load_quantized_model("./my_model_lora")
+```
+
+!!! info "save_quantized_model vs save_quantized_model_pt"
+    | Method | Format | Use Case |
+    |--------|--------|----------|
+    | `save_quantized_model()` | safetensors (HF-compatible; LoRA via PEFT sidecar) | **Recommended** for all models, including LoRA post-processed ones |
+    | `save_quantized_model_pt()` | PyTorch `.pt` | Legacy / research-only alternative (see below) |
+
+    Similarly, use `load_quantized_model()` for safetensors and, only for legacy
+    `.pt` checkpoints, `load_quantized_model_pt()`.
+
+### Legacy `.pt` save/load (research/development only)
+
+The PyTorch `.pt` format (`save_quantized_model_pt()` /
+`load_quantized_model_pt()`) serializes full custom module objects (e.g.
+`LoRAGPTQLinear`) directly. It predates the safetensors sidecar flow above and
+is **not recommended** for general or production use. Keep using it only for
+research and development -- for example, to quickly experiment with a new
+post-process before it has a safetensors-compatible `load_quantized_model()`
+path.
+
+```python
 from onecomp import load_quantized_model_pt
 
-# The .pt loader uses torch.load(weights_only=False) and requires an explicit
-# opt-in. Only enable it for models from a fully trusted source (see warning).
+# Save (legacy .pt format)
+runner.save_quantized_model_pt("./my_model_lora_pt")
+
+# Load -- opt-in required: the .pt loader uses torch.load(weights_only=False),
+# which can execute code from a malicious file. Trusted sources only.
 model, tokenizer = load_quantized_model_pt(
-    "./my_model_lora", allow_unsafe_deserialization=True
+    "./my_model_lora_pt", allow_unsafe_deserialization=True
 )
 ```
 
@@ -349,14 +384,6 @@ model, tokenizer = load_quantized_model_pt(
     unless you pass `allow_unsafe_deserialization=True`. Only opt in for models
     you produced yourself or trust completely; otherwise use the safetensors
     `load_quantized_model()`, which does not execute code.
-
-!!! info "save_quantized_model vs save_quantized_model_pt"
-    | Method | Format | Use Case |
-    |--------|--------|----------|
-    | `save_quantized_model()` | safetensors (HF-compatible) | Standard quantized models (no post-processing) |
-    | `save_quantized_model_pt()` | PyTorch `.pt` | Post-processed models (e.g. LoRA adapters) |
-
-    Similarly, use `load_quantized_model()` for safetensors and `load_quantized_model_pt()` for `.pt` files.
 
 ---
 
