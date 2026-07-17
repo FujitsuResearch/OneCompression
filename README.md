@@ -298,8 +298,13 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | Rotation Preprocessing | [example_llama_preprocess_rtn.py](./example/pre_process/example_llama_preprocess_rtn.py) | Rotation preprocessing + RTN (TinyLlama) |
 | | [example_preprocess_save_load.py](./example/pre_process/example_preprocess_save_load.py) | Save and load rotation-preprocessed quantized models |
 | Post-Process | [example_blockwise_ptq.py](./example/post_process/example_blockwise_ptq.py) | Block-wise PTQ (GPTQ + Phase 1 & CBQ) |
+| | [example_global_ptq.py](./example/post_process/example_global_ptq.py) | Global PTQ post-process with GPTQ backend |
+| | [example_global_ptq_dbf.py](./example/post_process/example_global_ptq_dbf.py) | Global PTQ post-process with DBF backend |
+| | [example_global_ptq_distributed.py](./example/post_process/example_global_ptq_distributed.py) | Multi-GPU Global PTQ with DeepSpeed / torchrun |
 | | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
 | | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
+| | [example_lora_sft_knowledge_jointq.py](./example/post_process/example_lora_sft_knowledge_jointq.py) | LoRA SFT knowledge injection on a JointQ-quantized model |
+| | [example_lora_gptq_vllm_inference.py](./example/post_process/example_lora_gptq_vllm_inference.py) | GPTQ + LoRA SFT quantization and vLLM inference |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |

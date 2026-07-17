@@ -208,6 +208,17 @@ class QuantizedModelLoader:
         :meth:`Runner.save_quantized_model_pt`, which preserves custom
         module types (e.g. ``LoRAGPTQLinear`` from LoRA post-processing).
 
+        .. note::
+            This ``.pt`` path is intended for **research and development**
+            use only -- for example, to rapidly experiment with a new
+            post-process before it has a safetensors-compatible
+            :meth:`load_quantized_model` implementation. It is **not
+            recommended** for general or production use, both because of
+            the unsafe-deserialization risk described below and because
+            the ``.pt`` format is not HF-compatible. Prefer the
+            safetensors-based :meth:`load_quantized_model` whenever
+            possible.
+
         The directory must contain:
         - ``model.pt`` (serialized with ``torch.save``)
         - Tokenizer files
