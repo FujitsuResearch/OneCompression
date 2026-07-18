@@ -27,8 +27,8 @@ from onecomp import (
 
 setup_logger()
 
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
-SAVE_DIR = "./tinyllama_gptq4"
+MODEL_ID = "Qwen/Qwen3.6-35B-A3B"
+SAVE_DIR = "./Qwen3.6-35B-A3B_gptq4"
 
 # ── 1. Quantize with GPTQ ────────────────────────────────────
 model_config = ModelConfig(model_id=MODEL_ID, device="cuda:0")

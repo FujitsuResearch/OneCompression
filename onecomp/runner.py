@@ -379,9 +379,12 @@ class Runner:
         target_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
         for q in target_quantizers:
             if q.exclude_layer_keywords is None:
-                q.exclude_layer_keywords = [keyword]
+                q.exclude_layer_keywords = [keyword, "shared_expert_gate"]
             elif keyword not in q.exclude_layer_keywords:
-                q.exclude_layer_keywords = list(q.exclude_layer_keywords) + [keyword]
+                q.exclude_layer_keywords = list(q.exclude_layer_keywords) + [
+                    keyword, 
+                    "shared_expert_gate",
+                ]
 
         self.logger.info(
             "MoE model (num_experts=%d): excluding '%s' layers from "
