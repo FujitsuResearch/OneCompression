@@ -1841,8 +1841,6 @@ class Runner:
                 model.config = orig_model_config_for_restore
 
         tokenizer.save_pretrained(save_directory)
-        if save_format == "full_wrapper":
-            self._save_processor_files_if_available(save_directory)
 
         # Gemma 4 PT models require BOS token for coherent generation but the
         # upstream tokenizer_config.json omits add_bos_token.  Ensure it is
@@ -2074,47 +2072,6 @@ class Runner:
                 json.dump(json_results, f, indent=2, ensure_ascii=False)
 
         return all_results
-
-    def _save_processor_files_if_available(self, save_directory: str) -> None:
-        """Save processor / image processor files required by full-wrapper VLM checkpoints.
-
-        vLLM loads multimodal/full-wrapper checkpoints through Transformers
-        processor utilities.  For VLM configs, tokenizer files alone are not
-        enough: preprocessor_config.json is required for the image processor.
-        """
-        model_id_or_path = self.model_config.get_model_id_or_path()
-
-        try:
-            from transformers import AutoProcessor
-
-            processor = AutoProcessor.from_pretrained(
-                model_id_or_path,
-                trust_remote_code=True,
-            )
-            processor.save_pretrained(save_directory)
-            self.logger.info("Saved processor files from %s", model_id_or_path)
-        except Exception as exc:
-            self.logger.warning(
-                "Could not save AutoProcessor files from %s: %s",
-                model_id_or_path,
-                exc,
-            )
-
-        try:
-            from transformers import AutoImageProcessor
-
-            image_processor = AutoImageProcessor.from_pretrained(
-                model_id_or_path,
-                trust_remote_code=True,
-            )
-            image_processor.save_pretrained(save_directory)
-            self.logger.info("Saved image processor files from %s", model_id_or_path)
-        except Exception as exc:
-            self.logger.warning(
-                "Could not save AutoImageProcessor files from %s: %s",
-                model_id_or_path,
-                exc,
-            )
 
     # ------------------------------------------------------------------
     # Save namespace helpers
