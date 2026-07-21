@@ -1,5 +1,15 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/qwen36_27b_step3] 2026-07-21
+
+### Qwen3.6 vLLM support: full-wrapper quantized model save
+
+- Added a `save_format` parameter (`"auto"` / `"native"` / `"full_wrapper"`, default `"auto"`) to `Runner.save_quantized_model()`. `"full_wrapper"` saves a text-only quantized checkpoint (e.g. Qwen3.6) remapped to the composite `model.language_model.*` state_dict/config namespace that vLLM's full-wrapper VLM loading expects, and additionally saves `AutoProcessor`/`AutoImageProcessor` files (`onecomp/runner.py`)
+
+### Bug fix
+
+- Fixed a `SyntaxError` in `onecomp/utils/blockwise.py` and broken save logic in `Runner.save_quantized_model()` (missing `save_format` parameter, dangling `try` without `except`, undefined variable reference), and removed dead duplicate code (`onecomp/runner.py`)
+
 ## [v1.3.0(WIP)+feature/qwen36_27b_step2] 2026-07-21
 
 ### Bug fix
