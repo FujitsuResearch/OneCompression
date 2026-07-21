@@ -15,12 +15,11 @@ setup_logger()
 
 # Prepare the model
 model_config = ModelConfig(
-    model_id="Qwen/Qwen3.6-27B",
-    device="cuda",
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T", device="cuda:0"
 )
 
 # Configure the quantization method
-gptq = GPTQ(wbits=4)
+gptq = GPTQ(wbits=3)
 
 # Configure the runner
 runner = Runner(
