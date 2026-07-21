@@ -108,26 +108,7 @@ class QuantizedModelLoader:
         # is intentional because some wrapper-only components may be absent, but
         # critical language-model and quantized-buffer mismatches must fail fast.
         incompat = model.load_state_dict(state_dict, strict=False, assign=True)
-        cls._check_load_state_dict_result(incompat)
-
-        # ``assign=True`` swaps Parameter objects in place, which breaks the
-        # weight sharing established by ``from_config`` for models with
-        # ``tie_word_embeddings=True``.  Concretely, ``embed_tokens.weight``
-        # gets replaced by the bf16 tensor from the checkpoint while
-        # ``lm_head.weight`` keeps its original (often fp16) tensor, leading
-        # to a dtype mismatch at the final ``F.linear`` call during
-        # generation.  Re-tie when (a) the config tree still asks for it
-        # (multi-config VLMs such as Llama 3.2-Vision place the flag in
-        # ``text_config`` rather than at the top level, so we walk the
-        # nested configs) and (b) ``lm_head`` is still a plain
-        # ``nn.Linear`` -- if it has been replaced by a quantized layer
-        # (e.g. ``GPTQLinear``) it has no ``weight`` attribute to retie
-        # and tying would be meaningless.
-        if cls._should_retie_word_embeddings(model.config):
-            lm_head = getattr(model, "lm_head", None)
-            if isinstance(lm_head, torch.nn.Linear):
-                model.tie_weights()
-                logger.info("Re-tied lm_head to embed_tokens after assign-load")
+        cls._retie_lm_head_if_needed(model, incompat)
 
         # Safety net: ``load_state_dict(..., assign=True)`` only replaces
         # parameters whose key in the checkpoint exactly matches the model's
@@ -446,6 +427,42 @@ class QuantizedModelLoader:
                 return True
         return False
 
+    @classmethod
+    def _retie_lm_head_if_needed(cls, model: torch.nn.Module, incompat) -> None:
+        """Validate the just-loaded state_dict and re-tie lm_head if needed.
+
+        ``load_state_dict(..., assign=True)`` swaps Parameter objects in
+        place, which breaks the weight sharing established by
+        ``from_config`` for models with ``tie_word_embeddings=True``.
+        Concretely, ``embed_tokens.weight`` gets replaced by the bf16
+        tensor from the checkpoint while ``lm_head.weight`` keeps its
+        original (often fp16) tensor, leading to a dtype mismatch at the
+        final ``F.linear`` call during generation. Re-tie when (a) the
+        config tree still asks for it (multi-config VLMs such as Llama
+        3.2-Vision place the flag in ``text_config`` rather than at the
+        top level, so we walk the nested configs) and (b) ``lm_head`` is
+        still a plain ``nn.Linear`` -- if it has been replaced by a
+        quantized layer (e.g. ``GPTQLinear``) it has no ``weight``
+        attribute to retie and tying would be meaningless.
+
+        ``lm_head.weight`` is also legitimately absent from the checkpoint
+        for tied-embedding models (HF's own save_pretrained does not
+        duplicate a tensor that shares storage with
+        ``embed_tokens.weight``), so it must not be flagged as a critical
+        missing key by :meth:`_check_load_state_dict_result` when we are
+        about to re-tie it here.
+        """
+        should_retie = cls._should_retie_word_embeddings(model.config) and isinstance(
+            getattr(model, "lm_head", None), torch.nn.Linear
+        )
+        cls._check_load_state_dict_result(
+            incompat,
+            expected_missing={"lm_head.weight"} if should_retie else frozenset(),
+        )
+        if should_retie:
+            model.tie_weights()
+            logger.info("Re-tied lm_head to embed_tokens after assign-load")
+
     @staticmethod
     def _resolve_dtype_from_config(
         config_dict: Dict,
@@ -614,8 +631,11 @@ class QuantizedModelLoader:
                 return candidate
 
         # Generic unique suffix fallback for non-quantized params/buffers.
+        # Try every trailing sub-path, longest (most specific) first, so a
+        # deeper match is preferred over a shorter one that happens to be
+        # unique only by coincidence.
         parts = ckpt_key.split(".")
-        for start in range(max(0, len(parts) - 8), len(parts)):
+        for start in range(len(parts)):
             suffix = ".".join(parts[start:])
             hits = [name for name in model_keys if name.endswith(suffix)]
             if len(hits) == 1:
@@ -1038,9 +1058,18 @@ class QuantizedModelLoader:
         return state_dict
 
     @staticmethod
-    def _check_load_state_dict_result(incompat) -> None:
-        """Raise if critical keys were not loaded."""
-        missing = list(getattr(incompat, "missing_keys", []))
+    def _check_load_state_dict_result(incompat, expected_missing=frozenset()) -> None:
+        """Raise if critical keys were not loaded.
+
+        Args:
+            expected_missing: Keys allowed to be missing without raising,
+                e.g. ``lm_head.weight`` for a tied-embedding model where the
+                checkpoint legitimately omits it and the caller re-ties it
+                after this check.
+        """
+        missing = [
+            k for k in getattr(incompat, "missing_keys", []) if k not in expected_missing
+        ]
         unexpected = list(getattr(incompat, "unexpected_keys", []))
 
         critical_patterns = (
@@ -1104,8 +1133,12 @@ class QuantizedModelLoader:
                 required_attrs = ["qweight", "qzeros", "scales", "g_idx"]
                 nonzero_attrs = {"qweight", "scales"}
             elif cls_name == "DoubleBinaryLinear":
-                required_attrs = ["scaling0", "bp"]
-                nonzero_attrs = {"scaling0", "bp"}
+                # Real attribute names (see DoubleBinaryLinear.__init__ /
+                # from_saved_state): scaling0/scaling2/scaling4 are the
+                # 3 stage scale vectors, bp1/bp3 are the packed binary
+                # weight matrices. There is no plain "scaling"/"bp" attr.
+                required_attrs = ["scaling0", "scaling2", "scaling4", "bp1", "bp3"]
+                nonzero_attrs = {"bp1", "bp3"}
             else:
                 continue
 
