@@ -10,6 +10,10 @@
 
 - Fixed a `SyntaxError` in `onecomp/utils/blockwise.py` and broken save logic in `Runner.save_quantized_model()` (missing `save_format` parameter, dangling `try` without `except`, undefined variable reference), and removed dead duplicate code (`onecomp/runner.py`)
 
+### Test
+
+- Added tests for `save_format`'s namespace-detection/remap helpers and its Qwen3.6-only scoping, plus end-to-end checks that `full_wrapper` restores `model.config` after save and that the default `save_format` remains a no-op for non-Qwen models (`tests/onecomp/runner/test_save_format_full_wrapper.py`)
+
 ## [v1.3.0(WIP)+feature/qwen36_27b_step2] 2026-07-21
 
 ### Bug fix
