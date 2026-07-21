@@ -2180,10 +2180,16 @@ class Runner:
             save_format (str):
                 One of ``"auto"``, ``"native"``, or ``"full_wrapper"``.
                 ``"auto"``/``"native"`` save the model's own state_dict/config
-                namespace as-is (after validating they agree). ``"full_wrapper"``
-                additionally remaps a text-only checkpoint to the composite
-                ``model.language_model.*`` namespace expected by vLLM-style
-                full-wrapper VLM runtimes. Defaults to ``"auto"``.
+                namespace as-is (after validating they agree); use this for
+                all non-VLM models and it is the recommended default.
+                ``"full_wrapper"`` is scoped to Qwen3.6 text-only checkpoints
+                (``model_type`` ``qwen3_5_text`` / ``qwen3_5_moe_text``): it
+                remaps them to the composite ``model.language_model.*``
+                namespace that vLLM's full-wrapper VLM loader expects for
+                ``Qwen3_5ForConditionalGeneration``-style serving. It is
+                **not** a generic "save any VLM for vLLM" option — passing it
+                for any other model (or any model whose original config isn't
+                composite) raises ``RuntimeError``. Defaults to ``"auto"``.
 
         Examples:
             Single quantizer mode:

@@ -55,7 +55,7 @@ def main():
         model_config=model_config,
         quantizer=quantizer,
         calibration_config=calibration_config,
-        qep=False,
+        qep=True,
     )
     # NOTE: The calibration settings above are kept compact so the demo
     # runs fast and may be insufficient for real quantisation.  For
@@ -72,8 +72,11 @@ def main():
     # a single all-at-once forward pass.
     runner.run()
 
-    # Step 2: Save the quantized model
-    runner.save_quantized_model(save_dir)
+    # Step 2: Save the quantized model.
+    # Qwen3.6 quantizes as a text-only checkpoint, so save_format="full_wrapper"
+    # is required to remap it to the composite layout vLLM expects. Omit this
+    # argument (or use the default "auto") for non-Qwen3.6 models.
+    runner.save_quantized_model(save_dir, save_format="full_wrapper")
 
     # Free GPU memory used by quantization before loading vLLM
     del runner
