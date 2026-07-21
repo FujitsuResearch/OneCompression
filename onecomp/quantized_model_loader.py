@@ -97,30 +97,18 @@ class QuantizedModelLoader:
         # model.language_model.layers.* directly.
         state_dict = cls._remap_state_dict_keys(state_dict, model)
 
-        # Replace quantized layers with empty modules
-        cls._replace_quantized_layers(model, state_dict, quant_config)
+        # Replace quantized layers with empty modules and align quantized
+        # tensor keys with the actual module names in the model built from
+        # config.  This is required when the saved checkpoint and the
+        # from_config model use different wrapper prefixes, e.g.
+        # model.language_model.layers.* vs model.layers.*.
+        state_dict = cls._replace_quantized_layers(model, state_dict, quant_config)
 
-        # Load all weights (quantized + non-quantized) in one go
-        model.load_state_dict(state_dict, strict=False, assign=True)
-
-        # ``assign=True`` swaps Parameter objects in place, which breaks the
-        # weight sharing established by ``from_config`` for models with
-        # ``tie_word_embeddings=True``.  Concretely, ``embed_tokens.weight``
-        # gets replaced by the bf16 tensor from the checkpoint while
-        # ``lm_head.weight`` keeps its original (often fp16) tensor, leading
-        # to a dtype mismatch at the final ``F.linear`` call during
-        # generation.  Re-tie when (a) the config tree still asks for it
-        # (multi-config VLMs such as Llama 3.2-Vision place the flag in
-        # ``text_config`` rather than at the top level, so we walk the
-        # nested configs) and (b) ``lm_head`` is still a plain
-        # ``nn.Linear`` -- if it has been replaced by a quantized layer
-        # (e.g. ``GPTQLinear``) it has no ``weight`` attribute to retie
-        # and tying would be meaningless.
-        if cls._should_retie_word_embeddings(model.config):
-            lm_head = getattr(model, "lm_head", None)
-            if isinstance(lm_head, torch.nn.Linear):
-                model.tie_weights()
-                logger.info("Re-tied lm_head to embed_tokens after assign-load")
+        # Load all weights (quantized + non-quantized) in one go.  strict=False
+        # is intentional because some wrapper-only components may be absent, but
+        # critical language-model and quantized-buffer mismatches must fail fast.
+        incompat = model.load_state_dict(state_dict, strict=False, assign=True)
+        cls._retie_lm_head_if_needed(model, incompat)
 
         # Safety net: ``load_state_dict(..., assign=True)`` only replaces
         # parameters whose key in the checkpoint exactly matches the model's
@@ -147,6 +135,8 @@ class QuantizedModelLoader:
                 target_dtype,
                 converted,
             )
+
+        cls._assert_quantized_modules_loaded(model)
 
         cls._load_generation_config(model, save_directory)
 
@@ -437,6 +427,42 @@ class QuantizedModelLoader:
                 return True
         return False
 
+    @classmethod
+    def _retie_lm_head_if_needed(cls, model: torch.nn.Module, incompat) -> None:
+        """Validate the just-loaded state_dict and re-tie lm_head if needed.
+
+        ``load_state_dict(..., assign=True)`` swaps Parameter objects in
+        place, which breaks the weight sharing established by
+        ``from_config`` for models with ``tie_word_embeddings=True``.
+        Concretely, ``embed_tokens.weight`` gets replaced by the bf16
+        tensor from the checkpoint while ``lm_head.weight`` keeps its
+        original (often fp16) tensor, leading to a dtype mismatch at the
+        final ``F.linear`` call during generation. Re-tie when (a) the
+        config tree still asks for it (multi-config VLMs such as Llama
+        3.2-Vision place the flag in ``text_config`` rather than at the
+        top level, so we walk the nested configs) and (b) ``lm_head`` is
+        still a plain ``nn.Linear`` -- if it has been replaced by a
+        quantized layer (e.g. ``GPTQLinear``) it has no ``weight``
+        attribute to retie and tying would be meaningless.
+
+        ``lm_head.weight`` is also legitimately absent from the checkpoint
+        for tied-embedding models (HF's own save_pretrained does not
+        duplicate a tensor that shares storage with
+        ``embed_tokens.weight``), so it must not be flagged as a critical
+        missing key by :meth:`_check_load_state_dict_result` when we are
+        about to re-tie it here.
+        """
+        should_retie = cls._should_retie_word_embeddings(model.config) and isinstance(
+            getattr(model, "lm_head", None), torch.nn.Linear
+        )
+        cls._check_load_state_dict_result(
+            incompat,
+            expected_missing={"lm_head.weight"} if should_retie else frozenset(),
+        )
+        if should_retie:
+            model.tie_weights()
+            logger.info("Re-tied lm_head to embed_tokens after assign-load")
+
     @staticmethod
     def _resolve_dtype_from_config(
         config_dict: Dict,
@@ -557,29 +583,64 @@ class QuantizedModelLoader:
         return remapped
 
     @staticmethod
+    def _known_state_dict_key_rewrite_candidates(ckpt_key: str) -> List[str]:
+        """Return candidate keys for known save/load prefix drift."""
+        candidates: List[str] = []
+
+        # Gemma-like:
+        # model.language_model.model.layers.* -> model.language_model.layers.*
+        if ".language_model.model." in ckpt_key:
+            candidates.append(
+                ckpt_key.replace(".language_model.model.", ".language_model.", 1)
+            )
+
+        # Composite wrapper -> text-only:
+        # model.language_model.layers.* -> model.layers.*
+        if ckpt_key.startswith("model.language_model."):
+            candidates.append("model." + ckpt_key[len("model.language_model.") :])
+
+        if ckpt_key.startswith("language_model.model."):
+            candidates.append("model." + ckpt_key[len("language_model.model.") :])
+
+        if ckpt_key.startswith("language_model."):
+            candidates.append("model." + ckpt_key[len("language_model.") :])
+
+        return list(dict.fromkeys(candidates))
+
+    @staticmethod
     def _apply_known_state_dict_key_rewrites(ckpt_key: str) -> Optional[str]:
         """Return a rewritten key for known save/load prefix drift, else None."""
-        if ".language_model.model." in ckpt_key:
-            return ckpt_key.replace(".language_model.model.", ".language_model.", 1)
-        if ckpt_key.startswith("language_model.model."):
-            return "model." + ckpt_key.replace("language_model.model.", "language_model.", 1)
-        return None
+        candidates = QuantizedModelLoader._known_state_dict_key_rewrite_candidates(
+            ckpt_key
+        )
+        return candidates[0] if candidates else None
 
     @staticmethod
     def _resolve_state_dict_key(ckpt_key: str, model_keys: set) -> Optional[str]:
-        """Return the remapped key for ckpt_key, or None if unknown."""
-        rewritten = QuantizedModelLoader._apply_known_state_dict_key_rewrites(ckpt_key)
-        if rewritten is not None:
-            return rewritten
+        """Return the remapped key for ckpt_key, or None if unknown.
 
-        # Suffix fallback for other prefix drift: only when the suffix maps
-        # uniquely onto the current model (non-quantized params/buffers).
-        match = re.search(r"(layers\.\d+(?:\..+)*)$", ckpt_key)
-        if match:
-            suffix = match.group(1)
+        Important:
+            Only return a candidate if it exists in model_keys. Quantized
+            buffers do not exist before _replace_quantized_layers(), so they
+            are handled in _replace_quantized_layers() instead.
+        """
+        for candidate in QuantizedModelLoader._known_state_dict_key_rewrite_candidates(
+            ckpt_key
+        ):
+            if candidate in model_keys:
+                return candidate
+
+        # Generic unique suffix fallback for non-quantized params/buffers.
+        # Try every trailing sub-path, longest (most specific) first, so a
+        # deeper match is preferred over a shorter one that happens to be
+        # unique only by coincidence.
+        parts = ckpt_key.split(".")
+        for start in range(len(parts)):
+            suffix = ".".join(parts[start:])
             hits = [name for name in model_keys if name.endswith(suffix)]
             if len(hits) == 1:
                 return hits[0]
+
         return None
 
     @staticmethod
@@ -598,6 +659,183 @@ class QuantizedModelLoader:
             raise FileNotFoundError(
                 f"No model weights found in {directory}. " "Expected *.safetensors files."
             )
+        return state_dict
+
+    @staticmethod
+    def _flatten_module_names(module_list) -> List[str]:
+        """Flatten modules_in_block_to_quantize.
+
+        Supports both:
+          ["model.layers.0.mlp.up_proj", ...]
+        and nested forms:
+          [["...q_proj", "...k_proj"], ["...up_proj"]]
+        """
+        names: List[str] = []
+
+        def rec(x):
+            if isinstance(x, str):
+                names.append(x)
+            elif isinstance(x, (list, tuple)):
+                for y in x:
+                    rec(y)
+
+        rec(module_list)
+        return names
+
+    @staticmethod
+    def _resolve_module_name(
+        name: str,
+        name_to_module: Dict[str, torch.nn.Module],
+    ) -> Optional[str]:
+        """Resolve a quantized module name to the actual model module path."""
+        if name in name_to_module:
+            return name
+
+        match = re.search(r"(layers\.\d+\..+)$", name)
+        if not match:
+            return None
+
+        suffix = match.group(1)
+        hits = [n for n in name_to_module if n.endswith(suffix)]
+
+        if len(hits) == 1:
+            return hits[0]
+
+        if len(hits) > 1:
+            lang_hits = [h for h in hits if "language_model" in h]
+            if len(lang_hits) == 1:
+                return lang_hits[0]
+            raise RuntimeError(
+                f"Ambiguous module suffix match for {name}: {hits[:20]}"
+            )
+
+        return None
+
+    @staticmethod
+    def _build_state_dict_prefix_map(state_dict: dict) -> Dict[str, List[str]]:
+        """Build prefix -> full keys map.
+
+        Example:
+          model.layers.0.mlp.up_proj.qweight
+          -> prefix: model.layers.0.mlp.up_proj
+        """
+        prefix_map: Dict[str, List[str]] = {}
+
+        for key in state_dict:
+            prefix, sep, _field = key.rpartition(".")
+            if not sep:
+                continue
+            prefix_map.setdefault(prefix, []).append(key)
+
+        return prefix_map
+
+    @staticmethod
+    def _find_layer_state(
+        target_name: str,
+        state_dict: dict,
+        sd_prefix_map: Dict[str, List[str]],
+    ) -> Tuple[dict, Optional[str]]:
+        """Find tensors belonging to a quantized layer.
+
+        Returns:
+            (layer_sd, source_prefix)
+
+        layer_sd is field-name based:
+            {"qweight": tensor, "scales": tensor, ...}
+            {"scaling0": tensor, "bp": tensor, ...}
+
+        This is intentionally quantizer-agnostic.
+        """
+        exact_keys = sd_prefix_map.get(target_name)
+        if exact_keys:
+            return (
+                {
+                    k[len(target_name) + 1 :] : state_dict[k]
+                    for k in exact_keys
+                },
+                target_name,
+            )
+
+        match = re.search(r"(layers\.\d+\..+)$", target_name)
+        if not match:
+            return {}, None
+
+        suffix = match.group(1)
+        hits = [prefix for prefix in sd_prefix_map if prefix.endswith(suffix)]
+
+        if len(hits) == 1:
+            source_prefix = hits[0]
+            return (
+                {
+                    k[len(source_prefix) + 1 :] : state_dict[k]
+                    for k in sd_prefix_map[source_prefix]
+                },
+                source_prefix,
+            )
+
+        if len(hits) > 1:
+            lang_hits = [h for h in hits if "language_model" in h]
+            if len(lang_hits) == 1:
+                source_prefix = lang_hits[0]
+                return (
+                    {
+                        k[len(source_prefix) + 1 :] : state_dict[k]
+                        for k in sd_prefix_map[source_prefix]
+                    },
+                    source_prefix,
+                )
+
+            raise RuntimeError(
+                f"Ambiguous state_dict prefix for {target_name}, "
+                f"suffix={suffix}: {hits[:20]}"
+            )
+
+        return {}, None
+
+    @staticmethod
+    def _materialize_layer_state_dict(
+        state_dict: dict,
+        *,
+        source_prefix: str,
+        target_prefix: str,
+        layer_sd: dict,
+    ) -> dict:
+        """Move one layer's tensors from source_prefix to target_prefix.
+
+        This is the key generic fix.
+
+        GPTQ:
+          source.qweight -> target.qweight
+          source.scales  -> target.scales
+
+        DBF:
+          source.scaling0 -> target.scaling0
+          source.bp       -> target.bp
+
+        Future quantizers:
+          source.<any_field> -> target.<same_field>
+        """
+        if not layer_sd:
+            raise RuntimeError(f"No layer state found for {target_prefix}")
+
+        if source_prefix == target_prefix:
+            return state_dict
+
+        for field, tensor in layer_sd.items():
+            source_key = f"{source_prefix}.{field}"
+            target_key = f"{target_prefix}.{field}"
+
+            if target_key in state_dict and target_key != source_key:
+                raise RuntimeError(
+                    "State dict key collision while remapping quantized layer: "
+                    f"{source_key} -> {target_key}"
+                )
+
+            state_dict[target_key] = tensor
+
+            if source_key in state_dict and source_key != target_key:
+                del state_dict[source_key]
+
         return state_dict
 
     @staticmethod
@@ -657,13 +895,12 @@ class QuantizedModelLoader:
         return hits[0] if hits else None
 
     @staticmethod
-    def _replace_quantized_layers(model, state_dict: dict, quant_config: dict):
-        """Replace ``nn.Linear`` with empty quantized modules for layers in config.
+    def _replace_quantized_layers(model, state_dict: dict, quant_config: dict) -> dict:
+        """Replace ``nn.Linear`` with empty quantized modules.
 
-        *quant_config* must contain ``modules_in_block_to_quantize`` (list of layer
-        names). Modules are created with zero buffers of the right shape; *state_dict*
-        is left unchanged so the caller can ``load_state_dict(state_dict)`` once to
-        fill all weights.
+        In addition, materialize quantized tensor keys from checkpoint source
+        prefixes to actual model module prefixes. This avoids GPTQ/DBF/OneBit
+        buffers staying all-zero when config and checkpoint prefixes differ.
         """
         quant_method = quant_config["quant_method"]
         # mixed_* use the same tensor format as the base method (e.g. mixed_gptq -> gptq)
@@ -695,12 +932,14 @@ class QuantizedModelLoader:
             )
         module_list = quant_config["modules_in_block_to_quantize"]
         if not module_list:
-            return  # nothing to replace
+            return state_dict
 
+        flat_module_list = QuantizedModelLoader._flatten_module_names(module_list)
         quantization_bits_list = quant_config.get("quantization_bits") or []
         if quant_method and quant_method.startswith("mixed_") and quantization_bits_list:
-            # Build from quantization_bits; use module_list[0] to infer layer name prefix
-            first_name = module_list[0]
+            # Build from quantization_bits; use the first module name to infer
+            # the layer prefix, while still supporting nested module_list forms.
+            first_name = flat_module_list[0] if flat_module_list else "model.layers.0"
             prefix_match = re.match(r"^(.+\.layers)\.\d+\.", first_name)
             prefix = prefix_match.group(1) if prefix_match else "model.layers"
             quantized_names = sorted(
@@ -710,61 +949,76 @@ class QuantizedModelLoader:
                 for suffix in layer_cfg
             )
         else:
-            quantized_names = sorted(module_list)
+            quantized_names = sorted(flat_module_list)
 
         name_to_module = dict(model.named_modules())
+        sd_prefix_map = QuantizedModelLoader._build_state_dict_prefix_map(state_dict)
 
-        # For VLMs with tied/shared submodules (e.g. Gemma3), the
-        # named_modules() path may differ from the state_dict key prefix.
-        # Build a suffix -> state_dict prefix map to handle this.
-        sd_prefix_map: dict[str, str] = {}
-        for key in state_dict:
-            parts = key.rsplit(".", 1)
-            if len(parts) == 2:
-                sd_prefix_map.setdefault(parts[0], parts[0])
+        replaced = 0
+        missing_modules = []
+        missing_states = []
 
-        def _get_layer_sd(name: str) -> dict:
-            prefix = name + "."
-            result = {k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)}
-            if result:
-                return result
-            # Fallback: match by layer suffix (e.g. "layers.0.self_attn.q_proj")
-            alt_name = QuantizedModelLoader._resolve_name_by_layer_suffix(name, sd_prefix_map)
-            if alt_name:
-                alt_prefix = alt_name + "."
-                return {
-                    k[len(alt_prefix) :]: v
-                    for k, v in state_dict.items()
-                    if k.startswith(alt_prefix)
-                }
-            return {}
+        for saved_name in quantized_names:
+            target_name = QuantizedModelLoader._resolve_module_name(
+                saved_name,
+                name_to_module,
+            )
 
-        for name in quantized_names:
-            if name not in name_to_module:
+            if target_name is None:
+                missing_modules.append(saved_name)
                 continue
 
-            layer_sd = _get_layer_sd(name)
+            layer_sd, source_prefix = QuantizedModelLoader._find_layer_state(
+                target_name,
+                state_dict,
+                sd_prefix_map,
+            )
 
-            linear = name_to_module[name]
+            if not layer_sd:
+                layer_sd, source_prefix = QuantizedModelLoader._find_layer_state(
+                    saved_name,
+                    state_dict,
+                    sd_prefix_map,
+                )
+
+            if not layer_sd or source_prefix is None:
+                missing_states.append((saved_name, target_name))
+                continue
+
+            state_dict = QuantizedModelLoader._materialize_layer_state_dict(
+                state_dict,
+                source_prefix=source_prefix,
+                target_prefix=target_name,
+                layer_sd=layer_sd,
+            )
+
+            linear = name_to_module[target_name]
             in_features, out_features = linear.in_features, linear.out_features
 
             if effective_method == "gptq":
-                layer_wbits = resolve_gptq_layer_wbits(name, quant_config)
-                layer_groupsize = resolve_gptq_layer_group_size(name, quant_config)
+                layer_wbits = resolve_gptq_layer_wbits(saved_name, quant_config)
+                layer_groupsize = resolve_gptq_layer_group_size(saved_name, quant_config)
                 quantized_module = GPTQLinear.from_saved_state(
                     layer_sd,
                     in_features=in_features,
                     out_features=out_features,
                     wbits=layer_wbits,
                     groupsize=layer_groupsize,
-                    actorder=get_quant_param(quant_config, "desc_act", "actorder", default=False),
+                    actorder=get_quant_param(
+                        quant_config,
+                        "desc_act",
+                        "actorder",
+                        default=False,
+                    ),
                     empty=True,
                     checkpoint_format=get_quant_param(
-                        quant_config, "checkpoint_format", default="gptq"
+                        quant_config,
+                        "checkpoint_format",
+                        default="gptq",
                     ),
                 )
             elif effective_method == "dbf":
-                layer_target_bits = resolve_dbf_layer_bits(name, quant_config)
+                layer_target_bits = resolve_dbf_layer_bits(saved_name, quant_config)
                 quantized_module = DoubleBinaryLinear.from_saved_state(
                     layer_sd,
                     in_features=in_features,
@@ -784,7 +1038,137 @@ class QuantizedModelLoader:
                     f"Unknown quant_method: {quant_method} (effective: {effective_method})"
                 )
 
-            QuantizedModelLoader._set_module_by_name(model, name, quantized_module)
+            QuantizedModelLoader._set_module_by_name(model, target_name, quantized_module)
+            replaced += 1
+
+        if missing_modules or missing_states:
+            raise RuntimeError(
+                "Failed to replace/load all quantized layers.\n"
+                f"expected={len(quantized_names)}, replaced={replaced}\n"
+                f"missing_modules={missing_modules[:50]}\n"
+                f"missing_states={missing_states[:50]}"
+            )
+
+        logger.info(
+            "Replaced %d %s quantized layer(s)",
+            replaced,
+            effective_method,
+        )
+
+        return state_dict
+
+    @staticmethod
+    def _check_load_state_dict_result(incompat, expected_missing=frozenset()) -> None:
+        """Raise if critical keys were not loaded.
+
+        Args:
+            expected_missing: Keys allowed to be missing without raising,
+                e.g. ``lm_head.weight`` for a tied-embedding model where the
+                checkpoint legitimately omits it and the caller re-ties it
+                after this check.
+        """
+        missing = [
+            k for k in getattr(incompat, "missing_keys", []) if k not in expected_missing
+        ]
+        unexpected = list(getattr(incompat, "unexpected_keys", []))
+
+        critical_patterns = (
+            "embed_tokens",
+            "lm_head",
+            ".qweight",
+            ".qzeros",
+            ".scales",
+            ".g_idx",
+            ".scaling0",
+            ".bp",
+        )
+
+        critical_missing = [
+            k
+            for k in missing
+            if (
+                k.endswith("norm.weight")
+                or any(p in k for p in critical_patterns)
+            )
+        ]
+
+        critical_unexpected = [
+            k
+            for k in unexpected
+            if (
+                k.endswith("norm.weight")
+                or any(p in k for p in critical_patterns)
+            )
+        ]
+
+        if critical_missing or critical_unexpected:
+            raise RuntimeError(
+                "Critical state_dict mismatch after quantized model loading.\n"
+                f"critical_missing={len(critical_missing)}\n"
+                + "\n".join(f"  MISSING: {k}" for k in critical_missing[:80])
+                + "\n"
+                f"critical_unexpected={len(critical_unexpected)}\n"
+                + "\n".join(f"  UNEXPECTED: {k}" for k in critical_unexpected[:80])
+            )
+
+        if missing:
+            logger.warning("Non-critical missing keys: %d", len(missing))
+            for k in missing[:20]:
+                logger.warning("  missing: %s", k)
+
+        if unexpected:
+            logger.warning("Non-critical unexpected keys: %d", len(unexpected))
+            for k in unexpected[:20]:
+                logger.warning("  unexpected: %s", k)
+
+    @staticmethod
+    def _assert_quantized_modules_loaded(model: torch.nn.Module) -> None:
+        """Detect all-zero or invalid quantized buffers after loading."""
+        bad = []
+
+        for name, module in model.named_modules():
+            cls_name = module.__class__.__name__
+
+            if cls_name == "GPTQLinear":
+                required_attrs = ["qweight", "qzeros", "scales", "g_idx"]
+                nonzero_attrs = {"qweight", "scales"}
+            elif cls_name == "DoubleBinaryLinear":
+                # Real attribute names (see DoubleBinaryLinear.__init__ /
+                # from_saved_state): scaling0/scaling2/scaling4 are the
+                # 3 stage scale vectors, bp1/bp3 are the packed binary
+                # weight matrices. There is no plain "scaling"/"bp" attr.
+                required_attrs = ["scaling0", "scaling2", "scaling4", "bp1", "bp3"]
+                nonzero_attrs = {"bp1", "bp3"}
+            else:
+                continue
+
+            for attr in required_attrs:
+                if not hasattr(module, attr):
+                    bad.append((name, attr, "missing"))
+                    continue
+
+                tensor = getattr(module, attr)
+
+                if not isinstance(tensor, torch.Tensor):
+                    bad.append((name, attr, "not_tensor"))
+                    continue
+
+                if tensor.numel() == 0:
+                    bad.append((name, attr, "empty"))
+                    continue
+
+                if not torch.isfinite(tensor.detach().float()).all().item():
+                    bad.append((name, attr, "non_finite"))
+                    continue
+
+                if attr in nonzero_attrs and torch.count_nonzero(tensor.detach()).item() == 0:
+                    bad.append((name, attr, "all_zero"))
+
+        if bad:
+            raise RuntimeError(
+                f"Invalid quantized module buffers detected: {len(bad)}\n"
+                + "\n".join(f"  {x}" for x in bad[:80])
+            )
 
     @staticmethod
     def _apply_lora_adapters_from_sidecar(model, save_directory: str) -> int:
