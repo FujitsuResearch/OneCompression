@@ -177,23 +177,29 @@ def get_blocks_and_inputs(
 
     blocks = _get_blocks(model)
 
-
-
     # Detect models with heterogeneous layer types (e.g. Gemma4 with
     # full_attention / sliding_attention)
     blocks_parent = _find_blocks_parent(model, blocks)
     layer_types = getattr(getattr(blocks_parent, "config", None), "layer_types", None)
     unique_layer_types = set(layer_types) if layer_types else set()
 
-    is_gemma_like_mixed_attention = unique_layer_types <= {
-        "full_attention",
-        "sliding_attention",
-    } and len(unique_layer_types) > 1
+    is_gemma_like_mixed_attention = (
+        unique_layer_types
+        <= {
+            "full_attention",
+            "sliding_attention",
+        }
+        and len(unique_layer_types) > 1
+    )
 
-    is_qwen35_like_hybrid = unique_layer_types <= {
-        "linear_attention",
-        "full_attention",
-    } and "linear_attention" in unique_layer_types
+    is_qwen35_like_hybrid = (
+        unique_layer_types
+        <= {
+            "linear_attention",
+            "full_attention",
+        }
+        and "linear_attention" in unique_layer_types
+    )
 
     has_mixed_types = is_gemma_like_mixed_attention or is_qwen35_like_hybrid
 
@@ -306,12 +312,6 @@ def _compute_per_type_attention_masks(blocks_parent, kwargs, unique_layer_types)
         create_sliding_window_causal_mask,
     )
 
-
-    from transformers.masking_utils import (
-        create_causal_mask,
-        create_sliding_window_causal_mask,
-    )
-
     position_ids = kwargs.get("position_ids")
     if position_ids is None:
         return None
@@ -331,10 +331,10 @@ def _compute_per_type_attention_masks(blocks_parent, kwargs, unique_layer_types)
         }
     else:
         _mask_creators = {
-        "full_attention": create_causal_mask,
-        "sliding_attention": create_sliding_window_causal_mask,
+            "full_attention": create_causal_mask,
+            "sliding_attention": create_sliding_window_causal_mask,
         }
-        
+
     mask_map = {}
     for lt in unique_layer_types:
         creator = _mask_creators.get(lt)
@@ -443,6 +443,7 @@ def _get_block_layer_type(block: nn.Module) -> str | None:
         or getattr(getattr(block, "self_attn", None), "layer_type", None)
         or getattr(getattr(block, "linear_attn", None), "layer_type", None)
     )
+
 
 @torch.no_grad()
 def forward_input(
