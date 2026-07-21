@@ -27,10 +27,12 @@ from .lpcd import LPCDConfig
 from .model_config import ModelConfig
 from .qep import QEPConfig
 from .quantizer import GPTQ, Quantizer
-from .quantizer.autobit import AutoBitQuantizer
+from .quantizer.autobit import AssignmentStrategy, AutoBitQuantizer
+from .quantizer.autobit.dbf_fallback import MPS_DBF_FALLBACK_ERROR
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
 from .utils import empty_cache
+from .utils.device import is_mps_device
 from .utils.lora import LORA_ADAPTER_SUBDIR
 from .utils.quantization_progress import QuantizationProgressTracker
 
@@ -327,6 +329,36 @@ class Runner:
                     f"Set the same calibration_dataset in both "
                     f"CalibrationConfig objects."
                 )
+
+        # MPS device validation: only GPTQ (or AutoBitQuantizer whose
+        # candidates are all GPTQ, without DBF fallback) is supported on MPS
+        device = self.model_config.device
+        if is_mps_device(device):
+            if self.multi_gpu:
+                raise ValueError("multi_gpu is not supported on MPS device.")
+            all_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
+            for i, q in enumerate(all_quantizers):
+                label = f"quantizers[{i}]" if self.quantizers else "quantizer"
+                if isinstance(q, AutoBitQuantizer):
+                    for j, cand in enumerate(q.quantizers):
+                        if not isinstance(cand, GPTQ):
+                            raise ValueError(
+                                f"{label}.quantizers[{j}] ({type(cand).__name__}) "
+                                f"is not supported on MPS device. "
+                                "AutoBitQuantizer on MPS requires all candidate "
+                                "quantizers to be GPTQ."
+                            )
+                    if (
+                        q.auto_dbf
+                        and q.assignment_strategy != AssignmentStrategy.MANUAL
+                        and q._needs_dbf_only()
+                    ):
+                        raise ValueError(MPS_DBF_FALLBACK_ERROR)
+                elif not isinstance(q, GPTQ):
+                    raise ValueError(
+                        f"{label} ({type(q).__name__}) is not supported on MPS device. "
+                        "Only GPTQ quantization supports MPS."
+                    )
 
     def _exclude_moe_router_if_needed(self):
         """Exclude MoE router layers from quantization.
