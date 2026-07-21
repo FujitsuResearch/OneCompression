@@ -27,15 +27,12 @@ from .lpcd import LPCDConfig
 from .model_config import ModelConfig
 from .qep import QEPConfig
 from .quantizer import GPTQ, Quantizer
-from .quantizer.autobit import AssignmentStrategy, AutoBitQuantizer
-from .quantizer.autobit.dbf_fallback import MPS_DBF_FALLBACK_ERROR
+from .quantizer.autobit import AutoBitQuantizer
 from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
 from .utils import empty_cache
-from .utils.device import is_mps_device
 from .utils.lora import LORA_ADAPTER_SUBDIR
 from .utils.quantization_progress import QuantizationProgressTracker
-from .log import setup_logger
 
 
 class Runner:
@@ -318,38 +315,6 @@ class Runner:
                     f"QEP-compatible candidates)."
                 )
 
-        # MPS device validation: only GPTQ is supported on MPS.
-        # AutoBitQuantizer is allowed only when all candidates are GPTQ and
-        # DBF fallback cannot be selected implicitly.
-        device = self.model_config.device
-        if is_mps_device(device):
-            if self.multi_gpu:
-                raise ValueError("multi_gpu is not supported on MPS device.")
-
-            all_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
-            for i, q in enumerate(all_quantizers):
-                label = f"quantizers[{i}]" if self.quantizers else "quantizer"
-                if isinstance(q, AutoBitQuantizer):
-                    for j, cand in enumerate(q.quantizers):
-                        if not isinstance(cand, GPTQ):
-                            raise ValueError(
-                                f"{label}.quantizers[{j}] ({type(cand).__name__}) "
-                                f"is not supported on MPS device.\n"
-                                "AutoBitQuantizer on MPS requires all candidate "
-                                "quantizers to be GPTQ."
-                            )
-                    if (
-                        q.auto_dbf
-                        and q.assignment_strategy != AssignmentStrategy.MANUAL
-                        and q._needs_dbf_only()
-                    ):
-                        raise ValueError(MPS_DBF_FALLBACK_ERROR)
-                elif not isinstance(q, GPTQ):
-                    raise ValueError(
-                        f"{label} ({type(q).__name__}) is not supported on MPS device. "
-                        "Only GPTQ quantization supports MPS."
-                    )
-
         # Cross-validate calibration_dataset when AutoBitQuantizer is used
         quantizer = self.quantizer or (self.quantizers[0] if self.quantizers else None)
         if isinstance(quantizer, AutoBitQuantizer) and quantizer.calibration_config is not None:
@@ -362,36 +327,6 @@ class Runner:
                     f"Set the same calibration_dataset in both "
                     f"CalibrationConfig objects."
                 )
-
-        # MPS device validation: only GPTQ (or AutoBitQuantizer whose
-        # candidates are all GPTQ, without DBF fallback) is supported on MPS
-        device = self.model_config.device
-        if is_mps_device(device):
-            if self.multi_gpu:
-                raise ValueError("multi_gpu is not supported on MPS device.")
-            all_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
-            for i, q in enumerate(all_quantizers):
-                label = f"quantizers[{i}]" if self.quantizers else "quantizer"
-                if isinstance(q, AutoBitQuantizer):
-                    for j, cand in enumerate(q.quantizers):
-                        if not isinstance(cand, GPTQ):
-                            raise ValueError(
-                                f"{label}.quantizers[{j}] ({type(cand).__name__}) "
-                                f"is not supported on MPS device. "
-                                "AutoBitQuantizer on MPS requires all candidate "
-                                "quantizers to be GPTQ."
-                            )
-                    if (
-                        q.auto_dbf
-                        and q.assignment_strategy != AssignmentStrategy.MANUAL
-                        and q._needs_dbf_only()
-                    ):
-                        raise ValueError(MPS_DBF_FALLBACK_ERROR)
-                elif not isinstance(q, GPTQ):
-                    raise ValueError(
-                        f"{label} ({type(q).__name__}) is not supported on MPS device. "
-                        "Only GPTQ quantization supports MPS."
-                    )
 
     def _exclude_moe_router_if_needed(self):
         """Exclude MoE router layers from quantization.
@@ -1922,219 +1857,6 @@ class Runner:
         lora_modules: list[tuple[str, torch.nn.Module]],
         pack_weights: bool = True,
     ) -> dict[str, torch.Tensor]:
-        """Build a base-model state_dict for HF/vLLM-compatible export."""
-        export_state_dict: dict[str, torch.Tensor] = {}
-        lora_modules = sorted(lora_modules, key=lambda item: len(item[0]), reverse=True)
-
-        for key, tensor in model.state_dict().items():
-            skip = False
-            export_key = key
-
-            for lora_name, _mod in lora_modules:
-                prefix = f"{lora_name}." if lora_name else ""
-                if key.startswith(f"{prefix}lora_A.") or key.startswith(f"{prefix}lora_B."):
-                    skip = True
-                    break
-
-                base_prefix = f"{prefix}base_layer."
-                if key.startswith(base_prefix):
-                    export_key = f"{prefix}{key[len(base_prefix):]}"
-                    break
-
-            if not skip:
-                export_state_dict[export_key] = tensor
-
-        gptq_layers = self._iter_gptq_export_layers(model, lora_modules)
-        if not gptq_layers or not pack_weights:
-            return export_state_dict
-
-        from .quantizer.gptq.gptq_layer import pack_int_weights, pack_zeros
-
-        packed_layers = 0
-        skipped_layers = []
-        for layer_name, layer in gptq_layers:
-            if getattr(layer, "_weight_is_packed", False):
-                continue
-
-            wbits = int(getattr(layer, "wbits", 0))
-            if not self._packable_gptq_wbits(wbits):
-                if wbits != 1:
-                    skipped_layers.append((layer_name, wbits))
-                continue
-
-            prefix = f"{layer_name}." if layer_name else ""
-            qweight_key = f"{prefix}qweight"
-            qzeros_key = f"{prefix}qzeros"
-
-            if qweight_key not in export_state_dict or qzeros_key not in export_state_dict:
-                self.logger.warning(
-                    "Skipping GPTQ export packing for %s because qweight/qzeros "
-                    "were not found in state_dict",
-                    layer_name,
-                )
-                continue
-
-            export_state_dict[qweight_key] = pack_int_weights(
-                layer.qweight.detach().to(torch.int32),
-                wbits,
-            ).contiguous()
-            export_state_dict[qzeros_key] = pack_zeros(
-                layer.qzeros.detach().to(torch.int32),
-                wbits,
-            ).contiguous()
-            packed_layers += 1
-
-        if packed_layers:
-            self.logger.info(
-                "Packed %d unpacked GPTQLinear layer(s) in export state_dict",
-                packed_layers,
-            )
-        if skipped_layers:
-            self.logger.warning(
-                "Left %d unpacked GPTQLinear layer(s) unpacked in export state_dict "
-                "because their wbits are not packable: %s",
-                len(skipped_layers),
-                skipped_layers,
-            )
-
-        return export_state_dict
-
-    def _save_lora_adapter_sidecar(self, save_directory: str, model=None) -> bool:
-        """Write a PEFT-compatible LoRA adapter sidecar if present."""
-        if model is None:
-            model = self.quantized_model
-        if model is None:
-            return False
-
-        from safetensors.torch import save_file as _st_save_file
-
-        lora_modules = self._collect_lora_gptq_modules(model)
-        if not lora_modules:
-            return False
-
-        save_dtype = getattr(torch, self.model_config.dtype)
-
-        state_dict = {}
-        for name, mod in lora_modules:
-            state_dict[f"base_model.model.{name}.lora_A.weight"] = (
-                mod.lora_A.weight.detach().to("cpu", save_dtype).contiguous()
-            )
-            state_dict[f"base_model.model.{name}.lora_B.weight"] = (
-                mod.lora_B.weight.detach().to("cpu", save_dtype).contiguous()
-            )
-
-        first = lora_modules[0][1]
-        lora_r = int(first.lora_r)
-        lora_alpha = int(round(float(first.scaling) * float(first.lora_r)))
-        lora_dropout = (
-            float(first.dropout.p) if isinstance(first.dropout, torch.nn.Dropout) else 0.0
-        )
-        target_modules = sorted({name.rsplit(".", 1)[-1] for name, _ in lora_modules})
-
-        adapter_config = {
-            "peft_type": "LORA",
-            "auto_mapping": None,
-            "base_model_name_or_path": str(Path(save_directory).resolve()),
-            "task_type": "CAUSAL_LM",
-            "r": lora_r,
-            "lora_alpha": lora_alpha,
-            "lora_dropout": lora_dropout,
-            "target_modules": target_modules,
-            "bias": "none",
-            "fan_in_fan_out": False,
-            "inference_mode": True,
-            "modules_to_save": None,
-            "init_lora_weights": True,
-            "layers_to_transform": None,
-            "layers_pattern": None,
-            "revision": None,
-        }
-
-        adapter_dir = Path(save_directory) / LORA_ADAPTER_SUBDIR
-        adapter_dir.mkdir(parents=True, exist_ok=True)
-        _st_save_file(
-            state_dict,
-            str(adapter_dir / "adapter_model.safetensors"),
-            metadata={"format": "pt"},
-        )
-        with open(adapter_dir / "adapter_config.json", "w", encoding="utf-8") as f:
-            json.dump(adapter_config, f, indent=2, ensure_ascii=True)
-
-        self.logger.info(
-            "Saved LoRA adapter sidecar (%d layers) to %s",
-            len(lora_modules),
-            adapter_dir,
-        )
-        return True
-
-    def _resolve_source_model_dir(self) -> Optional[str]:
-        """Resolve the original model directory for auxiliary file copy."""
-        src = self.model_config.get_model_id_or_path()
-        if not src:
-            return None
-        if os.path.isdir(src):
-            return src
-        try:
-            from huggingface_hub import snapshot_download
-
-            return snapshot_download(src, local_files_only=True)
-        except Exception as exc:  # pylint: disable=broad-except
-            self.logger.warning("Could not resolve source model dir for %s: %s", src, exc)
-            return None
-
-    _AUX_COPY_EXCLUDE_FILES = frozenset(
-        {
-            "config.json",
-            "generation_config.json",
-            "model.safetensors.index.json",
-            "pytorch_model.bin.index.json",
-        }
-    )
-    _AUX_COPY_WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth")
-    _AUX_COPY_INCLUDE_SUFFIXES = (".json", ".jinja")
-
-    def _copy_auxiliary_files(self, src_dir: str, save_directory: str) -> int:
-        """Copy auxiliary ``*.json`` / ``*.jinja`` files from source model."""
-        import shutil
-
-        copied = 0
-        try:
-            entries = os.listdir(src_dir)
-        except OSError as exc:
-            self.logger.warning(
-                "Failed to list source model dir %s for aux copy: %s", src_dir, exc
-            )
-            return 0
-
-        for name in entries:
-            src = os.path.join(src_dir, name)
-            if not os.path.isfile(src):
-                continue
-            if name in self._AUX_COPY_EXCLUDE_FILES:
-                continue
-            lower = name.lower()
-            if lower.endswith(self._AUX_COPY_WEIGHT_SUFFIXES):
-                continue
-            if not lower.endswith(self._AUX_COPY_INCLUDE_SUFFIXES):
-                continue
-
-            dst = os.path.join(save_directory, name)
-            if os.path.exists(dst):
-                self.logger.info("Using existing %s in save directory", name)
-                continue
-
-            shutil.copy2(src, dst)
-            copied += 1
-            self.logger.info("Copied %s to save directory", name)
-
-        return copied
-
-
-    def save_quantized_model(
-        self, 
-        save_directory: str, 
-        pack_weights: bool = True,
-    ) -> dict[str, torch.Tensor]:
         """Build a base-model state_dict for HF/vLLM-compatible export.
 
         ``LoRAGPTQLinear`` wrappers are flattened back to the base GPTQLinear
@@ -2148,15 +1870,18 @@ class Runner:
         for key, tensor in model.state_dict().items():
             skip = False
             export_key = key
+
             for lora_name, _mod in lora_modules:
                 prefix = f"{lora_name}." if lora_name else ""
                 if key.startswith(f"{prefix}lora_A.") or key.startswith(f"{prefix}lora_B."):
                     skip = True
                     break
+
                 base_prefix = f"{prefix}base_layer."
                 if key.startswith(base_prefix):
                     export_key = f"{prefix}{key[len(base_prefix):]}"
                     break
+
             if not skip:
                 export_state_dict[export_key] = tensor
 
@@ -2181,6 +1906,7 @@ class Runner:
             prefix = f"{layer_name}." if layer_name else ""
             qweight_key = f"{prefix}qweight"
             qzeros_key = f"{prefix}qzeros"
+
             if qweight_key not in export_state_dict or qzeros_key not in export_state_dict:
                 self.logger.warning(
                     "Skipping GPTQ export packing for %s because qweight/qzeros "
@@ -2211,6 +1937,7 @@ class Runner:
                 len(skipped_layers),
                 skipped_layers,
             )
+
         return export_state_dict
 
     def _save_lora_adapter_sidecar(self, save_directory: str, model=None) -> bool:
@@ -2399,6 +2126,7 @@ class Runner:
                 continue
             if not lower.endswith(self._AUX_COPY_INCLUDE_SUFFIXES):
                 continue
+
             dst = os.path.join(save_directory, name)
             if os.path.exists(dst):
                 # Don't clobber files already in the save directory.
@@ -2412,12 +2140,19 @@ class Runner:
                 # to follow alongside the ``Copied %s`` entries below.
                 self.logger.info("Using existing %s in save directory", name)
                 continue
+
             shutil.copy2(src, dst)
             copied += 1
             self.logger.info("Copied %s to save directory", name)
+
         return copied
 
-    def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
+    def save_quantized_model(
+        self,
+        save_directory: str,
+        pack_weights: bool = True,
+        save_format: str = "auto",
+    ):
         """Save the quantized model to the specified directory
 
         If ``self.quantized_model`` is available, that in-place updated model
@@ -2442,6 +2177,13 @@ class Runner:
                 When saving an existing ``self.quantized_model``, packable
                 unpacked GPTQ buffers are packed only in the export
                 ``state_dict`` without mutating the in-memory model.
+            save_format (str):
+                One of ``"auto"``, ``"native"``, or ``"full_wrapper"``.
+                ``"auto"``/``"native"`` save the model's own state_dict/config
+                namespace as-is (after validating they agree). ``"full_wrapper"``
+                additionally remaps a text-only checkpoint to the composite
+                ``model.language_model.*`` namespace expected by vLLM-style
+                full-wrapper VLM runtimes. Defaults to ``"auto"``.
 
         Examples:
             Single quantizer mode:
@@ -2498,9 +2240,13 @@ class Runner:
                 save_format=save_format,
                 state_dict=export_state_dict,
             )
-            model.save_pretrained(save_directory, state_dict=base_state_dict)
-        else:
-            model.save_pretrained(save_directory)
+            if save_state_dict is not None:
+                model.save_pretrained(save_directory, state_dict=save_state_dict)
+            else:
+                model.save_pretrained(save_directory)
+        finally:
+            model.config = orig_model_config_for_restore
+
         tokenizer.save_pretrained(save_directory)
         if save_format == "full_wrapper":
             self._save_processor_files_if_available(save_directory)
