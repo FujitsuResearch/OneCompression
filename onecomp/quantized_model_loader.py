@@ -27,6 +27,7 @@ from .utils.device import get_default_device
 from .utils.dtype import needs_bfloat16
 from .utils.lora import LORA_ADAPTER_SUBDIR
 from .utils.quant_config import get_quant_param
+from .utils.unfuse_moe import unfuse_moe_experts
 
 logger = getLogger(__name__)
 
@@ -86,6 +87,13 @@ class QuantizedModelLoader:
         if needs_bfloat16(save_directory):
             torch_dtype = torch.bfloat16
         model = cls._build_empty_model_from_config(config_dict, torch_dtype)
+
+        # Mirror the unfuse step performed before quantization/save (see
+        # Runner.save_quantized_model) so per-expert module names such as
+        # "model.layers.0.mlp.experts.0.down_proj" resolve against the
+        # freshly-built model instead of its fused 3D expert parameters.
+        if unfuse_moe_experts(model, logger):
+            logger.info("Unfused MoE expert tensors for quantized model load")
 
         # Load state_dict from safetensors
         state_dict = cls._load_state_dict_from_dir(save_directory)
