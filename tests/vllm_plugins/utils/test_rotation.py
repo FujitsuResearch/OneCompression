@@ -64,6 +64,58 @@ def test_maybe_wrap_rotation_method_dispatch_table(rotated, prefix, expected_wra
         assert result is base_method
 
 
+def test_v2_variant_is_registered_as_weight_loader_v2_supported():
+    """The v2 wrapper's class name must be in vLLM's registry, otherwise vLLM
+    would downgrade a wrapped v2-native base to the v1 weight loader."""
+    if rotation.WEIGHT_LOADER_V2_SUPPORTED is None:
+        pytest.skip("vLLM weight_loader_v2 registry not available in this build")
+    assert "RotatedLinearMethodV2" in rotation.WEIGHT_LOADER_V2_SUPPORTED
+    # The plain variant must stay unregistered so v1-only bases keep the v1 loader.
+    assert "RotatedLinearMethod" not in rotation.WEIGHT_LOADER_V2_SUPPORTED
+
+
+def test_maybe_wrap_uses_v2_variant_for_v2_native_base(monkeypatch):
+    """A v2-native base must be wrapped by the v2-registered variant so vLLM
+    keeps selecting weight_loader_v2 for the layer."""
+    monkeypatch.setattr(
+        rotation, "WEIGHT_LOADER_V2_SUPPORTED", ["GPTQMarlinLinearMethod"], raising=False
+    )
+
+    class GPTQMarlinLinearMethod:
+        pass
+
+    metadata = rotation.RotationMetadata(rotated=True, fp32_had=True)
+    result = rotation.maybe_wrap_rotation_method(
+        GPTQMarlinLinearMethod(),
+        prefix="model.layers.0.mlp.down_proj",
+        metadata=metadata,
+    )
+
+    assert isinstance(result, rotation.RotatedLinearMethodV2)
+
+
+def test_maybe_wrap_uses_v1_variant_for_v1_only_base(monkeypatch):
+    """A v1-only base must stay on the v1 loader: it is wrapped by the plain
+    (unregistered) variant, whose class name is absent from the v2 registry."""
+    monkeypatch.setattr(
+        rotation, "WEIGHT_LOADER_V2_SUPPORTED", ["GPTQMarlinLinearMethod"], raising=False
+    )
+
+    class LegacyV1LinearMethod:
+        pass
+
+    metadata = rotation.RotationMetadata(rotated=True, fp32_had=True)
+    result = rotation.maybe_wrap_rotation_method(
+        LegacyV1LinearMethod(),
+        prefix="model.layers.0.mlp.down_proj",
+        metadata=metadata,
+    )
+
+    assert isinstance(result, rotation.RotatedLinearMethod)
+    assert not isinstance(result, rotation.RotatedLinearMethodV2)
+    assert "RotatedLinearMethod" not in rotation.WEIGHT_LOADER_V2_SUPPORTED
+
+
 def test_maybe_wrap_rotation_method_keeps_plain_path_when_rotation_disabled():
     metadata = rotation.RotationMetadata(rotated=False, fp32_had=True)
     base_method = MagicMock()

@@ -62,6 +62,12 @@ except ImportError:  # pragma: no cover - exercised only without vLLM installed.
         def apply(self, layer: torch.nn.Module, *args, **kwargs) -> torch.Tensor:
             raise NotImplementedError
 
+    # Mirror the names bound in the vLLM branch so module-level helpers (e.g.
+    # _base_method_uses_weight_loader_v2) resolve without a NameError when vLLM
+    # is absent and only the metadata helpers are used.
+    WEIGHT_LOADER_V2_SUPPORTED = None
+    _vllm_register_weight_loader_v2_supported_method = None
+
     def register_weight_loader_v2_supported_method(cls):
         return cls
 
@@ -118,9 +124,34 @@ def make_hadamard_forward_pre_hook(*, fp32_had: bool):
     return hook
 
 
-@register_weight_loader_v2_supported_method
+def _base_method_uses_weight_loader_v2(method: LinearMethodBase) -> bool:
+    """Return whether vLLM would select ``weight_loader_v2`` for ``method``.
+
+    vLLM decides between the v1 and v2 weight loaders purely from the
+    LinearMethod's *class name* (``LinearBase`` checks
+    ``quant_method.__class__.__name__ in WEIGHT_LOADER_V2_SUPPORTED``). A
+    transparent wrapper that only forwards ``create_weights`` to a base method
+    must therefore mirror the base method's membership: forcing v2 onto a
+    v1-only base whose ``create_weights`` uses the passed-in ``weight_loader``
+    and builds plain ``Parameter`` objects would break weight loading (the v2
+    loader calls ``load_row_parallel_weight`` etc., which such params lack).
+    """
+    if WEIGHT_LOADER_V2_SUPPORTED is None:
+        # v2 registry not introspectable in this vLLM build; assume the modern
+        # v2 path so v2-native bases (GPTQMarlin, Unquantized, ...) keep loading.
+        return True
+    return method.__class__.__name__ in WEIGHT_LOADER_V2_SUPPORTED
+
+
 class RotatedLinearMethod(LinearMethodBase):
-    """LinearMethod wrapper that installs the online Hadamard at layer entry."""
+    """LinearMethod wrapper that installs the online Hadamard at layer entry.
+
+    This base variant is intentionally *not* registered as
+    weight_loader_v2-supported: it is used to wrap base methods that rely on
+    vLLM's v1 weight loader, so vLLM keeps selecting v1 for the wrapped layer.
+    :class:`RotatedLinearMethodV2` below is the registered variant used when the
+    wrapped base method is itself v2-native.
+    """
 
     def __init__(self, base_method: LinearMethodBase, *, fp32_had: bool):
         self.base_method = base_method
@@ -197,13 +228,34 @@ class RotatedLinearMethod(LinearMethodBase):
         return self.base_method.apply(layer, x, bias, *args, **kwargs)
 
 
+@register_weight_loader_v2_supported_method
+class RotatedLinearMethodV2(RotatedLinearMethod):
+    """weight_loader_v2 variant used when the wrapped base method is v2-native.
+
+    Registering this class name in vLLM's ``WEIGHT_LOADER_V2_SUPPORTED`` is what
+    makes vLLM keep using the v2 weight loader for the wrapped base method (e.g.
+    ``GPTQMarlinLinearMethod``/``UnquantizedLinearMethod``), whose
+    ``create_weights`` builds v2 ``BasevLLMParameter`` weights.
+    """
+
+
 def maybe_wrap_rotation_method(
     method: LinearMethodBase,
     *,
     prefix: str,
     metadata: RotationMetadata,
 ) -> LinearMethodBase:
-    """Wrap a vLLM LinearMethod when the target module requires online Hadamard."""
-    if metadata.requires_hadamard(prefix):
-        return RotatedLinearMethod(method, fp32_had=metadata.fp32_had)
-    return method
+    """Wrap a vLLM LinearMethod when the target module requires online Hadamard.
+
+    The wrapper mirrors the base method's weight_loader_v2 support so that
+    wrapping never flips vLLM's v1/v2 loader selection for the underlying
+    method (see :func:`_base_method_uses_weight_loader_v2`).
+    """
+    if not metadata.requires_hadamard(prefix):
+        return method
+    wrapper_cls = (
+        RotatedLinearMethodV2
+        if _base_method_uses_weight_loader_v2(method)
+        else RotatedLinearMethod
+    )
+    return wrapper_cls(method, fp32_had=metadata.fp32_had)
