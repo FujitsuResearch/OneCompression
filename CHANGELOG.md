@@ -1,5 +1,18 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/qwen36_27b_step1] 2026-07-21
+
+### Qwen3.6 support (GatedDeltaNet hybrid linear-attention / full-attention layers)
+
+- Extended blockwise calibration handling in `onecomp/utils/blockwise.py` to support Qwen3.6's hybrid decoder, which mixes GatedDeltaNet `linear_attention` layers with regular `full_attention` layers (same `layer_types` scheme as transformers' `Qwen3_5` architecture)
+  - Hybrid layer-type detection now also recognizes the `linear_attention` + `full_attention` mix (`is_qwen35_like_hybrid`), alongside the existing Gemma-style `full_attention` + `sliding_attention` mix (`is_gemma_like_mixed_attention`); `has_mixed_types` is true when either applies
+  - Added `_create_linear_attention_mask()`, ported from transformers' `Qwen3_5Model._update_linear_attn_mask`: returns `None` for cached-decode or no-padding forwards, otherwise the boolean padding mask
+  - `_compute_per_type_attention_masks()` now dispatches to a Qwen-hybrid mask-creator mapping (`linear_attention` -> `_create_linear_attention_mask`, `full_attention` -> `create_causal_mask`) instead of the Gemma pair (`create_causal_mask` / `create_sliding_window_causal_mask`) when the model's layer types match the hybrid set
+
+### Tests
+
+- Added test coverage for the Qwen3.6 hybrid-attention support above, which previously had no dedicated tests: `_get_block_layer_type`'s `linear_attn` fallback and priority order, `_create_linear_attention_mask`'s cached/no-padding/padding branches, the mask-creator dispatch added to `_compute_per_type_attention_masks` for `{"linear_attention", "full_attention"}` layer-type sets (with a regression guard for the existing Gemma-style `{"full_attention", "sliding_attention"}` path), and end-to-end hybrid-layer-type detection in `get_blocks_and_inputs` (`tests/onecomp/utils/test_blockwise.py`)
+
 ## [v1.3.0(WIP)+lab/delete-example]
 
 ### Examples
