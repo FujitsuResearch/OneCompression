@@ -376,22 +376,19 @@ class Runner:
         if num_experts == 0:
             return
 
-        keyword = "router"
+        keywords = ["router", "shared_expert_gate"]
         target_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
         for q in target_quantizers:
-            if q.exclude_layer_keywords is None:
-                q.exclude_layer_keywords = [keyword, "shared_expert_gate"]
-            elif keyword not in q.exclude_layer_keywords:
-                q.exclude_layer_keywords = list(q.exclude_layer_keywords) + [
-                    keyword, 
-                    "shared_expert_gate",
-                ]
+            existing = list(q.exclude_layer_keywords) if q.exclude_layer_keywords else []
+            missing = [k for k in keywords if k not in existing]
+            if missing:
+                q.exclude_layer_keywords = existing + missing
 
         self.logger.info(
             "MoE model (num_experts=%d): excluding '%s' layers from "
             "quantization (vLLM GateLinear does not support quantization)",
             num_experts,
-            keyword,
+            ", ".join(keywords),
         )
 
     def run(self):
@@ -2599,9 +2596,7 @@ class Runner:
         models may expose different names during quantization and save.
         """
         return sorted(
-            name
-            for name, module in model.named_modules()
-            if self._is_quantized_module(module)
+            name for name, module in model.named_modules() if self._is_quantized_module(module)
         )
 
     def _detect_weight_namespace(self, model) -> str:
@@ -2792,9 +2787,7 @@ class Runner:
         if old_quant_config is None:
             raise RuntimeError("model.config has no quantization_config")
 
-        full_quant_config = self._remap_text_only_quant_config_to_full_wrapper(
-            old_quant_config
-        )
+        full_quant_config = self._remap_text_only_quant_config_to_full_wrapper(old_quant_config)
 
         # Replace config with original composite config.
         model.config = copy.deepcopy(orig_config)
@@ -2833,10 +2826,7 @@ class Runner:
         for key in ("modules_in_block_to_quantize", "quantized_layer_names"):
             names = quant_config.get(key)
             if isinstance(names, list):
-                quant_config[key] = [
-                    remap_name(n) if isinstance(n, str) else n
-                    for n in names
-                ]
+                quant_config[key] = [remap_name(n) if isinstance(n, str) else n for n in names]
 
         return quant_config
 
@@ -2865,8 +2855,7 @@ class Runner:
 
             if new_key in remapped:
                 raise RuntimeError(
-                    f"State dict key collision during full-wrapper remap: "
-                    f"{key} -> {new_key}"
+                    f"State dict key collision during full-wrapper remap: " f"{key} -> {new_key}"
                 )
 
             remapped[new_key] = tensor

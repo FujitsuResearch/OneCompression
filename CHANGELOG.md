@@ -1,5 +1,19 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step2] 2026-07-22
+
+### Bug fix
+
+- Fixed `QuantizedModelLoader.load_quantized_model()` failing to load MoE quantized checkpoints: `Runner.save_quantized_model()` unfuses fused 3D expert parameters (`gate_up_proj`, `down_proj`) into per-expert `nn.Linear` modules before saving, so checkpoint keys look like `model.layers.0.mlp.experts.0.down_proj.weight`, but the empty model built from `config.json` still had the fused representation and those keys never matched. `load_quantized_model()` now calls `unfuse_moe_experts()` on the freshly-built model before the state_dict is loaded, mirroring the save-time step (`onecomp/quantized_model_loader.py`)
+- Added a test verifying `load_quantized_model()` calls `unfuse_moe_experts()` on the freshly-built model before the state_dict is loaded (`tests/onecomp/test_quantized_model_loader_moe_unfuse.py`)
+
+## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step1] 2026-07-22
+
+### MoE quantization exclusion
+
+- `Runner._exclude_moe_router_if_needed()` now also excludes `shared_expert_gate` layers from quantization, alongside the existing `router` exclusion, since Qwen3.6-A3B-style MoE models route through it the same way vLLM's `GateLinear` does (`onecomp/runner.py`)
+- Added `tests/onecomp/runner/test_exclude_moe_router_if_needed.py`, the first dedicated coverage for `_exclude_moe_router_if_needed()`
+
 ## [v1.3.0(WIP)+feature/qwen36_27b_step3] 2026-07-21
 
 ### Qwen3.6 vLLM support: full-wrapper quantized model save

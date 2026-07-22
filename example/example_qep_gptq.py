@@ -15,12 +15,8 @@ setup_logger()
 
 # Prepare the model
 model_config = ModelConfig(
-<<<<<<< HEAD
-    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T", device="cuda:0"
-=======
     model_id="Qwen/Qwen3.6-35B-A3B",
     device="cuda",
->>>>>>> 7ad8006 (Update model ID and save directory for Qwen 3.6 to version 35B-A3B; enhance exclusion keywords in quantizer settings)
 )
 
 # Configure the quantization method
