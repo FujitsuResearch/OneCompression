@@ -1,5 +1,23 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/qwen36_27b_step2] 2026-07-21
+
+### Bug fix
+
+- Fixed `load_quantized_model()` silently loading quantized layers (GPTQ/DBF) with all-zero buffers when the checkpoint's on-disk key prefixes don't match `quantization_config`'s recorded module names (e.g. Qwen3.6: `transformers` unconditionally rewrites `model.layers.*` to `model.language_model.layers.*` on save, regardless of any OneComp save option). `_replace_quantized_layers()` now moves the matched tensors to the correct key before `load_state_dict()` instead of only using them to infer buffer shapes (`onecomp/quantized_model_loader.py`)
+  - Added `_check_load_state_dict_result()` / `_assert_quantized_modules_loaded()` post-load checks that fail fast instead of silently producing a model that generates garbage
+  - Generalized the generic suffix-matching fallback in `_resolve_state_dict_key()` to consider the full key depth instead of a hardcoded 8-component limit
+- Fixed `_assert_quantized_modules_loaded()` raising for every DBF-quantized model: it checked for a non-existent `bp` attribute on `DoubleBinaryLinear` instead of the real `scaling0`/`scaling2`/`scaling4`/`bp1`/`bp3` (`onecomp/quantized_model_loader.py`)
+- Fixed a false-positive load failure for tied-embedding models: `lm_head.weight` is legitimately absent from the checkpoint (HF's `save_pretrained` does not duplicate a tensor sharing storage with `embed_tokens.weight`) and is no longer flagged as a critical missing key (`onecomp/quantized_model_loader.py`)
+
+### Refactor
+
+- Extracted the tied-embeddings re-tie decision and `tie_weights()` call in `load_quantized_model()` into `_retie_lm_head_if_needed()` (`onecomp/quantized_model_loader.py`)
+
+### Test
+
+- Added unit tests covering the above fixes (`tests/onecomp/runner/test_remap_state_dict_keys.py`, `tests/onecomp/runner/test_load_tied_embeddings.py`)
+
 ## [v1.3.0(WIP)+feature/qwen36_27b_step1] 2026-07-21
 
 ### Qwen3.6 support (GatedDeltaNet hybrid linear-attention / full-attention layers)
