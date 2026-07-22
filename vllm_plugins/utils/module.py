@@ -7,12 +7,19 @@ _LAYER_RE = re.compile(r"\.layers\.(\d+)\.")
 # Prefixes belonging to vision/audio encoders -- never quantized.
 _NON_TEXT_PREFIXES = ("vision_tower", "vision_model", "multi_modal_projector", "audio")
 
-# Map from vLLM's fused module name to the constituent config keys.
-# When vLLM fuses q/k/v into qkv_proj, the prefix becomes "...qkv_proj".
-# We look up the first constituent's config as representative.
+# Matches a per-expert MoE projection name. "experts" sits at different
+# depths per architecture (e.g. "mlp.experts.N.down_proj" vs top-level
+# "experts.N.down_proj"), hence the optional dotted prefix.
+_MOE_EXPERT_RE = re.compile(r"^(?:[\w.]+\.)?experts\.\d+\.(gate_proj|up_proj|down_proj)$")
+
+# Map from vLLM's fused module leaf name to its constituent leaf names.
+# Constituents are substituted into module_suffix at the fused name's own
+# position (not looked up under a hardcoded parent path), since fusion
+# doesn't change the parent path, only the leaf
+# (e.g. "self_attn.q_proj" -> "self_attn.qkv_proj").
 _FUSED_TO_CONSTITUENTS = {
-    "qkv_proj": ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj"],
-    "gate_up_proj": ["mlp.gate_proj", "mlp.up_proj"],
+    "qkv_proj": ["q_proj", "k_proj", "v_proj"],
+    "gate_up_proj": ["gate_proj", "up_proj"],
 }
 
 
@@ -29,11 +36,13 @@ def _parse_layer_and_module(prefix: str) -> tuple[int | None, str | None]:
 
 def _resolve_fused_bits(layer_cfg: dict, module_suffix: str) -> dict | None:
     for fused_name, constituents in _FUSED_TO_CONSTITUENTS.items():
-        if fused_name in module_suffix:
-            for name in constituents:
-                if name in layer_cfg:
-                    return layer_cfg[name]
-            return None
+        if fused_name not in module_suffix:
+            continue
+        for constituent in constituents:
+            candidate = module_suffix.replace(fused_name, constituent)
+            if candidate in layer_cfg:
+                return layer_cfg[candidate]
+        return None
     return None
 
 
@@ -54,6 +63,53 @@ def _lookup_module_config(
     return None
 
 
+def _lookup_moe_config(
+    quantization_bits: list[dict], layer_idx: int, num_experts: int
+) -> dict | None:
+    """Aggregate one uniform GPTQ config across all experts in a FusedMoE layer.
+
+    Returns:
+        None if the layer's experts are not quantized at all.
+
+    Raises:
+        ValueError: If only some experts are quantized, or experts disagree
+            on bits/method/group_size -- not representable by one MoE kernel.
+    """
+    if layer_idx >= len(quantization_bits):
+        return None
+    layer_cfg = quantization_bits[layer_idx]
+
+    expert_cfgs = {
+        name: cfg for name, cfg in layer_cfg.items() if _MOE_EXPERT_RE.match(name)
+    }
+    if not expert_cfgs:
+        return None
+
+    expected = num_experts * 3
+    if len(expert_cfgs) != expected:
+        raise ValueError(
+            f"Layer {layer_idx}: only {len(expert_cfgs)}/{expected} expert "
+            "projections have a quantization config. vLLM's FusedMoE "
+            "kernel requires every expert in a layer to share the same "
+            "quantization scheme; a partially-quantized MoE layer cannot "
+            "be served."
+        )
+
+    variants = {
+        (cfg["bits"], cfg["method"], cfg.get("params", {}).get("group_size"))
+        for cfg in expert_cfgs.values()
+    }
+    if len(variants) != 1:
+        raise ValueError(
+            f"Layer {layer_idx}: experts have inconsistent GPTQ configs "
+            f"{sorted(variants)}; vLLM's FusedMoE kernel requires one "
+            "scheme per layer."
+        )
+
+    bits, method, group_size = next(iter(variants))
+    return {"bits": bits, "method": method, "group_size": group_size}
+
+
 # Check whether all quantization configs within the same shard are identical
 def _validate_quant_config_within_shard(
     quantization_bits: list[dict], layer_idx: int, module_suffix: str
@@ -71,13 +127,14 @@ def _validate_quant_config_within_shard(
             continue
 
         configs = []
-        for name in constituents:
+        for constituent in constituents:
             # If at least one sub-module in the shard has a quantization config,
             # all sub-modules in the shard must also have one.
-            if name not in layer_cfg:
+            candidate = module_suffix.replace(fused_name, constituent)
+            if candidate not in layer_cfg:
                 return False
 
-            cfg = layer_cfg[name]
+            cfg = layer_cfg[candidate]
             if cfg is None:
                 return False
 
