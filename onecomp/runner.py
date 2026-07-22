@@ -1854,6 +1854,7 @@ class Runner:
     @staticmethod
     def _collect_lora_gptq_modules(model) -> list[tuple[str, torch.nn.Module]]:
         """Return ``LoRAGPTQLinear`` modules contained in *model*."""
+        # Avoid importing post_process_lora_sft here; it pulls training deps.
         return [
             (name, mod)
             for name, mod in model.named_modules()
@@ -2314,16 +2315,22 @@ class Runner:
         # LoRA sidecar: only written if selected model contains LoRAGPTQLinear.
         wrote_adapter = self._save_lora_adapter_sidecar(save_directory, model=model)
         if not wrote_adapter:
+            # Remove any stale sidecar from a previous run so the directory is
+            # self-consistent and load_quantized_model does not pick up an
+            # adapter that no longer matches the saved base model.
             stale_adapter_dir = save_path / LORA_ADAPTER_SUBDIR
             if stale_adapter_dir.is_dir():
                 for stale in ("adapter_model.safetensors", "adapter_config.json"):
                     stale_path = stale_adapter_dir / stale
                     if stale_path.exists():
                         stale_path.unlink()
+                # Remove the (now-empty) subdirectory if nothing else lives there.
                 try:
                     stale_adapter_dir.rmdir()
                 except OSError:
                     pass
+            # Also remove any top-level adapter files left by older versions of
+            # this helper (previous layout put the sidecar directly in save_dir).
             for legacy in ("adapter_model.safetensors", "adapter_config.json"):
                 legacy_path = save_path / legacy
                 if legacy_path.exists():
