@@ -38,6 +38,7 @@ from typing import Any, List
 
 import torch
 from vllm.logger import init_logger
+from vllm.model_executor.layers.fused_moe.layer import FusedMoE
 from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
 from vllm.model_executor.layers.quantization import register_quantization_config
 from vllm.model_executor.layers.quantization.base_config import (
@@ -49,10 +50,12 @@ from vllm.model_executor.layers.quantization.gptq_marlin import (
     GPTQMarlinConfig,
     GPTQMarlinLinearMethod,
 )
+from vllm.model_executor.layers.quantization.moe_wna16 import MoeWNA16Config
 
 from vllm_plugins.gptq.constants import GPTQ_MARLIN_SUPPORTED_BITS, should_use_gptq_marlin
 from vllm_plugins.utils.module import (
     _lookup_module_config,
+    _lookup_moe_config,
     _parse_layer_and_module,
     _validate_quant_config_within_shard,
 )
@@ -183,6 +186,9 @@ class MixedGPTQConfig(QuantizationConfig):
         pass
 
     def get_quant_method(self, layer: torch.nn.Module, prefix: str) -> QuantizeMethodBase | None:
+        if isinstance(layer, FusedMoE):
+            return self._get_moe_quant_method(layer, prefix)
+
         if not isinstance(layer, LinearBase):
             return None
 
@@ -234,6 +240,48 @@ class MixedGPTQConfig(QuantizationConfig):
             prefix,
         )
         return UnquantizedLinearMethod()
+
+    def _get_moe_quant_method(
+        self, layer: torch.nn.Module, prefix: str
+    ) -> QuantizeMethodBase | None:
+        """Dispatch a FusedMoE layer to vLLM's GPTQ MoE kernel (MoeWNA16).
+
+        All experts in a FusedMoE layer share one kernel, so bits/group_size
+        are aggregated across the whole layer rather than looked up per-shard.
+        """
+        layer_idx, _ = _parse_layer_and_module(prefix)
+        if layer_idx is None:
+            return None
+
+        mod_cfg = _lookup_moe_config(
+            self.quantization_bits, layer_idx, layer.global_num_experts
+        )
+        if mod_cfg is None:
+            return None
+
+        bits = mod_cfg.get("bits", 0)
+        method = mod_cfg.get("method", "gptq")
+        group_size = self._resolve_group_size(mod_cfg)
+
+        if bits == 0 or method != "gptq":
+            if bits != 0:
+                logger.warning(
+                    "mixed_gptq: unsupported MoE method=%s bits=%s at %s, "
+                    "falling back to unquantized",
+                    method,
+                    bits,
+                    prefix,
+                )
+            return None
+
+        moe_config = {
+            "quant_method": "gptq",
+            "bits": int(bits),
+            "group_size": group_size,
+            "sym": self.sym,
+            "lm_head": False,
+        }
+        return MoeWNA16Config.from_config(moe_config).get_quant_method(layer, prefix)
 
 
 def register_vllm_plugin():

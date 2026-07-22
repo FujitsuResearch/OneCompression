@@ -34,6 +34,7 @@ from .utils import calculate_perplexity as calc_perplexity
 from .utils import empty_cache
 from .utils.device import is_mps_device
 from .utils.lora import LORA_ADAPTER_SUBDIR
+from .utils.quant_config import get_quant_param
 from .utils.quantization_progress import QuantizationProgressTracker
 
 
@@ -2792,7 +2793,12 @@ class Runner:
 
         # Remap tensors to match the full-wrapper config.
         source_state_dict = state_dict if state_dict is not None else model.state_dict()
-        full_state_dict = self._remap_text_only_state_dict_to_full_wrapper(source_state_dict)
+        full_state_dict = self._remap_text_only_state_dict_to_full_wrapper(
+            source_state_dict
+        )
+        full_state_dict = self._strip_moe_expert_g_idx_for_vllm(
+            full_state_dict, full_quant_config
+        )
 
         self.logger.info(
             "Prepared full-wrapper quantized save: model_type=%s, first_quantized=%s",
@@ -2853,3 +2859,41 @@ class Runner:
             remapped[new_key] = tensor
 
         return remapped
+
+    def _strip_moe_expert_g_idx_for_vllm(
+        self, state_dict: dict, quant_config: dict
+    ) -> dict:
+        """Drop per-expert GPTQ ``g_idx`` buffers from a vLLM-facing export.
+
+        vLLM's GPTQ MoE kernel (MoeWNA16) has no ``g_idx`` parameter, so an
+        unmapped ``g_idx`` key crashes weight loading. Safe to drop only
+        when ``desc_act``/``actorder`` is disabled, since ``g_idx`` is then
+        just the trivial ``arange(in_features) // group_size`` grouping the
+        kernel already assumes; raises otherwise.
+        """
+        moe_g_idx_keys = [
+            key
+            for key in state_dict
+            if key.endswith(".g_idx") and ".mlp.experts." in key
+        ]
+        if not moe_g_idx_keys:
+            return state_dict
+
+        desc_act = get_quant_param(quant_config, "desc_act", "actorder", default=False)
+        if desc_act:
+            raise RuntimeError(
+                "Cannot export an actorder/desc_act GPTQ MoE checkpoint for "
+                "vLLM: vLLM's GPTQ FusedMoE kernel (MoeWNA16Method) has no "
+                "g_idx support, so activation-order MoE quantization is not "
+                "servable by vLLM yet."
+            )
+
+        state_dict = dict(state_dict)
+        for key in moe_g_idx_keys:
+            del state_dict[key]
+        self.logger.info(
+            "Dropped %d trivial MoE expert g_idx buffer(s) unsupported by "
+            "vLLM's GPTQ FusedMoE kernel",
+            len(moe_g_idx_keys),
+        )
+        return state_dict
