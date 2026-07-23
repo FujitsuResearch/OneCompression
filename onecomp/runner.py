@@ -311,7 +311,7 @@ class Runner:
                 raise ValueError(
                     f"Quantizer '{type(self.quantizer).__name__}' "
                     f"(or one of its candidate quantizers) does not support "
-                    f"QEP (Quantization Error Propagation)."
+                    f"QEP (Quantization Error Propagation). "
                     f"Set qep=False, or use a QEP-compatible quantizer "
                     f"(e.g., GPTQ, DBF, AutoBitQuantizer with "
                     f"QEP-compatible candidates)."
@@ -1965,7 +1965,6 @@ class Runner:
                 len(skipped_layers),
                 skipped_layers,
             )
-
         return export_state_dict
 
     def _save_lora_adapter_sidecar(self, save_directory: str, model=None) -> bool:
