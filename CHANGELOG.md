@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.2.2] 2026-07-10
+
+### Bug Fix
+
+- Fixed `device="auto"` evaluation crashes in `Runner.calculate_perplexity()` and related paths by adding `ModelConfig.get_device()` and using a resolved `torch.device` for PyTorch operations such as `model.to()` and `empty_cache()`. Hugging Face `device_map="auto"` remains unchanged for model loading, but PyTorch no longer receives the raw `"auto"` string.
+
 ## [v1.2.1] 2026-07-03
 
 ### Security
@@ -8,6 +14,7 @@
   - **Breaking change**: existing callers of `load_quantized_model_pt()` must pass `allow_unsafe_deserialization=True` for trusted `.pt` files.
 - **`Quantizer.load_results()` / `ResultLoader`**: same hardening applied. Loading with `weights_only=False` now requires `allow_unsafe_deserialization=True` (added as a `ResultLoader` field), and logs a warning. The safe `weights_only=True` path is unchanged.
 - Updated docstrings, docs, and the LoRA SFT example to document the risk and the required opt-in.
+- **Credit**: this unsafe deserialization issue (CWE-502) was responsibly disclosed by **Nir Yehoshua, Cipher Security Labs**. Thank you for the report.
 
 ## [v1.2.0] 2026-06-08
 
