@@ -100,6 +100,7 @@ nav:
       - GPTQ: algorithms/gptq.md
       - DBF (Double Binary Factorization): algorithms/dbf.md
       - RTN (Round-To-Nearest): algorithms/rtn.md
+      - FloatQuant (NVFP4 / MXFP4 / FP8): algorithms/float-quant.md
       - AutoBit (Mixed-Precision ILP): algorithms/autobit.md
       - JointQ (Joint Optimization): algorithms/jointq.md
   - API Reference:

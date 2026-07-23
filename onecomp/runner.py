@@ -2348,6 +2348,66 @@ class Runner:
         logger.info("Quantized model saved to %s", save_directory)
         return save_directory
 
+    def save_vllm_native_model(self, save_directory: str, input_global_scales=None):
+        """Save FloatQuant results as a vLLM-native compressed-tensors checkpoint.
+
+        Unlike :meth:`save_quantized_model` (which stores fake-quantized
+        FP16 weights), this writes the weights in the real low-precision
+        layout (packed FP4 / FP8 plus scales) that vLLM executes with
+        hardware-accelerated kernels, so the checkpoint has actual
+        memory- and speed-benefits.  Supported for the FloatQuant
+        quantizer only (formats nvfp4 / mxfp4 / fp8).
+
+        Args:
+            save_directory (str):
+                The path to save the checkpoint.
+            input_global_scales (dict, optional):
+                Per-layer activation global scales from
+                :func:`onecomp.quantizer.floatquant.collect_input_global_scales`.
+                Only valid for ``nvfp4``; when provided the checkpoint
+                also quantizes activations (W4A4, Blackwell FP4 tensor
+                cores) instead of weight-only (W4A16).
+
+        Returns:
+            str: The save directory.
+
+        Raises:
+            TypeError: If the configured quantizer is not FloatQuant.
+
+        Examples:
+            >>> runner.run()
+            >>> runner.save_vllm_native_model("./model_nvfp4_vllm")
+            >>> # vllm serve ./model_nvfp4_vllm   (no plugin required)
+        """
+        from onecomp.quantizer.floatquant import FloatQuant
+        from onecomp.quantizer.floatquant.vllm_export import save_vllm_native_model
+
+        if not isinstance(self.quantizer, FloatQuant):
+            raise TypeError(
+                "save_vllm_native_model requires the FloatQuant quantizer, "
+                f"got {type(self.quantizer).__name__}."
+            )
+
+        logger = self.logger
+        logger.info("Saving vLLM-native (%s) checkpoint to %s", self.quantizer.fmt, save_directory)
+
+        model = self.model_config.load_model(device_map="cpu")
+        tokenizer = self.model_config.load_tokenizer()
+        save_vllm_native_model(
+            model,
+            self.quantizer.results,
+            save_directory,
+            tokenizer=tokenizer,
+            input_global_scales=input_global_scales,
+        )
+
+        src_dir = self._resolve_source_model_dir()
+        if src_dir and os.path.isdir(src_dir):
+            self._copy_auxiliary_files(src_dir, save_directory)
+
+        logger.info("vLLM-native checkpoint saved to %s", save_directory)
+        return save_directory
+
     def analyze_cumulative_error(
         self,
         layer_keywords=None,

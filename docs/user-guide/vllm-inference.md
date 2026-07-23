@@ -240,6 +240,74 @@ Select the model from the dropdown at the top of the chat screen and start a con
 !!! tip
     Open WebUI persists chat history, supports multiple conversations, and provides features like system prompt customization and temperature control out of the box.
 
+### 3. Chat with Open WebUI (optional)
+
+[Open WebUI](https://github.com/open-webui/open-webui) provides a ChatGPT-like browser interface.
+Because vLLM exposes an OpenAI-compatible API, Open WebUI can connect to it directly.
+
+#### 3-1. Start the vLLM server
+
+```bash
+vllm serve ./Llama-3.1-8B-Instruct-gptq-4bit
+```
+
+Keep this terminal open. The server listens on `http://localhost:8000` by default.
+
+#### 3-2. Launch Open WebUI
+
+=== "Docker (recommended)"
+
+    ```bash
+    docker run -d -p 3000:8080 \
+      --add-host=host.docker.internal:host-gateway \
+      --name open-webui \
+      ghcr.io/open-webui/open-webui:latest
+    ```
+
+    `--add-host` allows the container to reach the vLLM server running on the host (required on Linux; macOS/Windows Docker Desktop resolves it automatically).
+
+=== "pip"
+
+    Open WebUI requires **Python 3.11 or 3.12** (3.13+ is not supported).
+    To avoid dependency conflicts with OneComp/vLLM, create a separate virtual environment:
+
+    ```bash
+    # Create a dedicated venv (uv auto-downloads Python 3.12 if needed)
+    uv venv ~/open-webui-env --python 3.12
+    source ~/open-webui-env/bin/activate
+
+    # Install and launch
+    uv pip install open-webui
+    open-webui serve --port 3000
+    ```
+
+    When done, run `deactivate` to leave the venv.
+    To uninstall completely, remove the directory: `rm -rf ~/open-webui-env`.
+
+!!! note
+    The first launch takes several minutes while Open WebUI runs database migrations and downloads an embedding model (~80 MB). Subsequent launches start in seconds.
+
+#### 3-3. Connect to vLLM
+
+1. Open `http://localhost:3000` in your browser.
+2. Create an admin account on first launch.
+3. Go to **Admin Panel** → **Settings** → **Connections**.
+4. Under **OpenAI API**, set the URL:
+
+    | Setting | Value |
+    |---------|-------|
+    | URL | `http://host.docker.internal:8000/v1` (Docker) or `http://localhost:8000/v1` (pip) |
+    | API Key | `dummy` (any non-empty string) |
+
+5. Click **Save**. The quantized model appears in the model selector.
+
+#### 3-4. Start chatting
+
+Select the model from the dropdown at the top of the chat screen and start a conversation.
+
+!!! tip
+    Open WebUI persists chat history, supports multiple conversations, and provides features like system prompt customization and temperature control out of the box.
+
 ### Environment Variables
 
 | Variable | Default | Description |

@@ -15,13 +15,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Optional GemLite/HQQ imports
+# Optional GemLite/HQQ imports.  gemlite initialises CUDA at import time
+# (torch.cuda.get_device_properties), which raises RuntimeError on hosts
+# without an NVIDIA driver, so RuntimeError must be tolerated here as well
+# or `import onecomp` breaks entirely on CPU-only machines.
 try:
     from gemlite.core import DType, GemLiteLinearTriton
     from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
 
     HAS_GEMLITE = True
-except (ImportError, AttributeError):
+except (ImportError, AttributeError, RuntimeError):
     HAS_GEMLITE = False
 
 

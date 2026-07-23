@@ -665,6 +665,11 @@ class QuantizedModelLoader:
         is left unchanged so the caller can ``load_state_dict(state_dict)`` once to
         fill all weights.
         """
+        # Fake-quant checkpoints (e.g. FloatQuant nvfp4 / mxfp4 / fp8) store plain
+        # dequantized FP16 Linear weights, so there is nothing to replace.
+        if quant_config.get("checkpoint_format") == "fake_quant":
+            return
+
         quant_method = quant_config["quant_method"]
         # mixed_* use the same tensor format as the base method (e.g. mixed_gptq -> gptq)
         if quant_method and quant_method.startswith("mixed_"):

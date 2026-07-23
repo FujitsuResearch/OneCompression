@@ -12,7 +12,7 @@ The post-process framework integrates into the `Runner` pipeline via the `post_p
 
 ```
 Quantize ──► Build Model ──► Post-Process 1 ──► Post-Process 2 ──► Evaluate / Save
-                              (e.g. GlobalPTQ)   (e.g. LoRA SFT)
+                              (e.g. BlockWisePTQ / GlobalPTQ)   (e.g. GlobalPTQ / LoRA SFT)
 ```
 
 ---

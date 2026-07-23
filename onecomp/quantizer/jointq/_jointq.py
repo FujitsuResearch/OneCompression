@@ -130,7 +130,7 @@ class JointQResult(QuantizationResult):
 
 @dataclass
 class JointQ(Quantizer):
-    """JointQ quantizer class
+    """JointQ quantizer class.
 
     JointQ is a post-training quantization method that combines multiple
     initialization strategies (Clip-Optimize, Clip-Optimize-EP, GPTQ) with

@@ -215,6 +215,9 @@ class BaseQuantizeSpec:
         args:
             device (str): Device to run the test on ("cpu" or "cuda").
         """
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+
         helper.set_deterministic()
 
         layer1 = helper.make_linear(8, 8, device=device, dtype=torch.float32)

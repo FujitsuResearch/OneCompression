@@ -91,6 +91,7 @@ docs = [
 [project.entry-points."vllm.general_plugins"]
 dbf = "vllm_plugins.dbf.vllm_plugin:register_vllm_plugin"
 mixed_gptq = "vllm_plugins.gptq.vllm_plugin:register_vllm_plugin"
+floatquant_fake_quant = "vllm_plugins.floatquant.vllm_plugin:register_vllm_plugin"
 
 [tool.uv]
 conflicts = [

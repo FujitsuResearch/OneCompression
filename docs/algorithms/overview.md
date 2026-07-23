@@ -27,6 +27,7 @@ where \(W\) is the original weight matrix and \(X\) is the input activation matr
 | [**RTN**](rtn.md)     | Arbitrary | Not required | Round-To-Nearest baseline |
 | [**AutoBit**](autobit.md) | Mixed-precision | Required | ILP-based per-layer bit-width assignment under a VRAM budget |
 | [**JointQ**](jointq.md) | Arbitrary | Required | Joint optimization of assignments and scale parameters |
+| [**FloatQuant**](float-quant.md) | FP4 / FP8 (microscaling) | Optional | NVFP4 / MXFP4 / FP8 E4M3 fake-quantization for Blackwell-class hardware |
 | **QuIP**   | Arbitrary | Required | Quantization with Incoherence Processing |
 | **ARB**    | Arbitrary | Required | Adaptive Rounding with Binary search |
 | **CQ**     | Arbitrary | Required | Combinatorial quantization |
@@ -78,3 +79,6 @@ runner.run()
 - **GPTQ + QEP + LPCD** is useful when you want additional submodule refinement beyond layer-wise PTQ
 - **RTN** is useful as a fast baseline or when calibration data is not available
 - **DBF** targets extreme compression (~1.5-bit) with binary factorization
+- **FloatQuant** targets NVIDIA Blackwell-native FP4/FP8 microscaling formats
+  (NVFP4 / MXFP4 / FP8 E4M3); direct rounding needs no calibration and
+  `use_hessian=True` adds GPTQ-style error compensation

@@ -11,6 +11,7 @@ from .arb import ARB
 from .autobit import AutoBitQuantizer
 from .cq import CQ
 from .dbf import DBF
+from .floatquant import FloatQuant
 from .gptq import GPTQ
 from .jointq import JointQ
 from .onebit import Onebit

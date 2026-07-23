@@ -1,0 +1,116 @@
+model_path: null
+model_device: cuda:0
+output_dir: outputs/floatquant-sweep
+
+filters:
+  formats: null
+  modes: null
+
+formats:
+  - nvfp4
+  - mxfp4
+
+modes:
+  - name: rtn_default
+    use_hessian: false
+    scale_timing: none
+    scale_objective: auto
+    scale_candidate_strategy: local
+  - name: rtn_static_mse
+    use_hessian: false
+    scale_timing: static
+    scale_objective: auto
+    scale_candidate_strategy: local
+  - name: gptq_default
+    use_hessian: true
+    scale_timing: none
+    scale_objective: auto
+    scale_candidate_strategy: local
+  - name: gptq_static_mse
+    use_hessian: true
+    scale_timing: static
+    scale_objective: mse
+    scale_candidate_strategy: local
+  - name: gptq_static_wmse
+    use_hessian: true
+    scale_timing: static
+    scale_objective: diag_wmse
+    scale_candidate_strategy: local
+  - name: gptq_inloop_wmse
+    use_hessian: true
+    scale_timing: in_loop
+    scale_objective: diag_wmse
+    scale_candidate_strategy: local
+  - name: gptq_inloop_conditional
+    use_hessian: true
+    scale_timing: in_loop
+    scale_objective: conditional
+    scale_candidate_strategy: local
+  - name: gptq_static_mse_full
+    use_hessian: true
+    scale_timing: static
+    scale_objective: mse
+    scale_candidate_strategy: full
+  - name: gptq_inloop_conditional_adaptive
+    use_hessian: true
+    scale_timing: in_loop
+    scale_objective: conditional
+    scale_candidate_strategy: adaptive
+
+qep:
+  enabled:
+    - false
+    - true
+  general: false
+  percdamp: 0.01
+  perccorr: 0.5
+  device: cuda:0
+  exclude_layer_keywords:
+    - mlp.down_proj
+
+floatquant:
+  block_size: null
+  blocksize: 128
+  percdamp: 0.01
+  num_layers: null
+  calc_quant_error: true
+  scale_candidate_strategy: local
+
+timing:
+  warmup_runs: 0
+  repeats: 1
+  randomize_order: false
+  random_seed: 0
+  synchronize_cuda: true
+
+calibration:
+  strategy: drop_rand
+  max_length: 512
+  num_calibration_samples: 64
+  seed: 0
+  batch_size: 8
+
+evaluation:
+  calc_ppl: true
+  calc_original_ppl: true
+  dequantized_model: true
+  quantized_model: false
+  ppl_datasets:
+    - name: wikitext2
+      dataset_name: wikitext
+      dataset_config: wikitext-2-raw-v1
+      split: test
+      max_samples: null
+      max_length: 2048
+      stride: 2048
+    - name: c4_smoke
+      dataset_name: allenai/c4
+      dataset_config: en/c4-train.00001-of-01024.json.gz
+      split: train
+      max_samples: 128
+      max_length: 2048
+      stride: 2048
+
+accuracy:
+  calc_acc: false
+  calc_original_acc: true
