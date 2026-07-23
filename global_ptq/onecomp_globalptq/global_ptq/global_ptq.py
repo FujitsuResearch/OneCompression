@@ -76,8 +76,10 @@ class GlobalPTQ(PostQuantizationProcess):
         ste_k (float):
             Smoothness parameter for GPTQ integer-weight Smooth STE
             rounding.  Only used when ``gptq_optimize_intweight=True``.
-            DBF binary STE uses a fixed internal sharpness (k=2).
             Default is 100.0.
+        mdbf_ste_k (float):
+            Sharpness for MDBF binary sign STE (``tanh(k*x)`` backward).
+            Default is 2.0.
         calibration_dataset (list or None):
             List of text strings to use as calibration data.
             If ``None`` (default), the AllenAI C4 dataset is
@@ -159,7 +161,6 @@ class GlobalPTQ(PostQuantizationProcess):
             optimiser update.  Default is 1 (no accumulation).
             Incompatible with ``use_sam=True``; when both are set,
             this value is silently forced to 1.
-
     Examples:
         >>> from onecomp import Runner, ModelConfig, GPTQ
         >>> from onecomp_globalptq import GlobalPTQ
@@ -184,6 +185,7 @@ class GlobalPTQ(PostQuantizationProcess):
     dbf_lr: float = 5e-5
     optimize_binary: bool = False
     ste_k: float = 100.0
+    mdbf_ste_k: float = 2.0
     calibration_dataset: Optional[List[str]] = None
     num_calibration_samples: int = 128
     max_length: int = 2048
@@ -236,6 +238,10 @@ class GlobalPTQ(PostQuantizationProcess):
     # --- Gradient Accumulation ---
     grad_accum_steps: int = 1
 
+    # --- Device placement (multi-GPU / CPU teacher) ---
+    student_device: Optional[str] = None
+    teacher_device: Optional[str] = None
+
     def __post_init__(self):
         super().__post_init__()
         if self.epochs < 1:
@@ -286,6 +292,7 @@ class GlobalPTQ(PostQuantizationProcess):
             gptq_intweight_lr=self.gptq_intweight_lr,
             optimize_binary=self.optimize_binary,
             ste_k=self.ste_k,
+            mdbf_ste_k=self.mdbf_ste_k,
             calibration_dataset=self.calibration_dataset,
             num_calibration_samples=self.num_calibration_samples,
             max_length=self.max_length,
@@ -315,6 +322,8 @@ class GlobalPTQ(PostQuantizationProcess):
             early_stopping_patience=self.early_stopping_patience,
             use_mixed_precision=self.use_mixed_precision,
             grad_accum_steps=self.grad_accum_steps,
+            student_device=self.student_device,
+            teacher_device=self.teacher_device,
         )
 
         except Exception:
