@@ -11,6 +11,7 @@ from logging import getLogger
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+from .utils.device import get_default_device
 from .utils.dtype import needs_bfloat16
 
 try:
@@ -113,6 +114,12 @@ class ModelConfig:
         model.eval()
         self.logger.info("Model loaded with dtype=%s", next(model.parameters()).dtype)
         return model
+
+    def get_device(self) -> torch.device:
+        """Return a concrete torch.device for PyTorch operations."""
+        if self.device == "auto":
+            return get_default_device()
+        return torch.device(self.device)
 
     def load_tokenizer(self):
         """Load the tokenizer"""
