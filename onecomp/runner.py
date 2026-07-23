@@ -361,10 +361,12 @@ class Runner:
                     )
 
     def _exclude_moe_router_if_needed(self):
-        """Exclude MoE router layers from quantization.
+        """Exclude MoE router and shared-expert-gate layers from quantization.
 
         vLLM's GateLinear (used for MoE routing) hardcodes
         quant_config=None, so router weights must stay unquantized.
+        Qwen3.6-A3B-style MoE models route through shared_expert_gate
+        the same way, so it is excluded alongside the router.
         """
         config = self.model_config.load_config()
         num_experts = (
