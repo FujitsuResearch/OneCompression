@@ -8,7 +8,7 @@
 
 ### Test
 
-- Added a test verifying `load_quantized_model()` calls `unfuse_moe_experts()` on the freshly-built model before the state_dict is loaded (`tests/onecomp/test_quantized_model_loader_moe_unfuse.py`)
+- Added tests verifying `load_quantized_model()` calls `unfuse_moe_experts()` on the freshly-built model before the state_dict is loaded, including a save/load round trip with the real (unmocked) `unfuse_moe_experts()` confirming each expert's weight matches its checkpoint tensor (`tests/onecomp/test_quantized_model_loader_moe_unfuse.py`)
 
 ## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step1] 2026-07-22
 
