@@ -76,7 +76,7 @@ def main():
     # Qwen3.6 quantizes as a text-only checkpoint, so save_format="full_wrapper"
     # is required to remap it to the composite layout vLLM expects. Omit this
     # argument (or use the default "auto") for non-Qwen3.6 models.
-    runner.save_quantized_model(save_dir, save_format="full_wrapper")
+    runner.save_quantized_model(save_dir)
 
     # Free GPU memory used by quantization before loading vLLM
     del runner
