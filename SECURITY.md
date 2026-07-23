@@ -37,3 +37,9 @@ To help us triage and resolve the issue quickly, please include as much of the f
 Please make a good-faith effort to avoid privacy violations, data destruction, and service interruption while investigating. We ask that you give us a reasonable amount of time to address the issue before any public disclosure.
 
 Thank you for helping keep OneComp and its users safe.
+
+## Security Acknowledgments
+
+We thank the following researchers for responsibly disclosing security issues in OneComp:
+
+- **Nir Yehoshua, Cipher Security Labs** — unsafe deserialization in `QuantizedModelLoader.load_quantized_model_pt()` (CWE-502), fixed in v1.2.1.
