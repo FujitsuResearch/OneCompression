@@ -311,7 +311,7 @@ class Runner:
                 raise ValueError(
                     f"Quantizer '{type(self.quantizer).__name__}' "
                     f"(or one of its candidate quantizers) does not support "
-                    f"QEP (Quantization Error Propagation).\n"
+                    f"QEP (Quantization Error Propagation)."
                     f"Set qep=False, or use a QEP-compatible quantizer "
                     f"(e.g., GPTQ, DBF, AutoBitQuantizer with "
                     f"QEP-compatible candidates)."
@@ -766,7 +766,6 @@ class Runner:
                 len(self.quantizer.module_to_name),
                 "Quantization without calibration (layers)",
             )
-
         for module in self.quantizer.module_to_name.keys():
             self.quantizer.quantize(module, None, None)
             if progress:
@@ -1903,18 +1902,15 @@ class Runner:
         for key, tensor in model.state_dict().items():
             skip = False
             export_key = key
-
             for lora_name, _mod in lora_modules:
                 prefix = f"{lora_name}." if lora_name else ""
                 if key.startswith(f"{prefix}lora_A.") or key.startswith(f"{prefix}lora_B."):
                     skip = True
                     break
-
                 base_prefix = f"{prefix}base_layer."
                 if key.startswith(base_prefix):
                     export_key = f"{prefix}{key[len(base_prefix):]}"
                     break
-
             if not skip:
                 export_state_dict[export_key] = tensor
 
@@ -1939,7 +1935,6 @@ class Runner:
             prefix = f"{layer_name}." if layer_name else ""
             qweight_key = f"{prefix}qweight"
             qzeros_key = f"{prefix}qzeros"
-
             if qweight_key not in export_state_dict or qzeros_key not in export_state_dict:
                 self.logger.warning(
                     "Skipping GPTQ export packing for %s because qweight/qzeros "
@@ -2159,7 +2154,6 @@ class Runner:
                 continue
             if not lower.endswith(self._AUX_COPY_INCLUDE_SUFFIXES):
                 continue
-
             dst = os.path.join(save_directory, name)
             if os.path.exists(dst):
                 # Don't clobber files already in the save directory.
@@ -2173,11 +2167,9 @@ class Runner:
                 # to follow alongside the ``Copied %s`` entries below.
                 self.logger.info("Using existing %s in save directory", name)
                 continue
-
             shutil.copy2(src, dst)
             copied += 1
             self.logger.info("Copied %s to save directory", name)
-
         return copied
 
     def save_quantized_model(
