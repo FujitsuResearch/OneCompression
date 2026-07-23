@@ -212,8 +212,9 @@ def test_retie_lm_head_if_needed_ties_when_tied_and_untied_in_memory(tmp_path):
 
 
 def test_retie_lm_head_if_needed_noop_when_not_tied():
-    from onecomp.quantized_model_loader import QuantizedModelLoader
     from transformers import LlamaConfig, LlamaForCausalLM
+
+    from onecomp.quantized_model_loader import QuantizedModelLoader
 
     config = LlamaConfig(
         hidden_size=32,
@@ -240,8 +241,9 @@ def test_retie_lm_head_if_needed_still_raises_for_unrelated_critical_missing():
     """A critical missing key other than lm_head.weight must still raise,
     even when the model is tied and lm_head.weight itself is expected to
     be missing."""
-    from onecomp.quantized_model_loader import QuantizedModelLoader
     from transformers import LlamaConfig, LlamaForCausalLM
+
+    from onecomp.quantized_model_loader import QuantizedModelLoader
 
     config = LlamaConfig(
         hidden_size=32,

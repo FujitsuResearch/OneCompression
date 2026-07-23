@@ -2602,9 +2602,7 @@ class Runner:
         models may expose different names during quantization and save.
         """
         return sorted(
-            name
-            for name, module in model.named_modules()
-            if self._is_quantized_module(module)
+            name for name, module in model.named_modules() if self._is_quantized_module(module)
         )
 
     def _detect_weight_namespace(self, model) -> str:
@@ -2795,9 +2793,7 @@ class Runner:
         if old_quant_config is None:
             raise RuntimeError("model.config has no quantization_config")
 
-        full_quant_config = self._remap_text_only_quant_config_to_full_wrapper(
-            old_quant_config
-        )
+        full_quant_config = self._remap_text_only_quant_config_to_full_wrapper(old_quant_config)
 
         # Replace config with original composite config.
         model.config = copy.deepcopy(orig_config)
@@ -2805,9 +2801,7 @@ class Runner:
 
         # Remap tensors to match the full-wrapper config.
         source_state_dict = state_dict if state_dict is not None else model.state_dict()
-        full_state_dict = self._remap_text_only_state_dict_to_full_wrapper(
-            source_state_dict
-        )
+        full_state_dict = self._remap_text_only_state_dict_to_full_wrapper(source_state_dict)
 
         self.logger.info(
             "Prepared full-wrapper quantized save: model_type=%s, first_quantized=%s",
@@ -2833,10 +2827,7 @@ class Runner:
         for key in ("modules_in_block_to_quantize", "quantized_layer_names"):
             names = quant_config.get(key)
             if isinstance(names, list):
-                quant_config[key] = [
-                    remap_name(n) if isinstance(n, str) else n
-                    for n in names
-                ]
+                quant_config[key] = [remap_name(n) if isinstance(n, str) else n for n in names]
 
         return quant_config
 
@@ -2865,8 +2856,7 @@ class Runner:
 
             if new_key in remapped:
                 raise RuntimeError(
-                    f"State dict key collision during full-wrapper remap: "
-                    f"{key} -> {new_key}"
+                    f"State dict key collision during full-wrapper remap: " f"{key} -> {new_key}"
                 )
 
             remapped[new_key] = tensor

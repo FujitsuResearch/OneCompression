@@ -590,9 +590,7 @@ class QuantizedModelLoader:
         # Gemma-like:
         # model.language_model.model.layers.* -> model.language_model.layers.*
         if ".language_model.model." in ckpt_key:
-            candidates.append(
-                ckpt_key.replace(".language_model.model.", ".language_model.", 1)
-            )
+            candidates.append(ckpt_key.replace(".language_model.model.", ".language_model.", 1))
 
         # Composite wrapper -> text-only:
         # model.language_model.layers.* -> model.layers.*
@@ -610,9 +608,7 @@ class QuantizedModelLoader:
     @staticmethod
     def _apply_known_state_dict_key_rewrites(ckpt_key: str) -> Optional[str]:
         """Return a rewritten key for known save/load prefix drift, else None."""
-        candidates = QuantizedModelLoader._known_state_dict_key_rewrite_candidates(
-            ckpt_key
-        )
+        candidates = QuantizedModelLoader._known_state_dict_key_rewrite_candidates(ckpt_key)
         return candidates[0] if candidates else None
 
     @staticmethod
@@ -624,9 +620,7 @@ class QuantizedModelLoader:
             buffers do not exist before _replace_quantized_layers(), so they
             are handled in _replace_quantized_layers() instead.
         """
-        for candidate in QuantizedModelLoader._known_state_dict_key_rewrite_candidates(
-            ckpt_key
-        ):
+        for candidate in QuantizedModelLoader._known_state_dict_key_rewrite_candidates(ckpt_key):
             if candidate in model_keys:
                 return candidate
 
@@ -705,9 +699,7 @@ class QuantizedModelLoader:
             lang_hits = [h for h in hits if "language_model" in h]
             if len(lang_hits) == 1:
                 return lang_hits[0]
-            raise RuntimeError(
-                f"Ambiguous module suffix match for {name}: {hits[:20]}"
-            )
+            raise RuntimeError(f"Ambiguous module suffix match for {name}: {hits[:20]}")
 
         return None
 
@@ -749,10 +741,7 @@ class QuantizedModelLoader:
         exact_keys = sd_prefix_map.get(target_name)
         if exact_keys:
             return (
-                {
-                    k[len(target_name) + 1 :] : state_dict[k]
-                    for k in exact_keys
-                },
+                {k[len(target_name) + 1 :]: state_dict[k] for k in exact_keys},
                 target_name,
             )
 
@@ -766,10 +755,7 @@ class QuantizedModelLoader:
         if len(hits) == 1:
             source_prefix = hits[0]
             return (
-                {
-                    k[len(source_prefix) + 1 :] : state_dict[k]
-                    for k in sd_prefix_map[source_prefix]
-                },
+                {k[len(source_prefix) + 1 :]: state_dict[k] for k in sd_prefix_map[source_prefix]},
                 source_prefix,
             )
 
@@ -779,15 +765,14 @@ class QuantizedModelLoader:
                 source_prefix = lang_hits[0]
                 return (
                     {
-                        k[len(source_prefix) + 1 :] : state_dict[k]
+                        k[len(source_prefix) + 1 :]: state_dict[k]
                         for k in sd_prefix_map[source_prefix]
                     },
                     source_prefix,
                 )
 
             raise RuntimeError(
-                f"Ambiguous state_dict prefix for {target_name}, "
-                f"suffix={suffix}: {hits[:20]}"
+                f"Ambiguous state_dict prefix for {target_name}, " f"suffix={suffix}: {hits[:20]}"
             )
 
         return {}, None
@@ -1067,9 +1052,7 @@ class QuantizedModelLoader:
                 checkpoint legitimately omits it and the caller re-ties it
                 after this check.
         """
-        missing = [
-            k for k in getattr(incompat, "missing_keys", []) if k not in expected_missing
-        ]
+        missing = [k for k in getattr(incompat, "missing_keys", []) if k not in expected_missing]
         unexpected = list(getattr(incompat, "unexpected_keys", []))
 
         critical_patterns = (
@@ -1086,19 +1069,13 @@ class QuantizedModelLoader:
         critical_missing = [
             k
             for k in missing
-            if (
-                k.endswith("norm.weight")
-                or any(p in k for p in critical_patterns)
-            )
+            if (k.endswith("norm.weight") or any(p in k for p in critical_patterns))
         ]
 
         critical_unexpected = [
             k
             for k in unexpected
-            if (
-                k.endswith("norm.weight")
-                or any(p in k for p in critical_patterns)
-            )
+            if (k.endswith("norm.weight") or any(p in k for p in critical_patterns))
         ]
 
         if critical_missing or critical_unexpected:
