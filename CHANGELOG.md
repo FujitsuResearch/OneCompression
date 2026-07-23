@@ -12,6 +12,7 @@
 ### Qwen3.6 vLLM support: full-wrapper quantized model save
 
 - Added a `save_format` parameter (`"auto"` / `"native"` / `"full_wrapper"`, default `"auto"`) to `Runner.save_quantized_model()`. `"full_wrapper"` saves a text-only quantized checkpoint (e.g. Qwen3.6) remapped to the composite `model.language_model.*` state_dict/config namespace that vLLM's full-wrapper VLM loading expects, and additionally saves `AutoProcessor`/`AutoImageProcessor` files (`onecomp/runner.py`)
+- Added `example/vllm_inference/example_gptq_vllm_qwen36_inference.py`, a dedicated Qwen3.6 example demonstrating the full GPTQ quantize → `save_format="full_wrapper"` save → vLLM inference flow
 
 ### Bug fix
 

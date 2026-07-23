@@ -70,7 +70,9 @@ def test_detect_weight_namespace_full_wrapper_prefix():
 
 def test_detect_weight_namespace_direct_language_model_prefix():
     runner = _make_runner_stub()
-    model = _fake_model(model_type="qwen3_5", state_dict_keys=["model.language_model.layers.0.weight"])
+    model = _fake_model(
+        model_type="qwen3_5", state_dict_keys=["model.language_model.layers.0.weight"]
+    )
     assert runner._detect_weight_namespace(model) == "full_language_model"
 
 
@@ -120,7 +122,9 @@ def test_detect_config_namespace_other_composite_via_text_config():
     text_only (see module docstring)."""
     runner = _make_runner_stub()
     model = _fake_model(
-        model_type="gemma3", state_dict_keys=[], text_config=SimpleNamespace(model_type="gemma3_text")
+        model_type="gemma3",
+        state_dict_keys=[],
+        text_config=SimpleNamespace(model_type="gemma3_text"),
     )
     assert runner._detect_config_namespace(model) == "full_language_model"
 
@@ -321,7 +325,9 @@ def test_remap_quant_config_renames_layers_embed_tokens_and_norm():
         "quant_method": "gptq",
     }
     remapped = Runner._remap_text_only_quant_config_to_full_wrapper(quant_config)
-    assert remapped["modules_in_block_to_quantize"] == ["model.language_model.layers.0.mlp.down_proj"]
+    assert remapped["modules_in_block_to_quantize"] == [
+        "model.language_model.layers.0.mlp.down_proj"
+    ]
     assert remapped["quantized_layer_names"] == [
         "model.language_model.embed_tokens.weight",
         "model.language_model.norm.weight",
