@@ -1,5 +1,15 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step2] 2026-07-22
+
+### Bug fix
+
+- Fixed `QuantizedModelLoader.load_quantized_model()` failing to load MoE quantized checkpoints: `Runner.save_quantized_model()` unfuses fused 3D expert parameters (`gate_up_proj`, `down_proj`) into per-expert `nn.Linear` modules before saving, so checkpoint keys look like `model.layers.0.mlp.experts.0.down_proj.weight`, but the empty model built from `config.json` still had the fused representation and those keys never matched. `load_quantized_model()` now calls `unfuse_moe_experts()` on the freshly-built model before the state_dict is loaded, mirroring the save-time step (`onecomp/quantized_model_loader.py`)
+
+### Test
+
+- Added tests verifying `load_quantized_model()` calls `unfuse_moe_experts()` on the freshly-built model before the state_dict is loaded, including a save/load round trip with the real (unmocked) `unfuse_moe_experts()` confirming each expert's weight matches its checkpoint tensor (`tests/onecomp/test_quantized_model_loader_moe_unfuse.py`)
+
 ## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step1] 2026-07-22
 
 ### MoE quantization exclusion
