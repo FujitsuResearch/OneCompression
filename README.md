@@ -326,6 +326,12 @@ pip install vllm
 See the [vLLM Inference guide](https://FujitsuResearch.github.io/OneCompression/user-guide/vllm-inference/) for details, including Open WebUI setup instructions.
 
 
+## 📬 Contact Us
+
+- For technical questions and feature requests, please use GitHub [Issues](https://github.com/FujitsuResearch/OneCompression/issues).
+- For security vulnerabilities, please **do not** open a public Issue. See our [Security Policy](./SECURITY.md) for how to report them privately.
+- For collaborations, partnerships, and other inquiries, please contact us at [contact-onecompression@cs.jp.fujitsu.com](mailto:contact-onecompression@cs.jp.fujitsu.com).
+
 ## 📄 License
 
 See [LICENSE](./LICENSE) for more details.

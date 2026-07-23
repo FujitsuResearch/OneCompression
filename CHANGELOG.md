@@ -147,6 +147,12 @@ Add a separate, opt-in vLLM plugin for AMD ROCm (vLLM `0.24.0+rocm*`). Install f
 - Fixed VLM (e.g. Gemma3) quantized model save/load: safetensors key prefixes from `save_pretrained` (`model.language_model.model.layers.*`) did not match the `from_config` model (`model.language_model.layers.*`), so `load_state_dict(..., assign=True)` left `qweight` / `scales` / `qzeros` at zero and generation degraded (`onecomp/quantized_model_loader.py`)
   - Added `_remap_state_dict_keys()` to normalize checkpoint keys before `_replace_quantized_layers`; `_apply_known_state_dict_key_rewrites()` rewrites `.language_model.model.` → `.language_model.` (pattern-based, without requiring keys to exist in the empty model yet)
 
+## [v1.2.2] 2026-07-10
+
+### Bug Fix
+
+- Fixed `device="auto"` evaluation crashes in `Runner.calculate_perplexity()` and related paths by adding `ModelConfig.get_device()` and using a resolved `torch.device` for PyTorch operations such as `model.to()` and `empty_cache()`. Hugging Face `device_map="auto"` remains unchanged for model loading, but PyTorch no longer receives the raw `"auto"` string.
+
 ## [v1.2.1] 2026-07-03
 
 ### Security
@@ -155,6 +161,7 @@ Add a separate, opt-in vLLM plugin for AMD ROCm (vLLM `0.24.0+rocm*`). Install f
   - **Breaking change**: existing callers of `load_quantized_model_pt()` must pass `allow_unsafe_deserialization=True` for trusted `.pt` files.
 - **`Quantizer.load_results()` / `ResultLoader`**: same hardening applied. Loading with `weights_only=False` now requires `allow_unsafe_deserialization=True` (added as a `ResultLoader` field), and logs a warning. The safe `weights_only=True` path is unchanged.
 - Updated docstrings, docs, and the LoRA SFT example to document the risk and the required opt-in.
+- **Credit**: this unsafe deserialization issue (CWE-502) was responsibly disclosed by **Nir Yehoshua, Cipher Security Labs**. Thank you for the report.
 
 ## [v1.2.0] 2026-06-08
 
