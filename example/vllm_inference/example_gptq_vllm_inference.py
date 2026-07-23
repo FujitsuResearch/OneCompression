@@ -55,7 +55,7 @@ def main():
         model_config=model_config,
         quantizer=quantizer,
         calibration_config=calibration_config,
-        qep=True,
+        qep=False,
     )
     # NOTE: The calibration settings above are kept compact so the demo
     # runs fast and may be insufficient for real quantisation.  For
