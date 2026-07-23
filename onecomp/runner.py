@@ -311,7 +311,7 @@ class Runner:
                 raise ValueError(
                     f"Quantizer '{type(self.quantizer).__name__}' "
                     f"(or one of its candidate quantizers) does not support "
-                    f"QEP (Quantization Error Propagation).\n"
+                    f"QEP (Quantization Error Propagation). "
                     f"Set qep=False, or use a QEP-compatible quantizer "
                     f"(e.g., GPTQ, DBF, AutoBitQuantizer with "
                     f"QEP-compatible candidates)."
@@ -766,7 +766,6 @@ class Runner:
                 len(self.quantizer.module_to_name),
                 "Quantization without calibration (layers)",
             )
-
         for module in self.quantizer.module_to_name.keys():
             self.quantizer.quantize(module, None, None)
             if progress:
@@ -1854,6 +1853,7 @@ class Runner:
     @staticmethod
     def _collect_lora_gptq_modules(model) -> list[tuple[str, torch.nn.Module]]:
         """Return ``LoRAGPTQLinear`` modules contained in *model*."""
+        # Avoid importing post_process_lora_sft here; it pulls training deps.
         return [
             (name, mod)
             for name, mod in model.named_modules()
@@ -1902,18 +1902,15 @@ class Runner:
         for key, tensor in model.state_dict().items():
             skip = False
             export_key = key
-
             for lora_name, _mod in lora_modules:
                 prefix = f"{lora_name}." if lora_name else ""
                 if key.startswith(f"{prefix}lora_A.") or key.startswith(f"{prefix}lora_B."):
                     skip = True
                     break
-
                 base_prefix = f"{prefix}base_layer."
                 if key.startswith(base_prefix):
                     export_key = f"{prefix}{key[len(base_prefix):]}"
                     break
-
             if not skip:
                 export_state_dict[export_key] = tensor
 
@@ -1938,7 +1935,6 @@ class Runner:
             prefix = f"{layer_name}." if layer_name else ""
             qweight_key = f"{prefix}qweight"
             qzeros_key = f"{prefix}qzeros"
-
             if qweight_key not in export_state_dict or qzeros_key not in export_state_dict:
                 self.logger.warning(
                     "Skipping GPTQ export packing for %s because qweight/qzeros "
@@ -1969,7 +1965,6 @@ class Runner:
                 len(skipped_layers),
                 skipped_layers,
             )
-
         return export_state_dict
 
     def _save_lora_adapter_sidecar(self, save_directory: str, model=None) -> bool:
@@ -2158,7 +2153,6 @@ class Runner:
                 continue
             if not lower.endswith(self._AUX_COPY_INCLUDE_SUFFIXES):
                 continue
-
             dst = os.path.join(save_directory, name)
             if os.path.exists(dst):
                 # Don't clobber files already in the save directory.
@@ -2172,11 +2166,9 @@ class Runner:
                 # to follow alongside the ``Copied %s`` entries below.
                 self.logger.info("Using existing %s in save directory", name)
                 continue
-
             shutil.copy2(src, dst)
             copied += 1
             self.logger.info("Copied %s to save directory", name)
-
         return copied
 
     def save_quantized_model(
@@ -2314,16 +2306,22 @@ class Runner:
         # LoRA sidecar: only written if selected model contains LoRAGPTQLinear.
         wrote_adapter = self._save_lora_adapter_sidecar(save_directory, model=model)
         if not wrote_adapter:
+            # Remove any stale sidecar from a previous run so the directory is
+            # self-consistent and load_quantized_model does not pick up an
+            # adapter that no longer matches the saved base model.
             stale_adapter_dir = save_path / LORA_ADAPTER_SUBDIR
             if stale_adapter_dir.is_dir():
                 for stale in ("adapter_model.safetensors", "adapter_config.json"):
                     stale_path = stale_adapter_dir / stale
                     if stale_path.exists():
                         stale_path.unlink()
+                # Remove the (now-empty) subdirectory if nothing else lives there.
                 try:
                     stale_adapter_dir.rmdir()
                 except OSError:
                     pass
+            # Also remove any top-level adapter files left by older versions of
+            # this helper (previous layout put the sidecar directly in save_dir).
             for legacy in ("adapter_model.safetensors", "adapter_config.json"):
                 legacy_path = save_path / legacy
                 if legacy_path.exists():
