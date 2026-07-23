@@ -41,10 +41,10 @@ def main():
     setup_logger()
 
     # Step 1: Quantize with GPTQ
-    save_dir = "./TinyLlama-1.1B-Chat-gptq-4bit"
+    save_dir = "./Qwen3.6-27B-gptq-4bit"
 
     model_config = ModelConfig(
-        model_id="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        model_id="Qwen/Qwen3.6-27B",
     )
     quantizer = GPTQ(wbits=4, groupsize=128)
     calibration_config = CalibrationConfig(
@@ -55,7 +55,7 @@ def main():
         model_config=model_config,
         quantizer=quantizer,
         calibration_config=calibration_config,
-        qep=False,
+        qep=True,
     )
     # NOTE: The calibration settings above are kept compact so the demo
     # runs fast and may be insufficient for real quantisation.  For
@@ -73,9 +73,10 @@ def main():
     runner.run()
 
     # Step 2: Save the quantized model.
-    # (Qwen3.6 needs save_format="full_wrapper" for vLLM serving;
-    #  see example/vllm_inference/example_gptq_vllm_qwen36_inference.py.)
-    runner.save_quantized_model(save_dir)
+    # Qwen3.6 quantizes as a text-only checkpoint, so save_format="full_wrapper"
+    # is required to remap it to the composite layout vLLM expects. Omit this
+    # argument (or use the default "auto") for non-Qwen3.6 models.
+    runner.save_quantized_model(save_dir, save_format="full_wrapper")
 
     # Free GPU memory used by quantization before loading vLLM
     del runner

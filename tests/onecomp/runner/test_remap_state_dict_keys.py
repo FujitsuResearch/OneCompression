@@ -165,7 +165,9 @@ def test_remap_state_dict_keys_leaves_quantized_tensors_for_layer_swap():
     }
     remapped = QuantizedModelLoader._remap_state_dict_keys(ckpt, model)
     assert "model.language_model.model.layers.0.self_attn.q_proj.qweight" in remapped
-    assert torch.equal(remapped["model.language_model.model.layers.0.self_attn.q_proj.qweight"], qweight)
+    assert torch.equal(
+        remapped["model.language_model.model.layers.0.self_attn.q_proj.qweight"], qweight
+    )
 
 
 def test_resolve_state_dict_key_without_model_prefix():
@@ -545,7 +547,9 @@ def test_check_load_state_dict_result_passes_when_nothing_critical():
 
     from onecomp.quantized_model_loader import QuantizedModelLoader
 
-    incompat = SimpleNamespace(missing_keys=["model.some_vlm_only_adapter.weight"], unexpected_keys=[])
+    incompat = SimpleNamespace(
+        missing_keys=["model.some_vlm_only_adapter.weight"], unexpected_keys=[]
+    )
     # Should not raise.
     QuantizedModelLoader._check_load_state_dict_result(incompat)
 

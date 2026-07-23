@@ -25,7 +25,6 @@ from onecomp.utils.blockwise import (
     get_blocks_and_inputs,
 )
 
-
 # ---------------------------------------------------------------------------
 # _get_block_layer_type
 # ---------------------------------------------------------------------------
@@ -170,7 +169,9 @@ def test_compute_per_type_attention_masks_gemma_like_dispatch():
     sliding_sentinel = object()
 
     with (
-        patch("transformers.masking_utils.create_causal_mask", return_value=full_sentinel) as m_full,
+        patch(
+            "transformers.masking_utils.create_causal_mask", return_value=full_sentinel
+        ) as m_full,
         patch(
             "transformers.masking_utils.create_sliding_window_causal_mask",
             return_value=sliding_sentinel,
@@ -195,7 +196,9 @@ def test_compute_per_type_attention_masks_qwen36_hybrid_dispatch():
     linear_sentinel = object()
 
     with (
-        patch("transformers.masking_utils.create_causal_mask", return_value=full_sentinel) as m_full,
+        patch(
+            "transformers.masking_utils.create_causal_mask", return_value=full_sentinel
+        ) as m_full,
         patch(
             "onecomp.utils.blockwise._create_linear_attention_mask",
             return_value=linear_sentinel,
@@ -270,9 +273,7 @@ class _FakeCausalLM(nn.Module):
     def __init__(self, layer_types, hidden_size=8, vocab_size=16):
         super().__init__()
         config = MagicMock(layer_types=layer_types, hidden_size=hidden_size)
-        blocks = nn.ModuleList(
-            [_FakeDecoderLayer(hidden_size, lt) for lt in layer_types]
-        )
+        blocks = nn.ModuleList([_FakeDecoderLayer(hidden_size, lt) for lt in layer_types])
         self.model = _FakeInnerModel(config, blocks)
         self.embed_tokens = nn.Embedding(vocab_size, hidden_size)
 
