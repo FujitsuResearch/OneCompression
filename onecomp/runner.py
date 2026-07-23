@@ -361,10 +361,12 @@ class Runner:
                     )
 
     def _exclude_moe_router_if_needed(self):
-        """Exclude MoE router layers from quantization.
+        """Exclude MoE router and shared-expert-gate layers from quantization.
 
         vLLM's GateLinear (used for MoE routing) hardcodes
         quant_config=None, so router weights must stay unquantized.
+        Qwen3.6-A3B-style MoE models route through shared_expert_gate
+        the same way, so it is excluded alongside the router.
         """
         config = self.model_config.load_config()
         num_experts = (
@@ -375,19 +377,19 @@ class Runner:
         if num_experts == 0:
             return
 
-        keyword = "router"
+        keywords = ["router", "shared_expert_gate"]
         target_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
         for q in target_quantizers:
-            if q.exclude_layer_keywords is None:
-                q.exclude_layer_keywords = [keyword]
-            elif keyword not in q.exclude_layer_keywords:
-                q.exclude_layer_keywords = list(q.exclude_layer_keywords) + [keyword]
+            existing = list(q.exclude_layer_keywords) if q.exclude_layer_keywords else []
+            missing = [k for k in keywords if k not in existing]
+            if missing:
+                q.exclude_layer_keywords = existing + missing
 
         self.logger.info(
             "MoE model (num_experts=%d): excluding '%s' layers from "
             "quantization (vLLM GateLinear does not support quantization)",
             num_experts,
-            keyword,
+            ", ".join(keywords),
         )
 
     def run(self):

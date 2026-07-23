@@ -1,5 +1,12 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step1] 2026-07-22
+
+### MoE quantization exclusion
+
+- `Runner._exclude_moe_router_if_needed()` now also excludes `shared_expert_gate` layers from quantization, alongside the existing `router` exclusion, since Qwen3.6-A3B-style MoE models route through it the same way vLLM's `GateLinear` does (`onecomp/runner.py`)
+- Added `tests/onecomp/runner/test_exclude_moe_router_if_needed.py`, the first dedicated coverage for `_exclude_moe_router_if_needed()`
+
 ## [v1.3.0(WIP)+feature/qwen36_27b_step3] 2026-07-21
 
 ### Qwen3.6 vLLM support: full-wrapper quantized model save
