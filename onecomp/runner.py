@@ -333,7 +333,7 @@ class Runner:
 
         # MPS device validation: only GPTQ (or AutoBitQuantizer whose
         # candidates are all GPTQ, without DBF fallback) is supported on MPS
-        device = self.model_config.device
+        device = self.model_config.get_device()
         if is_mps_device(device):
             if self.multi_gpu:
                 raise ValueError("multi_gpu is not supported on MPS device.")
@@ -362,10 +362,12 @@ class Runner:
                     )
 
     def _exclude_moe_router_if_needed(self):
-        """Exclude MoE router layers from quantization.
+        """Exclude MoE router and shared-expert-gate layers from quantization.
 
         vLLM's GateLinear (used for MoE routing) hardcodes
         quant_config=None, so router weights must stay unquantized.
+        Qwen3.6-A3B-style MoE models route through shared_expert_gate
+        the same way, so it is excluded alongside the router.
         """
         config = self.model_config.load_config()
         num_experts = (
@@ -1151,24 +1153,24 @@ class Runner:
             tokenizer = self.model_config.load_tokenizer()
             original_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
             del model, tokenizer
-            empty_cache(self.model_config.device)
+            empty_cache(self.model_config.get_device())
 
         if quantized_model:
             try:
                 logger.info("Evaluating quantized model (%s)...", eval_name)
                 if self.quantized_model is not None:
                     model = self.quantized_model
-                    model.to(self.model_config.device)
+                    model.to(self.model_config.get_device())
                     tokenizer = self.model_config.load_tokenizer()
                     quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
                     model.to("cpu")
                     del tokenizer
                 else:
                     model, tokenizer = self.create_quantized_model(quantizer=quantizer)
-                    model.to(self.model_config.device)
+                    model.to(self.model_config.get_device())
                     quantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
                     del model, tokenizer
-                empty_cache(self.model_config.device)
+                empty_cache(self.model_config.get_device())
             except NotImplementedError:
                 logger.warning(
                     "This quantization method does not support creating a quantized model; "
@@ -1183,7 +1185,7 @@ class Runner:
             self.update_model_weights(model, quantizer=quantizer)
             dequantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
             del model, tokenizer
-            empty_cache(self.model_config.device)
+            empty_cache(self.model_config.get_device())
 
         return original_result, dequantized_result, quantized_result
 
@@ -2467,7 +2469,7 @@ class Runner:
             )
             # Release fragmented GPU memory from previous operations (e.g., run())
             gc.collect()
-            empty_cache(self.model_config.device)
+            empty_cache(self.model_config.get_device())
 
             model = self.model_config.load_model()
             input_device = next(model.parameters()).device
@@ -2491,7 +2493,7 @@ class Runner:
                 )
                 # Release fragmented GPU memory from previous operations (e.g., run())
                 gc.collect()
-                empty_cache(self.model_config.device)
+                empty_cache(self.model_config.get_device())
 
                 model = self.model_config.load_model()
                 input_device = next(model.parameters()).device
@@ -2793,12 +2795,8 @@ class Runner:
 
         # Remap tensors to match the full-wrapper config.
         source_state_dict = state_dict if state_dict is not None else model.state_dict()
-        full_state_dict = self._remap_text_only_state_dict_to_full_wrapper(
-            source_state_dict
-        )
-        full_state_dict = self._strip_moe_expert_g_idx_for_vllm(
-            full_state_dict, full_quant_config
-        )
+        full_state_dict = self._remap_text_only_state_dict_to_full_wrapper(source_state_dict)
+        full_state_dict = self._strip_moe_expert_g_idx_for_vllm(full_state_dict, full_quant_config)
 
         self.logger.info(
             "Prepared full-wrapper quantized save: model_type=%s, first_quantized=%s",
@@ -2860,9 +2858,7 @@ class Runner:
 
         return remapped
 
-    def _strip_moe_expert_g_idx_for_vllm(
-        self, state_dict: dict, quant_config: dict
-    ) -> dict:
+    def _strip_moe_expert_g_idx_for_vllm(self, state_dict: dict, quant_config: dict) -> dict:
         """Drop per-expert GPTQ ``g_idx`` buffers from a vLLM-facing export.
 
         vLLM's GPTQ MoE kernel (MoeWNA16) has no ``g_idx`` parameter, so an
@@ -2872,9 +2868,7 @@ class Runner:
         kernel already assumes; raises otherwise.
         """
         moe_g_idx_keys = [
-            key
-            for key in state_dict
-            if key.endswith(".g_idx") and ".mlp.experts." in key
+            key for key in state_dict if key.endswith(".g_idx") and ".mlp.experts." in key
         ]
         if not moe_g_idx_keys:
             return state_dict

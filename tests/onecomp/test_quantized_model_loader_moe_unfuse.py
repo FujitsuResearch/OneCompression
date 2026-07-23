@@ -4,7 +4,13 @@ Tests for MoE expert unfusing in ``QuantizedModelLoader.load_quantized_model``.
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
+import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import torch
+import torch.nn as nn
+from safetensors.torch import save_file
 
 from onecomp.quantized_model_loader import QuantizedModelLoader
 
@@ -61,3 +67,85 @@ class TestUnfuseMoeBeforeLoad:
         mock_unfuse.assert_called_once()
         assert mock_unfuse.call_args[0][0] is fake_model
         assert call_order == ["build", "unfuse", "load_state_dict"]
+
+
+class _FakeMoEExpertsBlock(nn.Module):
+    """Minimal stand-in for a fused 3D MoE expert block."""
+
+    def __init__(self, num_experts: int, hidden: int, inter: int):
+        super().__init__()
+        self.gate_up_proj = nn.Parameter(
+            torch.zeros(num_experts, 2 * inter, hidden, dtype=torch.float16)
+        )
+        self.down_proj = nn.Parameter(torch.zeros(num_experts, hidden, inter, dtype=torch.float16))
+        self.act_fn = nn.SiLU()
+
+
+class _FakeMoEModel(nn.Module):
+    """Minimal CausalLM stand-in with one fused-MoE decoder layer."""
+
+    def __init__(self, num_experts: int, hidden: int, inter: int):
+        super().__init__()
+        self.config = SimpleNamespace(tie_word_embeddings=False)
+        layer = nn.Module()
+        layer.mlp = nn.Module()
+        layer.mlp.experts = _FakeMoEExpertsBlock(num_experts, hidden, inter)
+        self.model = nn.Module()
+        self.model.layers = nn.ModuleList([layer])
+        self.lm_head = nn.Linear(hidden, 8, bias=False, dtype=torch.float16)
+
+
+class TestUnfuseMoeLoadRoundTrip:
+    def test_unfuse_moe_load_state_dict_fills_actual_per_expert_weights(self, tmp_path):
+        """Runs the real unfuse + load_state_dict and checks each expert's
+        weight matches its saved checkpoint tensor."""
+        num_experts, hidden, inter = 2, 4, 8
+        save_dir = tmp_path / "moe_saved"
+        save_dir.mkdir()
+
+        expert_weights = {}
+        state_dict = {"lm_head.weight": torch.zeros(8, hidden, dtype=torch.float16)}
+        for i in range(num_experts):
+            gate = torch.randn(inter, hidden, dtype=torch.float16) + i
+            up = torch.randn(inter, hidden, dtype=torch.float16) + i
+            down = torch.randn(hidden, inter, dtype=torch.float16) + i
+            expert_weights[i] = (gate, up, down)
+            prefix = f"model.layers.0.mlp.experts.{i}"
+            state_dict[f"{prefix}.gate_proj.weight"] = gate
+            state_dict[f"{prefix}.up_proj.weight"] = up
+            state_dict[f"{prefix}.down_proj.weight"] = down
+
+        save_file(state_dict, str(save_dir / "model.safetensors"))
+        (save_dir / "config.json").write_text(
+            json.dumps(
+                {
+                    "model_type": "llama",
+                    "quantization_config": {
+                        "quant_method": "gptq",
+                        "modules_in_block_to_quantize": [],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(
+                QuantizedModelLoader,
+                "_build_empty_model_from_config",
+                return_value=_FakeMoEModel(num_experts, hidden, inter),
+            ),
+            patch(
+                "onecomp.quantized_model_loader.AutoTokenizer.from_pretrained",
+                return_value=object(),
+            ),
+        ):
+            model, _ = QuantizedModelLoader.load_quantized_model(str(save_dir), device_map="")
+
+        experts = model.model.layers[0].mlp.experts
+        assert len(experts) == num_experts
+        for i in range(num_experts):
+            gate, up, down = expert_weights[i]
+            assert torch.equal(experts[i].gate_proj.weight, gate)
+            assert torch.equal(experts[i].up_proj.weight, up)
+            assert torch.equal(experts[i].down_proj.weight, down)
