@@ -95,6 +95,21 @@ runner.run()
 runner.save_quantized_model("./Llama-3.1-8B-Instruct-gptq-4bit")
 ```
 
+!!! note "Qwen3.6: use `save_format=\"full_wrapper\"`"
+    Qwen3.6 quantizes as a text-only checkpoint, whose native Hugging Face
+    layout (`model.layers.*`) does not match what vLLM's composite
+    `Qwen3_5ForConditionalGeneration` loader expects (`model.language_model.layers.*`).
+    Pass `save_format="full_wrapper"` to `save_quantized_model()` to remap the
+    checkpoint for vLLM serving:
+
+    ```python
+    runner.save_quantized_model("./Qwen3.6-gptq-4bit-vllm", save_format="full_wrapper")
+    ```
+
+    This option is specific to Qwen3.6 and will raise `RuntimeError` for any
+    other model. Leave `save_format` at its default (`"auto"`) for everything
+    else, including other VLMs.
+
 ### 2. Serve with vLLM
 
 There are two ways to use the quantized model with vLLM.

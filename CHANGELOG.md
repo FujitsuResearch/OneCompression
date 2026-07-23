@@ -1,5 +1,58 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step1] 2026-07-22
+
+### MoE quantization exclusion
+
+- `Runner._exclude_moe_router_if_needed()` now also excludes `shared_expert_gate` layers from quantization, alongside the existing `router` exclusion, since Qwen3.6-A3B-style MoE models route through it the same way vLLM's `GateLinear` does (`onecomp/runner.py`)
+- Added `tests/onecomp/runner/test_exclude_moe_router_if_needed.py`, the first dedicated coverage for `_exclude_moe_router_if_needed()`
+
+## [v1.3.0(WIP)+feature/qwen36_27b_step3] 2026-07-21
+
+### Qwen3.6 vLLM support: full-wrapper quantized model save
+
+- Added a `save_format` parameter (`"auto"` / `"native"` / `"full_wrapper"`, default `"auto"`) to `Runner.save_quantized_model()`. `"full_wrapper"` saves a text-only quantized checkpoint (e.g. Qwen3.6) remapped to the composite `model.language_model.*` state_dict/config namespace that vLLM's full-wrapper VLM loading expects, and additionally saves `AutoProcessor`/`AutoImageProcessor` files (`onecomp/runner.py`)
+- Added `example/vllm_inference/example_gptq_vllm_qwen36_inference.py`, a dedicated Qwen3.6 example demonstrating the full GPTQ quantize → `save_format="full_wrapper"` save → vLLM inference flow
+
+### Bug fix
+
+- Fixed a `SyntaxError` in `onecomp/utils/blockwise.py` and broken save logic in `Runner.save_quantized_model()` (missing `save_format` parameter, dangling `try` without `except`, undefined variable reference), and removed dead duplicate code (`onecomp/runner.py`)
+
+### Test
+
+- Added tests for `save_format`'s namespace-detection/remap helpers and its Qwen3.6-only scoping, plus end-to-end checks that `full_wrapper` restores `model.config` after save and that the default `save_format` remains a no-op for non-Qwen models (`tests/onecomp/runner/test_save_format_full_wrapper.py`)
+
+## [v1.3.0(WIP)+feature/qwen36_27b_step2] 2026-07-21
+
+### Bug fix
+
+- Fixed `load_quantized_model()` silently loading quantized layers (GPTQ/DBF) with all-zero buffers when the checkpoint's on-disk key prefixes don't match `quantization_config`'s recorded module names (e.g. Qwen3.6: `transformers` unconditionally rewrites `model.layers.*` to `model.language_model.layers.*` on save, regardless of any OneComp save option). `_replace_quantized_layers()` now moves the matched tensors to the correct key before `load_state_dict()` instead of only using them to infer buffer shapes (`onecomp/quantized_model_loader.py`)
+  - Added `_check_load_state_dict_result()` / `_assert_quantized_modules_loaded()` post-load checks that fail fast instead of silently producing a model that generates garbage
+  - Generalized the generic suffix-matching fallback in `_resolve_state_dict_key()` to consider the full key depth instead of a hardcoded 8-component limit
+- Fixed `_assert_quantized_modules_loaded()` raising for every DBF-quantized model: it checked for a non-existent `bp` attribute on `DoubleBinaryLinear` instead of the real `scaling0`/`scaling2`/`scaling4`/`bp1`/`bp3` (`onecomp/quantized_model_loader.py`)
+- Fixed a false-positive load failure for tied-embedding models: `lm_head.weight` is legitimately absent from the checkpoint (HF's `save_pretrained` does not duplicate a tensor sharing storage with `embed_tokens.weight`) and is no longer flagged as a critical missing key (`onecomp/quantized_model_loader.py`)
+
+### Refactor
+
+- Extracted the tied-embeddings re-tie decision and `tie_weights()` call in `load_quantized_model()` into `_retie_lm_head_if_needed()` (`onecomp/quantized_model_loader.py`)
+
+### Test
+
+- Added unit tests covering the above fixes (`tests/onecomp/runner/test_remap_state_dict_keys.py`, `tests/onecomp/runner/test_load_tied_embeddings.py`)
+
+## [v1.3.0(WIP)+feature/qwen36_27b_step1] 2026-07-21
+
+### Qwen3.6 support (GatedDeltaNet hybrid linear-attention / full-attention layers)
+
+- Extended blockwise calibration handling in `onecomp/utils/blockwise.py` to support Qwen3.6's hybrid decoder, which mixes GatedDeltaNet `linear_attention` layers with regular `full_attention` layers (same `layer_types` scheme as transformers' `Qwen3_5` architecture)
+  - Hybrid layer-type detection now also recognizes the `linear_attention` + `full_attention` mix (`is_qwen35_like_hybrid`), alongside the existing Gemma-style `full_attention` + `sliding_attention` mix (`is_gemma_like_mixed_attention`); `has_mixed_types` is true when either applies
+  - Added `_create_linear_attention_mask()`, ported from transformers' `Qwen3_5Model._update_linear_attn_mask`: returns `None` for cached-decode or no-padding forwards, otherwise the boolean padding mask
+  - `_compute_per_type_attention_masks()` now dispatches to a Qwen-hybrid mask-creator mapping (`linear_attention` -> `_create_linear_attention_mask`, `full_attention` -> `create_causal_mask`) instead of the Gemma pair (`create_causal_mask` / `create_sliding_window_causal_mask`) when the model's layer types match the hybrid set
+
+### Tests
+
+- Added test coverage for the Qwen3.6 hybrid-attention support above, which previously had no dedicated tests: `_get_block_layer_type`'s `linear_attn` fallback and priority order, `_create_linear_attention_mask`'s cached/no-padding/padding branches, the mask-creator dispatch added to `_compute_per_type_attention_masks` for `{"linear_attention", "full_attention"}` layer-type sets (with a regression guard for the existing Gemma-style `{"full_attention", "sliding_attention"}` path), and end-to-end hybrid-layer-type detection in `get_blocks_and_inputs` (`tests/onecomp/utils/test_blockwise.py`)
+
 ## [v1.3.0(WIP)+lab/delete-example]
 
 ### Examples
