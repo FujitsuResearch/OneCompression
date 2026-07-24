@@ -14,8 +14,10 @@
 
 ### Test
 
-- Added unit tests for `_rtn_fallback_result()`, `_strip_moe_expert_g_idx_for_vllm()`, `MixedGPTQConfig`'s FusedMoE dispatch, and `vllm_plugins/utils/module.py`'s `_lookup_moe_config()`/fused-name resolution (`tests/onecomp/test_rtn_fallback_result.py`, `tests/onecomp/runner/test_strip_moe_expert_g_idx.py`, `tests/vllm_plugins/gptq/test_mixed_gptq_moe.py`, `tests/vllm_plugins/utils/test_module.py`)
+- Added unit tests for `_rtn_fallback_result()` and `_strip_moe_expert_g_idx_for_vllm()` (`tests/onecomp/test_rtn_fallback_result.py`, `tests/onecomp/runner/test_strip_moe_expert_g_idx.py`)
 - Added a CPU-only integration test with a synthetic MoE block that exercises the "recovered + real Hessian" and "recovered + RTN fallback" expert paths without an HF model download (`tests/onecomp/test_qep_expert_recovery_integration.py`)
+  - Added coverage for the non-`GPTQ` quantizer path: an expert receiving zero calibration tokens is skipped (not RTN-quantized) when the quantizer isn't `GPTQ`
+  - Added coverage confirming the RTN-fallback `GPTQResult` is actually applied to the expert module's live weight, not just recorded in `quantizer.results`
 
 ## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step2] 2026-07-22
 
