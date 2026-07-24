@@ -264,8 +264,9 @@ class Runner:
             ``multi_gpu=True`` requires a quantizer with ``flag_calibration=True``.
 
             This method is intended to be called from the ``run()`` flow only.
-            It is *not* designed to be used in the ``load() -> run_postprocess()``
-            flow, and the checks here do not cover that use case.
+            It is *not* designed to be used in the
+            ``load_quantized_model() -> Runner.run_post_processes()`` flow, and
+            the checks here do not cover that use case.
 
         Raises:
             TypeError: Invalid type for ``model_config``, ``quantizer``, or ``quantizers``
