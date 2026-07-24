@@ -52,10 +52,13 @@ runner.save_quantized_model("./tinyllama-gptq4-blockwise-resaved")
 ```
 
 `quantizer=None` is valid for this flow because `runner.quantized_model` is
-assigned before calling `run_post_processes()`. Each successful post-process
-appends an entry to
+assigned before calling `run_post_processes()`. Each post-process run that
+completes without raising appends an entry to
 `quantization_config["onecomp_post_processes"]`, so the audit metadata
-accumulates across repeated load -> post-process -> re-save cycles.
+accumulates across repeated load -> post-process -> re-save cycles. Every
+entry records an `executed` flag; when a post-process skips its work (for
+example `GlobalPTQ` on a model with no quantized layers) the entry records
+`executed: false` together with a `reason` such as `not_quantized`.
 
 !!! tip
     A complete working example is available at
@@ -218,7 +221,9 @@ See the [API Reference](../api/post_process.md) for the full parameter list.
     also record an entry under
     `quantization_config["onecomp_post_processes"]`, so the saved checkpoint
     retains the post-process audit trail across load → post-process → re-save
-    cycles. The `.pt` path remains available when whole-object PyTorch
+    cycles. Skipped runs (no quantized layers, unsupported method, or zero
+    trainable parameters) are recorded with `executed: false` and a `reason`
+    (`not_quantized`, `unsupported_method_<method>`, `no_params`). The `.pt` path remains available when whole-object PyTorch
     serialization is explicitly needed.
 
 ---

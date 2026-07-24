@@ -241,11 +241,13 @@ class GlobalPTQDistributed(PostQuantizationProcess):
         self,
         quantized_model: nn.Module,
         model_config: ModelConfig,
-    ) -> None:
+    ) -> dict:
         """Execute global PTQ via Trainer.
 
         Modifies *quantized_model* in-place.  The model is returned on
         CPU in eval mode per the ``PostQuantizationProcess`` contract.
+        Returns a results dict whose ``global_executed`` / ``reason`` fields
+        are recorded in post-process audit metadata.
 
         Args:
             quantized_model (nn.Module):
@@ -286,10 +288,10 @@ class GlobalPTQDistributed(PostQuantizationProcess):
         method, detected_modules = detect_quantization_method(quantized_model)
         if method is None:
             logger.warning("No quantized layers detected — skipping.")
-            return
+            return {"global_executed": False, "reason": "not_quantized"}
         if method not in ("gptq", "dbf"):
             logger.info("Method '%s' not supported — skipping.", method)
-            return
+            return {"global_executed": False, "reason": f"unsupported_method_{method}"}
 
         logger.info(
             "[GlobalPTQDistributed] method=%s, modules=%d",
@@ -364,7 +366,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             elif method == "dbf":
                 restore_dbf_original(dbf_modules, original_forwards)
             quantized_model.cpu()
-            return
+            return {"global_executed": False, "reason": "no_params"}
 
         # ------------------------------------------------------------------
         # 4. Gradient checkpointing (delegated to Trainer via TrainingArguments)
@@ -520,3 +522,4 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             _remove_deepspeed_hooks(quantized_model)
 
         logger.info("GlobalPTQDistributed complete.")
+        return {"global_executed": True, "method": method}

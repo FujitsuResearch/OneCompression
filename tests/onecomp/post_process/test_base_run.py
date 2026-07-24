@@ -44,6 +44,14 @@ class _RecordingProcess(PostQuantizationProcess):
 
 
 @dataclass
+class _SkippedProcess(PostQuantizationProcess):
+    """A post-process whose ``_run`` returns a skipped result."""
+
+    def _run(self, quantized_model, model_config) -> dict:
+        return {"global_executed": False, "reason": "not_quantized"}
+
+
+@dataclass
 class _FailingProcess(PostQuantizationProcess):
     """A post-process whose ``_run`` always raises."""
 
@@ -102,6 +110,24 @@ def test_run_appends_metadata_on_success():
     _RecordingProcess(name="step-A").run(model, PlainModelConfig())
     history = model.config.quantization_config[POST_PROCESS_HISTORY_KEY]
     assert [entry["name"] for entry in history] == ["step-A"]
+
+
+def test_run_records_success_execution_metadata():
+    """A successful ``_run`` without a result dict records ``executed=True``."""
+    model = FakeModel(valid_quant_config())
+    _RecordingProcess(name="step-A").run(model, PlainModelConfig())
+    entry = model.config.quantization_config[POST_PROCESS_HISTORY_KEY][-1]
+    assert entry["executed"] is True
+    assert "reason" not in entry
+
+
+def test_run_records_skipped_execution_metadata_from_result():
+    """A result dict records skipped execution and reason in audit metadata."""
+    model = FakeModel(valid_quant_config())
+    _SkippedProcess(name="step-skip").run(model, PlainModelConfig())
+    entry = model.config.quantization_config[POST_PROCESS_HISTORY_KEY][-1]
+    assert entry["executed"] is False
+    assert entry["reason"] == "not_quantized"
 
 
 def test_run_does_not_append_metadata_on_failure():

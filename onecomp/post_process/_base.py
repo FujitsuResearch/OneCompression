@@ -74,7 +74,10 @@ class PostQuantizationProcess(metaclass=ABCMeta):
         (e.g. evaluation, saving) can work without device assumptions.
         Successful runs append audit metadata to
         ``model.config.quantization_config["onecomp_post_processes"]``.
-        Failed runs move the model back to CPU but do not append metadata.
+        When a subclass ``_run`` method returns a result dict, its
+        ``executed`` / ``global_executed`` and ``reason`` fields are mirrored
+        into that metadata. Failed runs move the model back to CPU but do not
+        append metadata.
 
         Args:
             quantized_model (nn.Module):
@@ -93,8 +96,9 @@ class PostQuantizationProcess(metaclass=ABCMeta):
             context,
         )
 
+        run_result = None
         try:
-            self._run(quantized_model, model_config)
+            run_result = self._run(quantized_model, model_config)
         finally:
             if hasattr(quantized_model, "eval"):
                 quantized_model.eval()
@@ -102,14 +106,16 @@ class PostQuantizationProcess(metaclass=ABCMeta):
                 quantized_model.cpu()
 
         quant_config = validate_quantized_model_config(quantized_model, context)
-        append_post_process_metadata(quant_config, [self.build_metadata()])
+        metadata = self.build_metadata()
+        metadata.update(self.build_execution_metadata(run_result))
+        append_post_process_metadata(quant_config, [metadata])
 
     @abstractmethod
     def _run(
         self,
         quantized_model: nn.Module,
         model_config: ModelConfig,
-    ) -> None:
+    ) -> dict | None:
         """Run the post-process algorithm body (implemented by subclasses).
 
         Called by :meth:`run` after the input model has been moved to CPU and
@@ -118,7 +124,9 @@ class PostQuantizationProcess(metaclass=ABCMeta):
         restores it to ``eval()`` on CPU afterwards (even if this method
         raises), so subclasses do not need to normalise the device themselves.
 
-        Subclasses implement this method, not :meth:`run`.
+        Subclasses implement this method, not :meth:`run`. Returning ``None``
+        is valid. Returning a dict lets the base class copy ``executed`` /
+        ``global_executed`` and ``reason`` into the audit metadata.
 
         Args:
             quantized_model (nn.Module):
@@ -157,3 +165,28 @@ class PostQuantizationProcess(metaclass=ABCMeta):
             "class": type(self).__name__,
             "config": json.loads(json.dumps(process_config, default=str)),
         }
+
+    def build_execution_metadata(self, run_result) -> dict:
+        """Build audit metadata derived from an optional ``_run`` result.
+
+        Post-process implementations historically returned ``None``. Newer
+        implementations may return a small result dict such as
+        ``{"global_executed": False, "reason": "not_quantized"}``. The audit
+        history uses the generic ``executed`` name, while still accepting the
+        GlobalPTQ-specific ``global_executed`` key for compatibility with the
+        existing core helper result schema.
+        """
+        metadata = {"executed": True}
+        if not isinstance(run_result, dict):
+            return metadata
+
+        executed = run_result.get("executed", run_result.get("global_executed"))
+        if executed is not None:
+            metadata["executed"] = bool(executed)
+
+        if metadata["executed"] is False:
+            metadata["reason"] = str(run_result.get("reason", "unknown"))
+        elif run_result.get("reason") is not None:
+            metadata["reason"] = str(run_result["reason"])
+
+        return metadata

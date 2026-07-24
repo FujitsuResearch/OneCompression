@@ -161,11 +161,12 @@ class GlobalPTQ(PostQuantizationProcess):
         self,
         quantized_model: nn.Module,
         model_config: ModelConfig,
-    ) -> None:
+    ) -> dict:
         """Execute global PTQ on the quantized model.
 
         Modifies *quantized_model* in-place.  The model is returned on
         CPU in eval mode per the ``PostQuantizationProcess`` contract.
+        Returns the GlobalPTQ result dict from ``run_kl_distillation``.
 
         Args:
             quantized_model (nn.Module):
@@ -222,3 +223,5 @@ class GlobalPTQ(PostQuantizationProcess):
                 "Global PTQ skipped: %s",
                 results.get("reason", "unknown"),
             )
+
+        return results
