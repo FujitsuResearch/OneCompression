@@ -79,12 +79,11 @@ def _lookup_moe_config(
         return None
     layer_cfg = quantization_bits[layer_idx]
 
-    expert_cfgs = {
-        name: cfg for name, cfg in layer_cfg.items() if _MOE_EXPERT_RE.match(name)
-    }
+    expert_cfgs = {name: cfg for name, cfg in layer_cfg.items() if _MOE_EXPERT_RE.match(name)}
     if not expert_cfgs:
         return None
 
+    # *3 : gate_proj, up_proj, and down_proj per expert (see _MOE_EXPERT_RE)
     expected = num_experts * 3
     if len(expert_cfgs) != expected:
         raise ValueError(
