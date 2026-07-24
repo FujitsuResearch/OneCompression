@@ -181,6 +181,18 @@ class TestGPTQ(BaseQuantizeSpec):
         with pytest.raises(ValueError, match="1\\.\\.15"):
             resolve_gptq_layer_wbits("model.layers.0.mlp.down_proj", quant_config)
 
+    @pytest.mark.parametrize("float_bits", [2.0, 2.5])
+    def test_resolve_gptq_layer_wbits_rejects_float_bits(self, float_bits):
+        """Saved per-layer bit widths reject integral and non-integral floats."""
+        quant_config = {
+            "bits": 4,
+            "quantization_bits": [
+                {"mlp.down_proj": {"bits": float_bits, "method": "gptq"}},
+            ],
+        }
+        with pytest.raises(ValueError, match="1\\.\\.15"):
+            resolve_gptq_layer_wbits("model.layers.0.mlp.down_proj", quant_config)
+
     @pytest.mark.parametrize(
         "override_params",
         [

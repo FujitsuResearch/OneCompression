@@ -1926,11 +1926,12 @@ class Runner:
             if getattr(layer, "_weight_is_packed", False):
                 continue
 
-            wbits = int(getattr(layer, "wbits", 0))
+            wbits = getattr(layer, "wbits", 0)
             if not self._packable_gptq_wbits(wbits):
                 if wbits != 1:
                     skipped_layers.append((layer_name, wbits))
                 continue
+            wbits = int(wbits)
 
             prefix = f"{layer_name}." if layer_name else ""
             qweight_key = f"{prefix}qweight"

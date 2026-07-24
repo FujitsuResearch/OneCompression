@@ -55,7 +55,8 @@ def resolve_gptq_layer_wbits(layer_name: str, quant_config: dict[str, Any]) -> i
                         if key == "_all" or suffix == key or suffix.startswith(key):
                             qb_bits = mod_cfg.get("bits") if isinstance(mod_cfg, dict) else None
                             if qb_bits is not None:
-                                return _validate_int_bits("quantization_bits[].bits", int(qb_bits))
+                                # Validate the raw value so floats are not silently truncated.
+                                return _validate_int_bits("quantization_bits[].bits", qb_bits)
 
     # GPTQ override priority (module > mlp > default), then validate
     bits = GPTQ.resolve_bits(

@@ -190,14 +190,32 @@ def unpack_zeros(packed_zeros: torch.Tensor, wbits: int, out_features: int) -> t
 PACKABLE_WBITS = (2, 3, 4, 8)
 
 
+def _normalize_wbits(wbits: int) -> int:
+    """Return an integral ``wbits`` as a built-in int.
+
+    Accepts integers and integer-valued floats. Rejects ``bool``, non-integral
+    or non-finite floats, and all other types with ``ValueError``.
+    """
+    if isinstance(wbits, bool):
+        raise ValueError(f"wbits must be an integer value, got {wbits!r}.")
+    if isinstance(wbits, int):
+        # Normalize int subclasses as well.
+        return int(wbits)
+    if isinstance(wbits, float) and wbits.is_integer():
+        return int(wbits)
+    raise ValueError(f"wbits must be an integer value, got {wbits!r}.")
+
+
 def is_packable_wbits(wbits: int) -> bool:
     """Return whether GPTQ INT tensors of this bit width can be packed.
 
     Single source of truth for the packable-width check used by
     ``GPTQLinear.pack_in_place`` and (later) the save path's
     ``_packable_gptq_wbits`` helper, so the two cannot drift apart.
+
+    Comparisons are exact: ``2.0`` is accepted, while ``2.5`` is not rounded.
     """
-    return int(wbits) in PACKABLE_WBITS
+    return wbits in PACKABLE_WBITS
 
 
 # ========================================
@@ -255,6 +273,9 @@ class GPTQLinear(nn.Module):
         input_zero_is_packed: bool = False,
     ):
         super().__init__()
+
+        # Normalize before storing or using wbits in bit operations.
+        wbits = _normalize_wbits(wbits)
 
         self.in_features = in_features
         self.out_features = out_features
@@ -631,6 +652,9 @@ class GPTQLinear(nn.Module):
         """
         self = cls.__new__(cls)
         nn.Module.__init__(self)
+
+        # __init__ is bypassed, so normalize here as well.
+        wbits = _normalize_wbits(wbits)
 
         self.in_features = in_features
         self.out_features = out_features
