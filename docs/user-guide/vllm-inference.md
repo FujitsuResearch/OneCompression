@@ -293,7 +293,7 @@ the `onecomp-vllm-v0-24-0-rocm` patch package, not the main `--extra vllm` workf
 !!! warning "Experimental / opt-in"
     ROCm is not part of `uv sync --extra vllm`. The main project pins `vllm<0.22`
     for CUDA (Exllama GPTQ compatibility); ROCm requires vLLM `0.24.0+rocm*`
-    from the [AMD wheel index](https://wheels.vllm.ai/rocm/).
+    from the [AMD wheel index](https://wheels.vllm.ai/rocm/0.24.0/rocm723).
 
 see [ROCm setup guide](https://github.com/FujitsuResearch/OneCompression/blob/main/envs/vllm/v0_24_0_rocm/README.md) for details.
 
