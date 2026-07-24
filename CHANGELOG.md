@@ -15,6 +15,9 @@
 - Added `pack_weights=True` validation during GPTQ inference layer creation, so packer-unsupported widths now fail clearly instead of silently falling back to unpacked storage (`onecomp/quantizer/gptq/_gptq.py`)
 - Added `bitpack_on_quantize` to `AutoBitQuantizer` and propagated it to GPTQ child quantizers before child validation, so unsupported packed GPTQ candidates fail with a clear error (`onecomp/quantizer/autobit/_autobit.py`)
 - Preserved JointQ's existing optimization path by keeping its internal GPTQ initialization on unpacked `qweight` / `qzeros` (`onecomp/quantizer/jointq/_jointq.py`)
+- Normalized `GPTQLinear.wbits` in direct and saved-state construction: integer-valued floats are converted to built-in `int`, while `bool`, non-integral or non-finite floats, and other types raise `ValueError`. `is_packable_wbits()` now checks membership without truncation (`onecomp/quantizer/gptq/gptq_layer.py`)
+- Updated base-model export to convert `wbits` to `int` only after confirming it is packable, so non-integral float widths remain unpacked (`onecomp/runner.py`)
+- Fixed saved per-layer `quantization_bits[].bits` validation to reject all floats instead of truncating them before the strict `int` check (`onecomp/quantizer/gptq/config.py`)
 
 ### Examples
 
@@ -27,6 +30,7 @@
 - Updated `tests/onecomp/quantizer/gptq/test_gptq.py` for the `bitpack_on_quantize` flag, unpacked-result compatibility, and the shared `1..15` GPTQ bit-width validation limit.
 - Updated `tests/onecomp/quantizer/autobit/test_fused_group_validation.py` for AutoBit-to-GPTQ `bitpack_on_quantize` propagation and unsupported packed GPTQ candidate validation.
 - Updated `tests/onecomp/quantizer/autobit/test_autobit.py` so existing AutoBit tests that exercise unpacked GPTQ candidates pass `bitpack_on_quantize=False` explicitly.
+- Added regression tests for `wbits` normalization, strict saved-config validation, and export behavior for integral and non-integral float widths (`tests/onecomp/quantizer/gptq/test_gptq_layer_pack.py`, `tests/onecomp/quantizer/gptq/test_gptq.py`, `tests/onecomp/runner/test_lora_save_load_roundtrip.py`)
 
 ## [v1.3.0(WIP)+fix/partial-quant-with-rotation-bug] 2026-07-03
 
