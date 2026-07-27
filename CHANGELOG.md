@@ -1,13 +1,13 @@
 # Change log
 
-## [v1.3.0(WIP)+feature/rotation-save-load-vllm-infer] 2026-07-06
+## [v1.3.0(WIP)+feature/rotation-save-load-vllm-infer] 2026-07-27
 
 ### Rotation-preprocessed model inference in vLLM (GPTQ & DBF)
 
 - Added vLLM inference support for rotation-preprocessed models: the online Hadamard transform applied to dense `mlp.down_proj` inputs during quantization is now reproduced at inference time inside the vLLM plugins (`vllm_plugins/utils/rotation.py`)
   - New `RotationMetadata` dataclass reads `rotated` / `fp32_had` from `quantization_config` (`from_quant_config()`), exposes `requires_hadamard(prefix)`, and is the single source of truth for rotation flags instead of re-parsing raw dict keys
   - New `RotatedLinearMethod` wraps any vLLM `LinearMethodBase` and installs the online Hadamard at layer entry; `maybe_wrap_rotation_method()` wraps a method only when the target prefix requires it
-  - Registers `RotatedLinearMethod` for vLLM's `weight_loader_v2` dispatch (`register_weight_loader_v2_supported_method`), with fallbacks across vLLM versions and a metadata-only import path that works without vLLM installed
+  - Added `RotatedLinearMethod` and `RotatedLinearMethodV2` variants to preserve the wrapped base method's v1/v2 weight-loader selection: `RotatedLinearMethodV2` is registered as supporting vLLM's `weight_loader_v2`, while `RotatedLinearMethod` remains unregistered for v1-only base methods. The compatibility layer handles differences across vLLM versions and allows metadata-only imports when vLLM is not installed.
   - **Tensor-parallel handling** (GPTQ; the DBF plugin still requires `tensor_parallel_size=1`): for a `RowParallelLinear` (`down_proj`) input with `tp_size > 1` whose base method supports TP, the row-parallel shards are `all_gather`-ed, Hadamard-transformed over the full intermediate dimension, then re-split per rank (one extra `all_gather` before the normal output reduce); single-TP layers use a forward pre-hook instead. Each layer caches one Hadamard matrix and refreshes it when the input last-dim size changes
 - Added `is_online_hadamard_target(name)` to `onecomp/pre_process/rotation_utils.py` as a shared predicate (`mlp.down_proj` / `*.mlp.down_proj`) so preprocessing and the vLLM plugins target the same layers; `register_online_hadamard_hooks()` now uses it instead of a loose `"down_proj" in name` check. MoE expert `down_proj` paths remain out of scope (rotation preprocessing does not support MoE)
 - `MixedGPTQConfig` and `DbfConfig` now construct `RotationMetadata` from config and route every returned method (quantized and `UnquantizedLinearMethod`) through `maybe_wrap_rotation_method()` (`vllm_plugins/gptq/vllm_plugin.py`, `vllm_plugins/dbf/vllm_plugin.py`)
