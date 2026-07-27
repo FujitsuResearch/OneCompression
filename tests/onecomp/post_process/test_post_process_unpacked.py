@@ -30,7 +30,6 @@ from onecomp.post_process.blockwise_ptq import BlockWisePTQ
 from onecomp.post_process.global_ptq import GlobalPTQ
 from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
 
-
 HIDDEN_SIZE = 8
 GROUP_SIZE = 4
 SEQ_LEN = 3
@@ -135,13 +134,10 @@ def _make_gptq_5bit_layer() -> nn.Module:
 
     bits = 5
     num_groups = HIDDEN_SIZE // GROUP_SIZE
-    qweight = (
-        torch.arange(HIDDEN_SIZE * HIDDEN_SIZE, dtype=torch.int32).reshape(
-            HIDDEN_SIZE,
-            HIDDEN_SIZE,
-        )
-        % (1 << bits)
-    )
+    qweight = torch.arange(HIDDEN_SIZE * HIDDEN_SIZE, dtype=torch.int32).reshape(
+        HIDDEN_SIZE,
+        HIDDEN_SIZE,
+    ) % (1 << bits)
     scales = torch.full((num_groups, HIDDEN_SIZE), 0.02, dtype=torch.float16)
     qzeros = torch.zeros((num_groups, HIDDEN_SIZE), dtype=torch.int32)
     result = GPTQResult(
