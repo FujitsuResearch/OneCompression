@@ -133,7 +133,6 @@ class AutoBitQuantizer(Quantizer):
 
     # --- core ---
     quantizers: list = field(default_factory=list)
-    bitpack_on_quantize: bool = True
     assignment_strategy: AssignmentStrategy = AssignmentStrategy.ACTIVATION_AWARE
     ratios: list = None
     target_bit: float = None
@@ -150,6 +149,11 @@ class AutoBitQuantizer(Quantizer):
     auto_dbf: bool = True
     dbf_threshold: float = 2.0
     dbf_iters: int = None  # None → DBF default (600); set low (e.g. 10) for fast testing
+
+    # --- bitpack mode ---
+    # Propagated to GPTQ/DBF candidates and auto-created DBF fallbacks
+    # before child validation.
+    bitpack_on_quantize: bool = True
 
     # --- vLLM fused-layer constraints ---
     # Groups of module suffixes that vLLM fuses into a single linear
@@ -196,12 +200,6 @@ class AutoBitQuantizer(Quantizer):
                 f"got {type(self.quantizers).__name__} with {len(self.quantizers) if isinstance(self.quantizers, list) else 'N/A'} items"
             )
 
-        if not isinstance(self.bitpack_on_quantize, bool):
-            bad.append(
-                f"Invalid parameter 'bitpack_on_quantize': {self.bitpack_on_quantize!r} "
-                f"(expected bool)"
-            )
-
         if not isinstance(self.dbf_threshold, (int, float)) or self.dbf_threshold <= 0:
             bad.append(
                 f"Invalid parameter 'dbf_threshold': {self.dbf_threshold!r} "
@@ -232,8 +230,16 @@ class AutoBitQuantizer(Quantizer):
                 f"{calib_config.max_length!r} (expected int >= 1)"
             )
 
+        # Propagate the bitpack mode to child candidates before their own
+        # validation, so a candidate validates with the AutoBit-level flag
+        # rather than its constructor default.
         if isinstance(self.bitpack_on_quantize, bool):
-            self._sync_gptq_bitpack_on_quantize()
+            self._sync_child_bitpack_on_quantize()
+        else:
+            bad.append(
+                f"Invalid parameter 'bitpack_on_quantize': {self.bitpack_on_quantize!r} "
+                f"(expected bool)"
+            )
 
         for i, q in enumerate(self.quantizers):
             try:
@@ -260,18 +266,19 @@ class AutoBitQuantizer(Quantizer):
         if bad:
             raise ValueError("; ".join(bad))
 
-    def _sync_gptq_bitpack_on_quantize(self):
-        """Propagate AutoBit bitpack mode to GPTQ candidates before validation.
+    def _sync_child_bitpack_on_quantize(self):
+        """Propagate the AutoBit bitpack mode to GPTQ and DBF child quantizers.
 
-        Unsupported GPTQ pack wbits are intentionally not downgraded here;
-        GPTQ.validate_params() raises a clear error for those candidates.
+        Synchronization occurs before child validation so each supported child
+        validates with the AutoBit-level setting instead of its constructor
+        default. Unsupported GPTQ bit widths are not downgraded or silently
+        switched to unpacked mode; ``GPTQ.validate_params()`` reports them as
+        validation errors when bitpacking is enabled.
         """
         for q in self.quantizers:
-            if isinstance(q, GPTQ):
+            if isinstance(q, (GPTQ, DBF)):
                 old_value = q.bitpack_on_quantize
-                if old_value != self.bitpack_on_quantize or not isinstance(
-                    old_value, bool
-                ):
+                if old_value != self.bitpack_on_quantize or not isinstance(old_value, bool):
                     self.logger.info(
                         "Updating %s bitpack_on_quantize from %s to %s.",
                         q.name,
@@ -329,6 +336,7 @@ class AutoBitQuantizer(Quantizer):
                 self.logger,
                 dbf_iters=self.dbf_iters,
                 device=model_device,
+                bitpack_on_quantize=self.bitpack_on_quantize,
             )
             self._sync_flags()
 
@@ -360,7 +368,10 @@ class AutoBitQuantizer(Quantizer):
         ``setup()``, so the value here is always ≥ 1.0.
         """
         target_bits = self.target_bit
-        dbf_kwargs = {"target_bits": target_bits}
+        dbf_kwargs = {
+            "target_bits": target_bits,
+            "bitpack_on_quantize": self.bitpack_on_quantize,
+        }
         if self.dbf_iters is not None:
             dbf_kwargs["iters"] = self.dbf_iters
         dbf_q = DBF(**dbf_kwargs)
