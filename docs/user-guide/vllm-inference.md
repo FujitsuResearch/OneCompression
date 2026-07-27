@@ -95,6 +95,21 @@ runner.run()
 runner.save_quantized_model("./Llama-3.1-8B-Instruct-gptq-4bit")
 ```
 
+!!! note "Qwen3.6: use `save_format=\"full_wrapper\"`"
+    Qwen3.6 quantizes as a text-only checkpoint, whose native Hugging Face
+    layout (`model.layers.*`) does not match what vLLM's composite
+    `Qwen3_5ForConditionalGeneration` loader expects (`model.language_model.layers.*`).
+    Pass `save_format="full_wrapper"` to `save_quantized_model()` to remap the
+    checkpoint for vLLM serving:
+
+    ```python
+    runner.save_quantized_model("./Qwen3.6-gptq-4bit-vllm", save_format="full_wrapper")
+    ```
+
+    This option is specific to Qwen3.6 and will raise `RuntimeError` for any
+    other model. Leave `save_format` at its default (`"auto"`) for everything
+    else, including other VLMs.
+
 ### 2. Serve with vLLM
 
 There are two ways to use the quantized model with vLLM.
@@ -306,6 +321,18 @@ python your_vllm_script.py
 ```
 
 Both variables are read directly by vLLM; OneComp does not interpret them.
+
+## ROCm support (AMD GPUs)
+
+GPTQ models can be served on AMD GPUs via ROCm using a dedicated opt-in venv and
+the `onecomp-vllm-v0-24-0-rocm` patch package, not the main `--extra vllm` workflow.
+
+!!! warning "Experimental / opt-in"
+    ROCm is not part of `uv sync --extra vllm`. The main project pins `vllm<0.22`
+    for CUDA (Exllama GPTQ compatibility); ROCm requires vLLM `0.24.0+rocm*`
+    from the [AMD wheel index](https://wheels.vllm.ai/rocm/).
+
+see [ROCm setup guide](https://github.com/FujitsuResearch/OneCompression/blob/main/envs/vllm/v0_24_0_rocm/README.md) for details.
 
 ## See also
 

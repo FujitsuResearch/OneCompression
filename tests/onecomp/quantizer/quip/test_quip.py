@@ -11,7 +11,7 @@ import torch
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from test_module import BaseQuantizeSpec
+from test_module import BaseQuantizeSpec, TestModel
 
 from onecomp.quantizer.quip._quip import QUIP, QUIPResult
 
@@ -98,6 +98,54 @@ class TestQUIP(BaseQuantizeSpec):
         """Validate that quantization error is within tolerance."""
         assert error < 0.4
         assert max_error < 1.71
+
+    def test_quantize_error(self, helper):
+        """Validate QUIP error bounds with a well-conditioned Hessian input."""
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        quantizer = self.make_quantizer()
+
+        helper.set_deterministic()
+        helper.seed_everything(123)
+
+        hidden_size = 512
+        model = TestModel(hidden_size).to(device)
+        inp = helper.make_input(
+            batch=1,
+            seq=4,
+            hidden=hidden_size,
+            device=device,
+            dtype=torch.float32,
+        )
+
+        with torch.no_grad():
+            y_original = model(inp)
+
+        for layer in model.model.layers:
+            for _, module_dict in [
+                ("self_attn", layer.self_attn),
+                ("mlp", layer.mlp),
+            ]:
+                for _, module in module_dict.items():
+                    if isinstance(module, torch.nn.Linear):
+                        # QUIP needs enough activation samples for a positive-definite Hessian.
+                        module_inp = helper.make_input(
+                            batch=8,
+                            seq=256,
+                            hidden=module.in_features,
+                            device=device,
+                            dtype=torch.float32,
+                        )
+                        hessian = quantizer.calculate_hessian(module, module_inp)
+                        result = quantizer.quantize_layer(module, module_inp, hessian)
+                        self.apply_quantized_weights(module, result, device)
+
+        with torch.no_grad():
+            y_replaced = model(inp)
+
+        error = torch.norm(y_original - y_replaced) / torch.norm(y_original)
+        max_error = torch.abs(y_original - y_replaced).max().item()
+
+        self.check_quantize_error(error, max_error)
 
     def check_forward_error(
         self,
