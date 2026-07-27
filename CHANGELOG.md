@@ -1,5 +1,33 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/rotation-save-load-vllm-infer] 2026-07-27
+
+### Rotation-preprocessed model inference in vLLM (GPTQ & DBF)
+
+- Added vLLM inference support for rotation-preprocessed models: the online Hadamard transform applied to dense `mlp.down_proj` inputs during quantization is now reproduced at inference time inside the vLLM plugins (`vllm_plugins/utils/rotation.py`)
+  - New `RotationMetadata` dataclass reads `rotated` / `fp32_had` from `quantization_config` (`from_quant_config()`), exposes `requires_hadamard(prefix)`, and is the single source of truth for rotation flags instead of re-parsing raw dict keys
+  - New `RotatedLinearMethod` wraps any vLLM `LinearMethodBase` and installs the online Hadamard at layer entry; `maybe_wrap_rotation_method()` wraps a method only when the target prefix requires it
+  - Added `RotatedLinearMethod` and `RotatedLinearMethodV2` variants to preserve the wrapped base method's v1/v2 weight-loader selection: `RotatedLinearMethodV2` is registered as supporting vLLM's `weight_loader_v2`, while `RotatedLinearMethod` remains unregistered for v1-only base methods. The compatibility layer handles differences across vLLM versions and allows metadata-only imports when vLLM is not installed.
+  - **Tensor-parallel handling** (GPTQ; the DBF plugin still requires `tensor_parallel_size=1`): for a `RowParallelLinear` (`down_proj`) input with `tp_size > 1` whose base method supports TP, the row-parallel shards are `all_gather`-ed, Hadamard-transformed over the full intermediate dimension, then re-split per rank (one extra `all_gather` before the normal output reduce); single-TP layers use a forward pre-hook instead. Each layer caches one Hadamard matrix and refreshes it when the input last-dim size changes
+- Added `is_online_hadamard_target(name)` to `onecomp/pre_process/rotation_utils.py` as a shared predicate (`mlp.down_proj` / `*.mlp.down_proj`) so preprocessing and the vLLM plugins target the same layers; `register_online_hadamard_hooks()` now uses it instead of a loose `"down_proj" in name` check. MoE expert `down_proj` paths remain out of scope (rotation preprocessing does not support MoE)
+- `MixedGPTQConfig` and `DbfConfig` now construct `RotationMetadata` from config and route every returned method (quantized and `UnquantizedLinearMethod`) through `maybe_wrap_rotation_method()` (`vllm_plugins/gptq/vllm_plugin.py`, `vllm_plugins/dbf/vllm_plugin.py`)
+- `Runner` now rewrites `quant_method` from `gptq` to `mixed_gptq` when saving a rotated GPTQ model, so vLLM loads the plugin that can apply the `down_proj` Hadamard transform (`onecomp/runner.py`)
+- `DoubleBinaryLinear` now records `in_features` / `out_features` (in both `__init__` and `from_saved_state()`), required by the vLLM rotation wrapper (`onecomp/quantizer/dbf/dbf_layer.py`)
+
+### DBF GemLite automatic fallback
+
+- The DBF vLLM plugin now falls back to the naive linear kernel when the GemLite inference path fails at runtime, instead of crashing the run (`vllm_plugins/dbf/vllm_plugin.py`)
+  - The fallback is **process-wide**: GemLite is disabled on the first failure and a single `WARNING` is logged, since the failure (e.g. the Triton autotune disk-cache bug under vLLM) is a deterministic environment incompatibility that would recur identically on every remaining layer
+  - `torch.cuda.OutOfMemoryError` is re-raised immediately and does **not** trigger the fallback: the naive path needs more memory than GemLite, so falling back on OOM would only hide a real resource problem
+  - Refactored `apply()` to extract `_compute_parts()`, shared by the GemLite and naive paths
+- Documented the automatic fallback, the `TRITON_CACHE_AUTOTUNING=0` workaround, and the OOM behavior in the vLLM inference guide (`docs/user-guide/vllm-inference.md`)
+
+### Tests
+
+- Modularized the `vllm_plugins` test infrastructure: shared `conftest.py`, session-scoped LLM fixtures, and `try/finally` cleanup (`tests/vllm_plugins/conftest.py`)
+- Added rotation coverage: rotation utility unit tests, `RotationMetadata` / plugin unit tests, runner rotated-save tests, a TP1 rotated GPTQ end-to-end test plus a TP2 rotated GPTQ smoke test, and a TP1 rotated DBF end-to-end test
+- Added GemLite fallback regression tests (fused 2D scaling0, real naive path, bias, process-wide disable)
+
 ## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step2] 2026-07-22
 
 ### Bug fix
