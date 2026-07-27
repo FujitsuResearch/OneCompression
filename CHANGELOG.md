@@ -25,7 +25,7 @@
 
 ### Documentation
 
-- Documented `bitpack_on_quantize` in the DBF and AutoBit algorithm docs (`docs/algorithms/dbf.md`, `docs/algorithms/autobit.md`).
+- Documented DBF quantize-time bitpacking and AutoBit propagation to child and generated DBF quantizers (`docs/algorithms/dbf.md`, `docs/algorithms/autobit.md`).
 
 ### Tests
 
@@ -59,6 +59,11 @@
 ### Examples
 
 - Added `example/example_gptq_bitpack_equivalence.py`, which compares GPTQ quantization with and without `bitpack_on_quantize` across supported bit-widths and reports whether the reconstructed dequantized weights match bit-exactly.
+
+### Documentation
+
+- Documented the quantize-time versus save-time packing constraints for GPTQ's `bitpack_on_quantize` (`docs/algorithms/gptq.md`).
+- Documented AutoBit's child-setting override and fused-group constraints for GPTQ candidates, and JointQ's forced unpacked GPTQ initial solution (`docs/algorithms/autobit.md`, `docs/algorithms/jointq.md`).
 
 ### Tests
 
