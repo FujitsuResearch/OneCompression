@@ -39,3 +39,13 @@ model, tokenizer = load_quantized_model_pt(
     yourself or obtained from a fully trusted source. For untrusted or
     third-party models, prefer the safetensors-based `load_quantized_model()`,
     which does not execute code.
+
+
+!!! note "Research/development use only"
+    `load_quantized_model_pt()` (and the `.pt` save/load path in general)
+    is intended for **research and development** only -- for example, to
+    quickly experiment with a new post-process before it has a
+    safetensors-compatible `load_quantized_model()` implementation. It is
+    **not recommended** for general or production use; prefer the
+    safetensors-based `load_quantized_model()`, which is HF-compatible and
+    does not execute code.

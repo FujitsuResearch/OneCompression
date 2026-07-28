@@ -186,6 +186,85 @@ def test_load_quantized_model_does_not_tie_when_disabled(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Unit tests for ``_retie_lm_head_if_needed``
+#
+# Decides whether lm_head should be re-tied to embed_tokens after an
+# assign-load, tells _check_load_state_dict_result to tolerate a missing
+# lm_head.weight when that's the case, and performs the actual
+# model.tie_weights() call.
+# ---------------------------------------------------------------------------
+
+
+def test_retie_lm_head_if_needed_ties_when_tied_and_untied_in_memory(tmp_path):
+    from onecomp.quantized_model_loader import QuantizedModelLoader
+
+    model, _ = _build_tiny_tied_llama(dtype=torch.bfloat16)
+    # Simulate the post assign-load state: tie_weights() has not run yet in
+    # this test, so lm_head and embed_tokens do not (necessarily) share
+    # storage; assert the call re-establishes it.
+    model.lm_head.weight = torch.nn.Parameter(model.lm_head.weight.clone())
+    assert model.lm_head.weight.data_ptr() != model.model.embed_tokens.weight.data_ptr()
+
+    incompat = SimpleNamespace(missing_keys=["lm_head.weight"], unexpected_keys=[])
+    QuantizedModelLoader._retie_lm_head_if_needed(model, incompat)
+
+    assert model.lm_head.weight.data_ptr() == model.model.embed_tokens.weight.data_ptr()
+
+
+def test_retie_lm_head_if_needed_noop_when_not_tied():
+    from transformers import LlamaConfig, LlamaForCausalLM
+
+    from onecomp.quantized_model_loader import QuantizedModelLoader
+
+    config = LlamaConfig(
+        hidden_size=32,
+        num_attention_heads=4,
+        num_hidden_layers=1,
+        num_key_value_heads=2,
+        intermediate_size=64,
+        max_position_embeddings=32,
+        vocab_size=64,
+        tie_word_embeddings=False,
+    )
+    model = LlamaForCausalLM(config).to(torch.bfloat16).eval()
+    lm_head_ptr_before = model.lm_head.weight.data_ptr()
+
+    incompat = SimpleNamespace(missing_keys=[], unexpected_keys=[])
+    QuantizedModelLoader._retie_lm_head_if_needed(model, incompat)
+
+    # Untouched: no retie happened.
+    assert model.lm_head.weight.data_ptr() == lm_head_ptr_before
+    assert model.lm_head.weight.data_ptr() != model.model.embed_tokens.weight.data_ptr()
+
+
+def test_retie_lm_head_if_needed_still_raises_for_unrelated_critical_missing():
+    """A critical missing key other than lm_head.weight must still raise,
+    even when the model is tied and lm_head.weight itself is expected to
+    be missing."""
+    from transformers import LlamaConfig, LlamaForCausalLM
+
+    from onecomp.quantized_model_loader import QuantizedModelLoader
+
+    config = LlamaConfig(
+        hidden_size=32,
+        num_attention_heads=4,
+        num_hidden_layers=1,
+        num_key_value_heads=2,
+        intermediate_size=64,
+        max_position_embeddings=32,
+        vocab_size=64,
+        tie_word_embeddings=True,
+    )
+    model = LlamaForCausalLM(config).to(torch.bfloat16).eval()
+
+    incompat = SimpleNamespace(
+        missing_keys=["lm_head.weight", "model.embed_tokens.weight"], unexpected_keys=[]
+    )
+    with pytest.raises(RuntimeError, match="Critical state_dict mismatch"):
+        QuantizedModelLoader._retie_lm_head_if_needed(model, incompat)
+
+
+# ---------------------------------------------------------------------------
 # Unit tests for ``_should_retie_word_embeddings``
 #
 # Multi-config VLMs (e.g. Llama 3.2-Vision) place ``tie_word_embeddings``

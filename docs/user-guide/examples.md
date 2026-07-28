@@ -577,28 +577,29 @@ See [Post-Process (LoRA SFT)](post-process.md) for the full guide including teac
 
 ## Saving and Loading LoRA Models
 
-LoRA-applied models use a dedicated save/load API:
+LoRA-applied models are saved and loaded with the standard
+`save_quantized_model()` / `load_quantized_model()` API. The LoRA weights are
+written as a PEFT adapter sidecar and auto-detected on load:
 
 ```python
-# Save after LoRA SFT
-runner.save_quantized_model_pt("./my_model_lora")
+# Save after LoRA SFT (HF-compatible safetensors + PEFT sidecar)
+runner.save_quantized_model("./my_model_lora")
 
-# Load (opt-in required: the .pt loader uses torch.load(weights_only=False),
-# which can execute code from a malicious file. Trusted sources only.)
-from onecomp import load_quantized_model_pt
-model, tokenizer = load_quantized_model_pt(
-    "./my_model_lora", allow_unsafe_deserialization=True
-)
+# Load -- the LoRA adapter sidecar is auto-detected and re-applied
+from onecomp import load_quantized_model
+model, tokenizer = load_quantized_model("./my_model_lora")
 ```
 
-!!! warning "Unsafe deserialization (.pt loader)"
-    `load_quantized_model_pt()` loads `model.pt` via `torch.load(weights_only=False)`
-    (Python `pickle`), so a malicious file can execute arbitrary code (CWE-502).
-    It refuses to load unless you pass `allow_unsafe_deserialization=True`; only
-    opt in for fully trusted models.
-
-!!! note
-    For standard quantized models (without LoRA), use `save_quantized_model()` / `load_quantized_model()` instead.
+!!! note "Legacy `.pt` format (research/development only)"
+    The PyTorch `.pt` API (`save_quantized_model_pt()` /
+    `load_quantized_model_pt()`) predates the safetensors sidecar flow and is
+    **not recommended** for general or production use -- keep it for research
+    and development only. Its loader uses `torch.load(weights_only=False)`
+    (Python `pickle`), so a malicious file can execute arbitrary code
+    (CWE-502); it refuses to load unless you pass
+    `allow_unsafe_deserialization=True`, and you should only opt in for fully
+    trusted models. See
+    [Post-Process (Saving and Loading LoRA Models)](post-process.md#saving-and-loading-lora-models).
 
 ## Analyzing Cumulative Error
 
