@@ -634,30 +634,29 @@ See [Post-Process (LoRA SFT)](post-process.md) for the full guide including teac
 
 ## Saving and Loading LoRA Models
 
-LoRA-applied models are saved as HuggingFace-compatible safetensors, with the
-LoRA adapter written as a PEFT sidecar in a `lora_adapter/` subdirectory. Loading
-auto-detects the sidecar and re-wraps the layers, so no `.pt` file is needed:
+LoRA-applied models are saved and loaded with the standard
+`save_quantized_model()` / `load_quantized_model()` API. The LoRA weights are
+written as a PEFT adapter sidecar and auto-detected on load:
 
 ```python
-# Save after LoRA SFT: base weights (safetensors) + adapter sidecar (lora_adapter/)
+# Save after LoRA SFT (HF-compatible safetensors + PEFT sidecar)
 runner.save_quantized_model("./my_model_lora")
 
-# Load: the LoRA adapter sidecar is auto-detected and applied
+# Load -- the LoRA adapter sidecar is auto-detected and re-applied
 from onecomp import load_quantized_model
 model, tokenizer = load_quantized_model("./my_model_lora")
 ```
 
-The same directory can be served by vLLM via its native LoRA mechanism
-(`enable_lora=True` + `LoRARequest(lora_path="./my_model_lora/lora_adapter")`);
-see `example/post_process/example_lora_gptq_vllm_inference.py`.
-
-!!! note "Legacy `.pt` save/load"
-    `save_quantized_model_pt()` / `load_quantized_model_pt()` remain available as
-    an alternative that serializes the whole model object via `torch.save` /
-    `torch.load`. The `.pt` loader uses `torch.load(weights_only=False)` (Python
-    `pickle`), so a malicious file can execute arbitrary code (CWE-502); it
-    refuses to load unless you pass `allow_unsafe_deserialization=True`. Prefer
-    the safetensors path above and opt in only for fully trusted models.
+!!! note "Legacy `.pt` format (research/development only)"
+    The PyTorch `.pt` API (`save_quantized_model_pt()` /
+    `load_quantized_model_pt()`) predates the safetensors sidecar flow and is
+    **not recommended** for general or production use -- keep it for research
+    and development only. Its loader uses `torch.load(weights_only=False)`
+    (Python `pickle`), so a malicious file can execute arbitrary code
+    (CWE-502); it refuses to load unless you pass
+    `allow_unsafe_deserialization=True`, and you should only opt in for fully
+    trusted models. See
+    [Post-Process (Saving and Loading LoRA Models)](post-process.md#saving-and-loading-lora-models).
 
 ## Analyzing Cumulative Error
 

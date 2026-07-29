@@ -21,8 +21,8 @@ Some methods are served by vLLM's **built-in** GPTQ plugin, while others use the
     [`load_quantized_model()`](examples.md#load-a-saved-quantized-model),
     but not served through vLLM.
 
-!!! warning "Rotation-preprocessed models are not supported"
-    Models quantized after rotation preprocessing (`prepare_rotated_model`) cannot be served with vLLM. vLLM kernels do not apply the online Hadamard transform on `down_proj` inputs that rotation-preprocessed models require for correct inference.
+!!! note "Rotation-preprocessed models"
+    Models quantized after rotation preprocessing (`prepare_rotated_model`) are supported with the `mixed_gptq` and `dbf` plugins: the plugins reproduce the online Hadamard transform on `down_proj` inputs at inference time. The `dbf` plugin currently supports rotation only with `tensor_parallel_size=1`; `mixed_gptq` supports `tensor_parallel_size>1`.
 
 ## Installation
 
@@ -94,6 +94,21 @@ runner = Runner(model_config=model_config, quantizer=quantizer, qep=True)
 runner.run()
 runner.save_quantized_model("./Llama-3.1-8B-Instruct-gptq-4bit")
 ```
+
+!!! note "Qwen3.6: use `save_format=\"full_wrapper\"`"
+    Qwen3.6 quantizes as a text-only checkpoint, whose native Hugging Face
+    layout (`model.layers.*`) does not match what vLLM's composite
+    `Qwen3_5ForConditionalGeneration` loader expects (`model.language_model.layers.*`).
+    Pass `save_format="full_wrapper"` to `save_quantized_model()` to remap the
+    checkpoint for vLLM serving:
+
+    ```python
+    runner.save_quantized_model("./Qwen3.6-gptq-4bit-vllm", save_format="full_wrapper")
+    ```
+
+    This option is specific to Qwen3.6 and will raise `RuntimeError` for any
+    other model. Leave `save_format` at its default (`"auto"`) for everything
+    else, including other VLMs.
 
 ### 2. Serve with vLLM
 
@@ -245,6 +260,43 @@ Select the model from the dropdown at the top of the chat screen and start a con
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ONECOMP_DBF_NAIVE_LINEAR` | `0` | Set to `1` to force the naive (non-GemLite) kernel for DBF inference. Useful for debugging or when GemLite is unavailable. |
+| `TRITON_CACHE_AUTOTUNING` | `1` | Set to `0` to disable Triton's autotune disk-cache. Recommended when GemLite fails at inference time due to the Triton autotune disk-cache bug (see below). |
+
+### GemLite Automatic Fallback
+
+The DBF plugin automatically falls back to the naive linear kernel if GemLite fails during inference.
+When this happens, a `WARNING` is logged:
+
+```
+WARNING [...] [DBF] GemLite inference path failed (ErrorType: detail).
+Disabling GemLite and falling back to the naive linear path for the remainder of this run.
+To run with GemLite, relaunch with TRITON_CACHE_AUTOTUNING=0 (works around the triton autotune disk-cache bug).
+To skip GemLite from the start, set ONECOMP_DBF_NAIVE_LINEAR=1.
+```
+
+The fallback is **process-wide**: once GemLite fails on any layer, all subsequent layers use the naive path for the rest of the process lifetime.
+Inference continues and produces correct output, but throughput may be lower than with GemLite.
+
+If the WARNING appears, try the following in order:
+
+1. **Set `TRITON_CACHE_AUTOTUNING=0`** — works around the Triton autotune disk-cache bug that is the most common cause of GemLite failures under vLLM:
+
+    ```bash
+    TRITON_CACHE_AUTOTUNING=0 vllm serve ./your-quantized-model
+    # or
+    TRITON_CACHE_AUTOTUNING=0 python your_vllm_script.py
+    ```
+
+2. **Set `ONECOMP_DBF_NAIVE_LINEAR=1`** — skips GemLite entirely from startup. Use this if the issue persists after step 1 or if you do not need GemLite performance:
+
+    ```bash
+    ONECOMP_DBF_NAIVE_LINEAR=1 vllm serve ./your-quantized-model
+    ```
+
+!!! note "Out-of-memory errors are not caught"
+    `torch.cuda.OutOfMemoryError` is re-raised immediately and does **not** trigger the fallback.
+    The naive path requires more memory than GemLite, so falling back on OOM would make the situation worse rather than better.
+    If you see an OOM error, reduce `--gpu-memory-utilization` or the model's context length.
 
 ## Troubleshooting
 
@@ -269,6 +321,18 @@ python your_vllm_script.py
 ```
 
 Both variables are read directly by vLLM; OneComp does not interpret them.
+
+## ROCm support (AMD GPUs)
+
+GPTQ models can be served on AMD GPUs via ROCm using a dedicated opt-in venv and
+the `onecomp-vllm-v0-24-0-rocm` patch package, not the main `--extra vllm` workflow.
+
+!!! warning "Experimental / opt-in"
+    ROCm is not part of `uv sync --extra vllm`. The main project pins `vllm<0.22`
+    for CUDA (Exllama GPTQ compatibility); ROCm requires vLLM `0.24.0+rocm*`
+    from the [AMD wheel index](https://wheels.vllm.ai/rocm/).
+
+see [ROCm setup guide](https://github.com/FujitsuResearch/OneCompression/blob/main/envs/vllm/v0_24_0_rocm/README.md) for details.
 
 ## See also
 

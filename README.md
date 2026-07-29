@@ -54,6 +54,7 @@ Other Hugging Face-compatible models may work but are currently untested.
 | 1 | Llama | TinyLlama, Llama-2, Llama-3 | ✅ Verified |
 | 2 | Qwen3 | Qwen3-0.6B ~ 32B | ✅ Verified |
 | 3 | Gemma | Gemma 2, Gemma 3, Gemma 4  | ✅ Verified |
+| 4 | Qwen3.6 | Qwen3.6-27B | ✅ Verified |
 
 
 > **Note:** Support for additional architectures is planned. Contributions and test reports are welcome.
@@ -298,12 +299,16 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_reload_post_process_resave.py](./example/post_process/example_reload_post_process_resave.py) | Reload, post-process, and re-save a quantized checkpoint |
 | Rotation Preprocessing | [example_llama_preprocess_rtn.py](./example/pre_process/example_llama_preprocess_rtn.py) | Rotation preprocessing + RTN (TinyLlama) |
 | | [example_preprocess_save_load.py](./example/pre_process/example_preprocess_save_load.py) | Save and load rotation-preprocessed quantized models |
-| Post-Process | [example_blockwise_ptq.py](./example/post_process/example_blockwise_ptq.py) | Block-wise PTQ via Runner.run() with packed buffers (default) |
-| | [example_global_ptq.py](./example/post_process/example_global_ptq.py) | Global PTQ with packed buffers (default), safetensors save |
-| | [example_global_ptq_distributed.py](./example/post_process/example_global_ptq_distributed.py) | Global PTQ with DeepSpeed multi-GPU |
+| Post-Process | [example_blockwise_ptq.py](./example/post_process/example_blockwise_ptq.py) | Block-wise PTQ via `Runner.run()` with packed buffers by default |
+| | [example_blockwise_global_ptq.py](./example/post_process/example_blockwise_global_ptq.py) | BlockWisePTQ → GlobalPTQ in a single Runner, followed by safetensors save/load |
+| | [example_blockwise_global_ptq_staged.py](./example/post_process/example_blockwise_global_ptq_staged.py) | Staged BlockWisePTQ → GlobalPTQ across save/load boundaries with accumulated post-process metadata |
+| | [example_global_ptq.py](./example/post_process/example_global_ptq.py) | Global PTQ with packed buffers by default and HF-compatible safetensors output |
+| | [example_global_ptq_dbf.py](./example/post_process/example_global_ptq_dbf.py) | Global PTQ with the DBF backend and HF-compatible safetensors output |
+| | [example_global_ptq_distributed.py](./example/post_process/example_global_ptq_distributed.py) | Multi-GPU Global PTQ with DeepSpeed / torchrun and safetensors output |
 | | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
 | | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
-| | [example_lora_gptq_vllm_inference.py](./example/post_process/example_lora_gptq_vllm_inference.py) | GPTQ + LoRA SFT, safetensors save, vLLM inference with the adapter sidecar |
+| | [example_lora_sft_knowledge_jointq.py](./example/post_process/example_lora_sft_knowledge_jointq.py) | LoRA SFT knowledge injection on a JointQ-quantized model |
+| | [example_lora_gptq_vllm_inference.py](./example/post_process/example_lora_gptq_vllm_inference.py) | GPTQ + LoRA SFT, HF-compatible safetensors + PEFT sidecar, and vLLM inference |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
@@ -323,6 +328,12 @@ pip install vllm
 
 See the [vLLM Inference guide](https://FujitsuResearch.github.io/OneCompression/user-guide/vllm-inference/) for details, including Open WebUI setup instructions.
 
+
+## 📬 Contact Us
+
+- For technical questions and feature requests, please use GitHub [Issues](https://github.com/FujitsuResearch/OneCompression/issues).
+- For security vulnerabilities, please **do not** open a public Issue. See our [Security Policy](./SECURITY.md) for how to report them privately.
+- For collaborations, partnerships, and other inquiries, please contact us at [contact-onecompression@cs.jp.fujitsu.com](mailto:contact-onecompression@cs.jp.fujitsu.com).
 
 ## 📄 License
 
