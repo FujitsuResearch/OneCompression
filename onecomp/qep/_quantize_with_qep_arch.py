@@ -17,6 +17,7 @@ import copy
 import math
 from collections import OrderedDict
 from logging import getLogger
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -26,6 +27,7 @@ from onecomp.calibration import CalibrationConfig, prepare_calibration_dataset
 from onecomp.model_config import ModelConfig
 from onecomp.qep._qep_config import QEPConfig
 from onecomp.quantizer._quantizer import Quantizer
+from onecomp.quantizer.autobit import AutoBitQuantizer
 from onecomp.quantizer.gptq._gptq import GPTQ, GPTQResult
 from onecomp.quantizer.rtn.rtn_impl import run_rtn
 from onecomp.utils.blockwise import (
@@ -259,6 +261,21 @@ def _compute_per_module_hessians(
         h.remove()
 
     return {modules[i]: (hessians[i] if nsamples[i] > 0 else None) for i in range(len(modules))}
+
+
+def _resolve_gptq_for_rtn_fallback(quantizer: Quantizer, module: nn.Module) -> Optional[GPTQ]:
+    """Return the GPTQ instance to use for the no-tokens RTN fallback, if any.
+
+    Plain ``GPTQ`` quantizers fall back directly. ``AutoBitQuantizer`` falls
+    back too, but only when every child it assigned is a ``GPTQ`` (so the
+    module's own resolved bits/groupsize/sym can be looked up), since
+    ``AutoBitQuantizer`` itself has no such attributes.
+    """
+    if isinstance(quantizer, GPTQ):
+        return quantizer
+    if isinstance(quantizer, AutoBitQuantizer) and quantizer._all_children_gptq():
+        return quantizer._module_to_quantizer.get(module)
+    return None
 
 
 def _rtn_fallback_result(module: nn.Module, quantizer: Quantizer, name: str) -> GPTQResult:
@@ -527,7 +544,8 @@ def run_quantize_with_qep_arch(
                 name = quantizer.module_to_name[module_q]
                 H = expert_hessians[module_q]
                 if H is None:
-                    if isinstance(quantizer, GPTQ):
+                    fallback_quantizer = _resolve_gptq_for_rtn_fallback(quantizer, module_q)
+                    if fallback_quantizer is not None:
                         logger.warning(
                             "Expert layer %s received no tokens during "
                             "calibration; falling back to RTN so it stays "
@@ -535,7 +553,7 @@ def run_quantize_with_qep_arch(
                             name,
                         )
                         quantizer.results[name] = _rtn_fallback_result(
-                            module_q, quantizer, name
+                            module_q, fallback_quantizer, name
                         )
                     else:
                         logger.warning(

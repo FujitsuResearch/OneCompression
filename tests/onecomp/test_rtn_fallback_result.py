@@ -11,9 +11,14 @@ Copyright 2025-2026 Fujitsu Ltd.
 import torch
 import torch.nn as nn
 
-from onecomp.qep._quantize_with_qep_arch import _rtn_fallback_result
+from onecomp.qep._quantize_with_qep_arch import (
+    _resolve_gptq_for_rtn_fallback,
+    _rtn_fallback_result,
+)
+from onecomp.quantizer.autobit import AutoBitQuantizer
 from onecomp.quantizer.gptq import GPTQ
 from onecomp.quantizer.gptq._gptq import GPTQResult
+from onecomp.quantizer.rtn import RTN
 
 
 def _linear(in_features=32, out_features=16, seed=0):
@@ -91,3 +96,48 @@ class TestRtnFallbackResult:
 
         reconstructed = result.compute_dequantized_weight()
         assert reconstructed.shape == module.weight.data.shape
+
+
+class TestResolveGptqForRtnFallback:
+    """Covers which quantizers the no-tokens RTN fallback supports.
+
+    Plain GPTQ always supports it. AutoBitQuantizer supports it only when
+    every child it assigned is GPTQ (so a per-module bits/groupsize/sym can
+    be resolved); any non-GPTQ quantizer (plain or as an AutoBitQuantizer
+    child) is unsupported.
+    """
+
+    def test_plain_gptq_resolves_to_itself(self):
+        module = _linear()
+        quantizer = GPTQ(wbits=4, groupsize=-1, sym=True)
+        assert _resolve_gptq_for_rtn_fallback(quantizer, module) is quantizer
+
+    def test_non_gptq_quantizer_is_unsupported(self):
+        module = _linear()
+        quantizer = RTN(wbits=4, groupsize=-1, sym=True)
+        assert _resolve_gptq_for_rtn_fallback(quantizer, module) is None
+
+    def test_autobit_with_all_gptq_children_resolves_module_specific_child(self):
+        module = _linear()
+        assigned_child = GPTQ(wbits=2, groupsize=32, sym=True)
+        other_child = GPTQ(wbits=4, groupsize=128, sym=True)
+        autobit = AutoBitQuantizer(quantizers=[assigned_child, other_child])
+        autobit._module_to_quantizer = {module: assigned_child}
+        autobit._name_to_quantizer = {"mlp.experts.0.down_proj": assigned_child}
+
+        resolved = _resolve_gptq_for_rtn_fallback(autobit, module)
+
+        assert resolved is assigned_child
+
+    def test_autobit_with_a_non_gptq_child_is_unsupported(self):
+        module = _linear()
+        gptq_child = GPTQ(wbits=4, groupsize=-1, sym=True)
+        rtn_child = RTN(wbits=4, groupsize=-1, sym=True)
+        autobit = AutoBitQuantizer(quantizers=[gptq_child, rtn_child])
+        autobit._module_to_quantizer = {module: gptq_child}
+        autobit._name_to_quantizer = {
+            "mlp.experts.0.down_proj": gptq_child,
+            "mlp.experts.1.down_proj": rtn_child,
+        }
+
+        assert _resolve_gptq_for_rtn_fallback(autobit, module) is None
