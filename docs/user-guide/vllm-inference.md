@@ -180,6 +180,7 @@ print(outputs[0].outputs[0].text)
 Complete working examples (quantization + vLLM inference) are available:
 
 - GPTQ: [`example/vllm_inference/example_gptq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_gptq_vllm_inference.py)
+- GPTQ (Qwen3.6 full-wrapper save): [`example/vllm_inference/example_gptq_vllm_qwen36_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_gptq_vllm_qwen36_inference.py)
 - JointQ: [`example/vllm_inference/example_jointq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_jointq_vllm_inference.py)
 - AutoBit (mixed-precision): [`example/vllm_inference/example_autobit_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_autobit_vllm_inference.py)
 - DBF: [`example/vllm_inference/example_dbf_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_dbf_vllm_inference.py)

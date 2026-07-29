@@ -20,7 +20,6 @@
 
 ### Examples
 
-- Added `example/example_dbf_bitpack_equivalence.py`, which compares DBF quantization with and without `bitpack_on_quantize` across several configurations and reports whether the reconstructed dequantized weights match bit-exactly.
 - Added `example/vllm_inference/example_dbf_vllm_inference.py`, which quantizes a model with DBF, saves it, and runs vLLM inference through the DBF plugin.
 
 ### Documentation
@@ -55,10 +54,6 @@
 - Normalized `GPTQLinear.wbits` in direct and saved-state construction: integer-valued floats are converted to built-in `int`, while `bool`, non-integral or non-finite floats, and other types raise `ValueError`. `is_packable_wbits()` now checks membership without truncation (`onecomp/quantizer/gptq/gptq_layer.py`)
 - Updated base-model export to convert `wbits` to `int` only after confirming it is packable, so non-integral float widths remain unpacked (`onecomp/runner.py`)
 - Fixed saved per-layer `quantization_bits[].bits` validation to reject all floats instead of truncating them before the strict `int` check (`onecomp/quantizer/gptq/config.py`)
-
-### Examples
-
-- Added `example/example_gptq_bitpack_equivalence.py`, which compares GPTQ quantization with and without `bitpack_on_quantize` across supported bit-widths and reports whether the reconstructed dequantized weights match bit-exactly.
 
 ### Documentation
 
