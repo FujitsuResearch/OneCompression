@@ -1723,8 +1723,10 @@ class Runner:
             >>> post_process = GlobalPTQ()
             >>> post_process.run(model, runner.model_config)
 
-            LoRA SFT also accepts the model directly, but it introduces custom
-            wrapper modules and should be saved with ``save_quantized_model_pt``:
+            LoRA SFT also accepts the model directly.  It introduces custom
+            wrapper modules (``LoRAGPTQLinear``), which ``save_quantized_model``
+            handles by writing the base weights as safetensors plus a
+            PEFT-compatible adapter sidecar under ``lora_adapter/``:
 
             >>> model, tokenizer = runner.create_quantized_model(
             ...     pack_weights=True,
@@ -1732,6 +1734,8 @@ class Runner:
             ... )
             >>> post_process = PostProcessLoraSFT(data_files="train.jsonl")
             >>> post_process.run(model, runner.model_config)
+            >>> runner.quantized_model = model  # so the LoRA model is the one saved
+            >>> runner.save_quantized_model("./quantized_model_lora")
 
             Post-processes preserve the incoming pack state.  If a workflow
             requires unpacked quantized buffers (e.g. when intentionally
@@ -2259,8 +2263,9 @@ class Runner:
         If the selected model contains ``LoRAGPTQLinear`` wrappers, this method
         saves base weights with LoRA tensors excluded and additionally writes a
         PEFT-compatible LoRA adapter sidecar
-        (``adapter_model.safetensors`` + ``adapter_config.json``) into the same
-        directory.  The resulting directory can then be loaded back with
+        (``lora_adapter/adapter_model.safetensors`` +
+        ``lora_adapter/adapter_config.json``).  The resulting directory can then
+        be loaded back with
         :func:`onecomp.load_quantized_model` (which auto-detects the sidecar and
         re-wraps the layers) or served by vLLM via ``enable_lora=True``.
 

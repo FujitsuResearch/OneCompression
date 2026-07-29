@@ -45,6 +45,8 @@
 - Updated `README.md`, `docs/user-guide/examples.md`, `docs/user-guide/post-process.md`, `docs/api/quantized_model_loader.md`, and `Runner.save_quantized_model_pt()` docs to make safetensors + `lora_adapter/` the standard LoRA save/load path, mark whole-object `.pt` save/load as legacy/explicit opt-in, and point users at `example_lora_gptq_vllm_inference.py`
 - Updated `docs/api/post_process.md` to remove stale subclass `members: - run` filters after the public implementation moved to the inherited `PostQuantizationProcess.run()` template method
 - Updated `docs/api/runner.md` to list `run_post_processes` in the Runner API reference (now a primary entry point for the load -> post-process -> re-save flow)
+- Clarified in `docs/user-guide/post-process.md` that all built-in post-process outputs, including the LoRA variants, use the standard safetensors save/load path, with vLLM compatibility depending on the saved `quant_method`; `.pt` remains a legacy whole-object research/development format
+- Fixed a stale `Runner.create_quantized_model()` docstring that pointed LoRA post-processed models at `save_quantized_model_pt`; it now uses `save_quantized_model()` and shows the `runner.quantized_model = model` assignment the manual flow requires. Also corrected `Runner.save_quantized_model()` to say the adapter sidecar is written under `lora_adapter/` rather than "into the same directory" (`onecomp/runner.py`)
 
 ### Tests
 

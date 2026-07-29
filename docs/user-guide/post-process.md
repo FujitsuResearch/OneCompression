@@ -457,23 +457,29 @@ model, tokenizer = load_quantized_model("./my_model_lora")
 ```
 
 !!! info "save_quantized_model vs save_quantized_model_pt"
+    Outputs from **all** built-in post-processes — `BlockWisePTQ`, `GlobalPTQ`,
+    `GlobalPTQDistributed`, and `PostProcessLoraSFT` and its teacher variants —
+    are saved and loaded through the standard `save_quantized_model()` /
+    `load_quantized_model()` path. None of them requires the legacy `.pt` path.
+
     | Method | Format | Use Case |
     |--------|--------|----------|
-    | `save_quantized_model()` | safetensors (HF-compatible; LoRA via PEFT sidecar) | **Recommended** for all models, including LoRA post-processed ones |
-    | `save_quantized_model_pt()` | PyTorch `.pt` | Legacy / research-only alternative (see below) |
+    | `save_quantized_model()` | HF-compatible safetensors; LoRA adds a `lora_adapter/` PEFT sidecar | Standard path for supported quantized models and all built-in post-process outputs. vLLM compatibility depends on the saved `quant_method` |
+    | `save_quantized_model_pt()` | PyTorch `.pt` whole-object serialization | Legacy research/development path, e.g. for custom module types that the safetensors loader cannot reconstruct |
 
-    Similarly, use `load_quantized_model()` for safetensors and, only for legacy
-    `.pt` checkpoints, `load_quantized_model_pt()`.
+    Use `load_quantized_model()` for safetensors and `load_quantized_model_pt()`
+    only for legacy `.pt` checkpoints.
 
 ### Legacy `.pt` save/load (research/development only)
 
 The PyTorch `.pt` format (`save_quantized_model_pt()` /
 `load_quantized_model_pt()`) serializes full custom module objects (e.g.
 `LoRAGPTQLinear`) directly. It predates the safetensors sidecar flow above and
-is **not recommended** for general or production use. Keep using it only for
-research and development -- for example, to quickly experiment with a new
-post-process before it has a safetensors-compatible `load_quantized_model()`
-path.
+is **not recommended** for general or production use. Every in-tree
+post-process, LoRA SFT included, has a safetensors save/load path, so this
+format is not needed for them. Keep using it only for research and development
+-- for example, to quickly experiment with a post-process of your own before it
+has a safetensors-compatible `load_quantized_model()` path.
 
 ```python
 from onecomp import load_quantized_model_pt
