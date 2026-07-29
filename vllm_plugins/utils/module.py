@@ -7,10 +7,24 @@ _LAYER_RE = re.compile(r"\.layers\.(\d+)\.")
 # Prefixes belonging to vision/audio encoders -- never quantized.
 _NON_TEXT_PREFIXES = ("vision_tower", "vision_model", "multi_modal_projector", "audio")
 
-# Matches a per-expert MoE projection name. "experts" sits at different
-# depths per architecture (e.g. "mlp.experts.N.down_proj" vs top-level
-# "experts.N.down_proj"), hence the optional dotted prefix.
-_MOE_EXPERT_RE = re.compile(r"^(?:[\w.]+\.)?experts\.\d+\.(gate_proj|up_proj|down_proj)$")
+# Core "experts.N.<proj>" segment shared by every per-expert MoE naming
+# scheme. "experts" sits at different depths per architecture (e.g.
+# "mlp.experts.N.down_proj" vs top-level "experts.N.down_proj"), hence the
+# optional dotted prefix wherever this is anchored.
+_MOE_EXPERT_CORE = r"experts\.\d+\.(?:gate_proj|up_proj|down_proj)"
+
+# Matches a per-expert MoE projection name exactly.
+_MOE_EXPERT_RE = re.compile(rf"^(?:[\w.]+\.)?{_MOE_EXPERT_CORE}$")
+
+# Matches a per-expert MoE projection's g_idx buffer anywhere within a full
+# state_dict key, e.g. "model.layers.3.mlp.experts.0.down_proj.g_idx".
+_MOE_EXPERT_G_IDX_RE = re.compile(rf"(?:^|\.){_MOE_EXPERT_CORE}\.g_idx$")
+
+
+def is_moe_expert_g_idx_key(key: str) -> bool:
+    """True if ``key`` is a per-expert MoE projection's GPTQ g_idx buffer."""
+    return bool(_MOE_EXPERT_G_IDX_RE.search(key))
+
 
 # Map from vLLM's fused module leaf name to its constituent leaf names.
 # Constituents are substituted into module_suffix at the fused name's own
