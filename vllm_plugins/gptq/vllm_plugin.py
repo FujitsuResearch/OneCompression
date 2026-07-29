@@ -143,10 +143,10 @@ class MixedGPTQConfig(QuantizationConfig):
     def _resolve_group_size(self, mod_cfg: dict) -> int:
         """Resolve group_size: per-module direct > params > global."""
         if mod_cfg is not None:
-            if "group_size" in mod_cfg:
+            if mod_cfg.get("group_size") is not None:
                 return mod_cfg["group_size"]
             additional = mod_cfg.get("params", {})
-            if isinstance(additional, dict) and "group_size" in additional:
+            if isinstance(additional, dict) and additional.get("group_size") is not None:
                 return additional["group_size"]
         return self.group_size
 
@@ -253,9 +253,7 @@ class MixedGPTQConfig(QuantizationConfig):
         if layer_idx is None:
             return None
 
-        mod_cfg = _lookup_moe_config(
-            self.quantization_bits, layer_idx, layer.global_num_experts
-        )
+        mod_cfg = _lookup_moe_config(self.quantization_bits, layer_idx, layer.global_num_experts)
         if mod_cfg is None:
             return None
 
