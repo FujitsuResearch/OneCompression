@@ -1,7 +1,7 @@
 """Copyright 2025-2026 Fujitsu Ltd."""
 
 import os
-from typing import Any, List
+from typing import Any, List, Optional
 
 import torch
 from torch.nn import Parameter
@@ -18,6 +18,7 @@ from vllm_plugins.utils.module import (
     _parse_layer_and_module,
     _validate_quant_config_within_shard,
 )
+from vllm_plugins.utils.rotation import RotationMetadata, maybe_wrap_rotation_method
 
 logger = init_logger(__name__)
 
@@ -30,6 +31,29 @@ def _parse_bool_env(name: str, default: bool = False) -> bool:
 
 
 _USE_NAIVE = _parse_bool_env("ONECOMP_DBF_NAIVE_LINEAR", default=False)
+
+# GemLite failure (e.g. the triton autotune disk-cache bug under vLLM) is a
+# deterministic environment incompatibility: if one layer fails, every other
+# layer fails identically. So on the first failure we disable GemLite
+# process-wide and warn once, rather than re-attempting (and re-crashing) the
+# expensive autotune on every remaining layer.
+_GEMLITE_RUNTIME_DISABLED = False
+
+
+def _disable_gemlite_runtime(exc: Exception) -> None:
+    global _GEMLITE_RUNTIME_DISABLED
+    if _GEMLITE_RUNTIME_DISABLED:
+        return
+    _GEMLITE_RUNTIME_DISABLED = True
+    logger.warning(
+        "[DBF] GemLite inference path failed (%s: %s). Disabling GemLite and "
+        "falling back to the naive linear path for the remainder of this run. "
+        "To run with GemLite, relaunch with TRITON_CACHE_AUTOTUNING=0 (works "
+        "around the triton autotune disk-cache bug). To skip GemLite from the "
+        "start, set ONECOMP_DBF_NAIVE_LINEAR=1.",
+        type(exc).__name__,
+        exc,
+    )
 
 
 def _try_import_gemlite():
@@ -303,24 +327,16 @@ class DBFLinearMethod(LinearMethodBase):
             x = x.to(dtype=input_dtype)
         return x
 
-    def apply(
+    def _compute_parts(
         self,
         layer: torch.nn.Module,
         x: torch.Tensor,
-        bias: torch.Tensor | None = None,
+        meta: dict,
+        use_gemlite: bool,
+        group_size: int,
     ) -> torch.Tensor:
-        meta = getattr(layer, "_dbf_meta", None)
-        if meta is None:
-            raise RuntimeError("DBF meta not initialized on layer.")
-
-        part_count = meta["part_count"]
         outputs = []
-
-        use_gemlite = getattr(layer, "_dbf_use_gemlite", False)
-        gemlite = _try_import_gemlite() if use_gemlite else None
-        group_size = gemlite[1] if gemlite is not None else 128
-
-        for idx in range(part_count):
+        for idx in range(meta["part_count"]):
             if layer.scaling0.ndim == 2:
                 scaling0 = layer.scaling0[idx]
             else:
@@ -332,10 +348,8 @@ class DBFLinearMethod(LinearMethodBase):
             scaling4 = layer.scaling4.narrow(
                 0, meta["scaling4_offsets"][idx], meta["out_sizes"][idx]
             )
-            bp1 = layer.bp1.narrow(0, meta["bp1_offsets"][idx], meta["bp1_sizes"][idx])
-            bp3 = layer.bp3.narrow(0, meta["bp3_offsets"][idx], meta["bp3_sizes"][idx])
 
-            if use_gemlite and hasattr(layer, "_dbf_gemlite_parts"):
+            if use_gemlite:
                 binary1, binary3 = layer._dbf_gemlite_parts[idx]
                 out = self._apply_gemlite(
                     x,
@@ -349,6 +363,8 @@ class DBFLinearMethod(LinearMethodBase):
                     meta["out_sizes"][idx],
                 )
             else:
+                bp1 = layer.bp1.narrow(0, meta["bp1_offsets"][idx], meta["bp1_sizes"][idx])
+                bp3 = layer.bp3.narrow(0, meta["bp3_offsets"][idx], meta["bp3_sizes"][idx])
                 out = self._apply_naive(
                     x,
                     scaling0,
@@ -362,7 +378,41 @@ class DBFLinearMethod(LinearMethodBase):
                 )
             outputs.append(out)
 
-        out = outputs[0] if len(outputs) == 1 else torch.cat(outputs, dim=-1)
+        return outputs[0] if len(outputs) == 1 else torch.cat(outputs, dim=-1)
+
+    def apply(
+        self,
+        layer: torch.nn.Module,
+        x: torch.Tensor,
+        bias: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        meta = getattr(layer, "_dbf_meta", None)
+        if meta is None:
+            raise RuntimeError("DBF meta not initialized on layer.")
+
+        use_gemlite = (
+            not _GEMLITE_RUNTIME_DISABLED
+            and getattr(layer, "_dbf_use_gemlite", False)
+            and hasattr(layer, "_dbf_gemlite_parts")
+        )
+
+        if use_gemlite:
+            gemlite = _try_import_gemlite()
+            group_size = gemlite[1] if gemlite is not None else 128
+
+            try:
+                out = self._compute_parts(layer, x, meta, True, group_size)
+            except torch.cuda.OutOfMemoryError:
+                # The naive path needs more memory than GemLite, so falling back
+                # on OOM would only hide a real resource problem. Surface it.
+                raise
+            except Exception as exc:  # noqa: BLE001 - graceful degradation to naive
+                _disable_gemlite_runtime(exc)
+                layer._dbf_use_gemlite = False
+                out = self._compute_parts(layer, x, meta, False, group_size)
+        else:
+            out = self._compute_parts(layer, x, meta, False, 128)
+
         if bias is not None:
             out = out + bias
         return out
@@ -370,9 +420,16 @@ class DBFLinearMethod(LinearMethodBase):
 
 @register_quantization_config("dbf")
 class DbfConfig(QuantizationConfig):
-    def __init__(self, quantization_bits: List[dict[str, Any]]):
+    def __init__(
+        self,
+        quantization_bits: List[dict[str, Any]],
+        rotation_metadata: Optional[RotationMetadata] = None,
+    ):
         super().__init__()
         self.quantization_bits = quantization_bits
+        self.rotation_metadata = (
+            rotation_metadata if rotation_metadata is not None else RotationMetadata()
+        )
         self._method = DBFLinearMethod(self)
 
     @classmethod
@@ -394,7 +451,10 @@ class DbfConfig(QuantizationConfig):
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "DbfConfig":
         quantization_bits = config.get("quantization_bits", [])
-        return cls(quantization_bits=quantization_bits)
+        return cls(
+            quantization_bits=quantization_bits,
+            rotation_metadata=RotationMetadata.from_quant_config(config),
+        )
 
     def get_quant_method(self, layer: torch.nn.Module, prefix: str) -> LinearMethodBase | None:
         if not isinstance(layer, LinearBase):
@@ -402,12 +462,20 @@ class DbfConfig(QuantizationConfig):
 
         layer_idx, module_suffix = _parse_layer_and_module(prefix)
         if layer_idx is None:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         mod_cfg = _lookup_module_config(self.quantization_bits, layer_idx, module_suffix)
         if mod_cfg is None:
             logger.debug("No module config found for %s, using UnquantizedLinearMethod.", prefix)
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         if not _validate_quant_config_within_shard(
             self.quantization_bits, layer_idx, module_suffix
@@ -426,7 +494,11 @@ class DbfConfig(QuantizationConfig):
                 "DBF config for %s has bits=0, using UnquantizedLinearMethod.",
                 prefix,
             )
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         if method != "dbf":
             logger.warning(
@@ -434,13 +506,21 @@ class DbfConfig(QuantizationConfig):
                 prefix,
                 method,
             )
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         # create_weights() has no prefix argument, so carry per-module config on layer.
         layer._dbf_prefix = prefix
         layer._dbf_mod_cfg = mod_cfg
 
-        return self._method
+        return maybe_wrap_rotation_method(
+            self._method,
+            prefix=prefix,
+            metadata=self.rotation_metadata,
+        )
 
 
 def register_vllm_plugin():

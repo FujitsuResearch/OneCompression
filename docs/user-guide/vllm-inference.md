@@ -21,8 +21,8 @@ Some methods are served by vLLM's **built-in** GPTQ plugin, while others use the
     [`load_quantized_model()`](examples.md#load-a-saved-quantized-model),
     but not served through vLLM.
 
-!!! warning "Rotation-preprocessed models are not supported"
-    Models quantized after rotation preprocessing (`prepare_rotated_model`) cannot be served with vLLM. vLLM kernels do not apply the online Hadamard transform on `down_proj` inputs that rotation-preprocessed models require for correct inference.
+!!! note "Rotation-preprocessed models"
+    Models quantized after rotation preprocessing (`prepare_rotated_model`) are supported with the `mixed_gptq` and `dbf` plugins: the plugins reproduce the online Hadamard transform on `down_proj` inputs at inference time. The `dbf` plugin currently supports rotation only with `tensor_parallel_size=1`; `mixed_gptq` supports `tensor_parallel_size>1`.
 
 !!! warning "GPTQ MoE models with activation reordering (`desc_act`/`actorder`) are not vLLM-servable"
     vLLM's GPTQ `FusedMoE` kernel (`MoeWNA16Method`) has no `g_idx` parameter, so a GPTQ
@@ -296,6 +296,43 @@ Select the model from the dropdown at the top of the chat screen and start a con
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ONECOMP_DBF_NAIVE_LINEAR` | `0` | Set to `1` to force the naive (non-GemLite) kernel for DBF inference. Useful for debugging or when GemLite is unavailable. |
+| `TRITON_CACHE_AUTOTUNING` | `1` | Set to `0` to disable Triton's autotune disk-cache. Recommended when GemLite fails at inference time due to the Triton autotune disk-cache bug (see below). |
+
+### GemLite Automatic Fallback
+
+The DBF plugin automatically falls back to the naive linear kernel if GemLite fails during inference.
+When this happens, a `WARNING` is logged:
+
+```
+WARNING [...] [DBF] GemLite inference path failed (ErrorType: detail).
+Disabling GemLite and falling back to the naive linear path for the remainder of this run.
+To run with GemLite, relaunch with TRITON_CACHE_AUTOTUNING=0 (works around the triton autotune disk-cache bug).
+To skip GemLite from the start, set ONECOMP_DBF_NAIVE_LINEAR=1.
+```
+
+The fallback is **process-wide**: once GemLite fails on any layer, all subsequent layers use the naive path for the rest of the process lifetime.
+Inference continues and produces correct output, but throughput may be lower than with GemLite.
+
+If the WARNING appears, try the following in order:
+
+1. **Set `TRITON_CACHE_AUTOTUNING=0`** — works around the Triton autotune disk-cache bug that is the most common cause of GemLite failures under vLLM:
+
+    ```bash
+    TRITON_CACHE_AUTOTUNING=0 vllm serve ./your-quantized-model
+    # or
+    TRITON_CACHE_AUTOTUNING=0 python your_vllm_script.py
+    ```
+
+2. **Set `ONECOMP_DBF_NAIVE_LINEAR=1`** — skips GemLite entirely from startup. Use this if the issue persists after step 1 or if you do not need GemLite performance:
+
+    ```bash
+    ONECOMP_DBF_NAIVE_LINEAR=1 vllm serve ./your-quantized-model
+    ```
+
+!!! note "Out-of-memory errors are not caught"
+    `torch.cuda.OutOfMemoryError` is re-raised immediately and does **not** trigger the fallback.
+    The naive path requires more memory than GemLite, so falling back on OOM would make the situation worse rather than better.
+    If you see an OOM error, reduce `--gpu-memory-utilization` or the model's context length.
 
 ## Troubleshooting
 

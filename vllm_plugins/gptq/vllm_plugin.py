@@ -34,7 +34,7 @@ Kernel dispatch per module (automatic, Marlin preferred):
   - bits 0 or not listed: UnquantizedLinearMethod
 """
 
-from typing import Any, List
+from typing import Any, Optional
 
 import torch
 from vllm.logger import init_logger
@@ -59,6 +59,7 @@ from vllm_plugins.utils.module import (
     _parse_layer_and_module,
     _validate_quant_config_within_shard,
 )
+from vllm_plugins.utils.rotation import RotationMetadata, maybe_wrap_rotation_method
 
 logger = init_logger(__name__)
 
@@ -74,6 +75,7 @@ class MixedGPTQConfig(QuantizationConfig):
         sym=False,
         lm_head_quantized=False,
         checkpoint_format="gptq_v2",
+        rotation_metadata: Optional[RotationMetadata] = None,
     ):
         super().__init__()
         self.quantization_bits = quantization_bits
@@ -82,6 +84,9 @@ class MixedGPTQConfig(QuantizationConfig):
         self.sym = sym
         self.lm_head_quantized = lm_head_quantized
         self.checkpoint_format = checkpoint_format
+        self.rotation_metadata = (
+            rotation_metadata if rotation_metadata is not None else RotationMetadata()
+        )
 
         all_bits = set()
         all_methods = set()
@@ -138,6 +143,7 @@ class MixedGPTQConfig(QuantizationConfig):
             sym=sym,
             lm_head_quantized=lm_head_quantized,
             checkpoint_format=checkpoint_format,
+            rotation_metadata=RotationMetadata.from_quant_config(config),
         )
 
     def _resolve_group_size(self, mod_cfg: dict) -> int:
@@ -150,7 +156,7 @@ class MixedGPTQConfig(QuantizationConfig):
                 return additional["group_size"]
         return self.group_size
 
-    def _make_gptq_config(self, bits: int, group_size: int | None = None) -> GPTQConfig:
+    def _make_gptq_config(self, bits: int, group_size: Optional[int] = None) -> GPTQConfig:
         gs = group_size if group_size is not None else self.group_size
         return GPTQConfig(
             weight_bits=bits,
@@ -161,7 +167,7 @@ class MixedGPTQConfig(QuantizationConfig):
             checkpoint_format=self.checkpoint_format,
         )
 
-    def _make_marlin_config(self, bits: int, group_size: int | None = None) -> GPTQMarlinConfig:
+    def _make_marlin_config(self, bits: int, group_size: Optional[int] = None) -> GPTQMarlinConfig:
         gs = group_size if group_size is not None else self.group_size
         return GPTQMarlinConfig(
             weight_bits=bits,
@@ -185,7 +191,9 @@ class MixedGPTQConfig(QuantizationConfig):
         # Signature updated for vLLM>=0.20 (added hf_config kwarg).
         pass
 
-    def get_quant_method(self, layer: torch.nn.Module, prefix: str) -> QuantizeMethodBase | None:
+    def get_quant_method(
+        self, layer: torch.nn.Module, prefix: str
+    ) -> Optional[QuantizeMethodBase]:
         if isinstance(layer, FusedMoE):
             return self._get_moe_quant_method(layer, prefix)
 
@@ -194,11 +202,19 @@ class MixedGPTQConfig(QuantizationConfig):
 
         layer_idx, module_suffix = _parse_layer_and_module(prefix)
         if layer_idx is None:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         mod_cfg = _lookup_module_config(self.quantization_bits, layer_idx, module_suffix)
         if mod_cfg is None:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         if not _validate_quant_config_within_shard(
             self.quantization_bits, layer_idx, module_suffix
@@ -214,7 +230,11 @@ class MixedGPTQConfig(QuantizationConfig):
         group_size = self._resolve_group_size(mod_cfg)
 
         if bits == 0:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         int_bits = int(bits)
 
@@ -226,12 +246,20 @@ class MixedGPTQConfig(QuantizationConfig):
         ):
             try:
                 cfg = self._make_marlin_config(int_bits, group_size)
-                return GPTQMarlinLinearMethod(cfg)
+                return maybe_wrap_rotation_method(
+                    GPTQMarlinLinearMethod(cfg),
+                    prefix=prefix,
+                    metadata=self.rotation_metadata,
+                )
             except Exception:
                 pass
 
         if method == "gptq" and int_bits in (2, 3, 4, 8):
-            return GPTQLinearMethod(self._make_gptq_config(int_bits, group_size))
+            return maybe_wrap_rotation_method(
+                GPTQLinearMethod(self._make_gptq_config(int_bits, group_size)),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         logger.warning(
             "mixed_gptq: unsupported method=%s bits=%s at %s, " "falling back to unquantized",
@@ -239,7 +267,11 @@ class MixedGPTQConfig(QuantizationConfig):
             bits,
             prefix,
         )
-        return UnquantizedLinearMethod()
+        return maybe_wrap_rotation_method(
+            UnquantizedLinearMethod(),
+            prefix=prefix,
+            metadata=self.rotation_metadata,
+        )
 
     def _get_moe_quant_method(
         self, layer: torch.nn.Module, prefix: str
