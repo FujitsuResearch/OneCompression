@@ -52,6 +52,40 @@ def unpack_binary(x: torch.Tensor) -> torch.Tensor:
     return out.flatten() * 2 - 1
 
 
+def pack_binary_factor(matrix: torch.Tensor) -> torch.Tensor:
+    """Pack a 2D ±1 matrix into a 1D uint8 buffer.
+
+    Thin wrapper over :func:`pack_binary` kept for symmetry with
+    :func:`unpack_binary_factor`. The trailing padding bits added by
+    ``pack_binary`` are recovered/sliced off by the matching unpack helper.
+
+    Args:
+        matrix (torch.Tensor): 2D ±1 tensor (zeros are treated as +1).
+
+    Returns:
+        torch.Tensor: 1D ``uint8`` packed buffer.
+    """
+    return pack_binary(matrix)
+
+
+def unpack_binary_factor(packed: torch.Tensor, shape: tuple[int, int]) -> torch.Tensor:
+    """Unpack a 1D uint8 buffer back into a 2D ±1 matrix of the given shape.
+
+    Inverts :func:`pack_binary` for a 2D matrix: unpacks to the flat ±1
+    representation, slices off the trailing padding bits, and restores the
+    original (row-major) shape.
+
+    Args:
+        packed (torch.Tensor): 1D ``uint8`` buffer produced by ``pack_binary``.
+        shape (tuple[int, int]): Original ``(rows, cols)`` matrix shape.
+
+    Returns:
+        torch.Tensor: ``int8`` matrix of values in {-1, +1} with ``shape``.
+    """
+    numel = shape[0] * shape[1]
+    return unpack_binary(packed)[:numel].reshape(shape)
+
+
 # ========================================
 # Basic components
 # ========================================
@@ -67,7 +101,7 @@ class BitLinearPacked(nn.Module):
         if b.ndim == 2:
             self.shape = tuple(b.shape)
             self._numel = b.numel()
-            bp = pack_binary(b)
+            bp = pack_binary_factor(b)
         else:
             raise ValueError("BitLinearPacked: expected 2D ±1 tensor.")
 
@@ -75,7 +109,7 @@ class BitLinearPacked(nn.Module):
 
     def forward(self, x):
         # Unpack, slice to needed size, reshape, and matmul
-        bit_mat = unpack_binary(self.bp)[: self._numel].reshape(self.shape)
+        bit_mat = unpack_binary_factor(self.bp, self.shape)
         return x.matmul(bit_mat.to(x.dtype).t())
 
 
@@ -123,7 +157,20 @@ class DoubleBinaryLinear(nn.Module):
         bias: Optional[torch.Tensor] = None,
         device: Optional[torch.device] = None,
         use_gemlite: Optional[bool] = None,
+        dbf_A_is_packed: bool = False,
+        dbf_B_is_packed: bool = False,
+        dbf_A_original_shape: Optional[tuple[int, int]] = None,
+        dbf_B_original_shape: Optional[tuple[int, int]] = None,
     ):
+        """Build the inference layer from DBF binary factors.
+
+        ``dbf_A`` / ``dbf_B`` may be passed either as unpacked ±1 matrices
+        (default) or as already-packed ``uint8`` buffers. When a factor is
+        already packed (``*_is_packed=True``) it is registered directly into
+        the matching ``bp`` buffer without a re-pack, and its
+        ``*_original_shape`` must be provided so the unpacked shape can be
+        recovered for forward / GemLite.
+        """
         super().__init__()
         # Stage 0: Input scaling
         self.scaling0 = nn.Parameter(dbf_Db.detach().to(torch.float16), requires_grad=False)
@@ -133,10 +180,34 @@ class DoubleBinaryLinear(nn.Module):
         # Stage 4: Output scaling
         self.scaling4 = nn.Parameter(dbf_Da.detach().to(torch.float16), requires_grad=False)
 
-        self._bp1_shape = tuple(dbf_B.shape)
-        self._bp3_shape = tuple(dbf_A.shape)
-        self.register_buffer("bp1", pack_binary(dbf_B))
-        self.register_buffer("bp3", pack_binary(dbf_A))
+        # bp1 holds binary B (stage 1), bp3 holds binary A (stage 3).
+        # Already-packed inputs are stored as-is to avoid an unpack/re-pack
+        # round-trip; unpacked inputs are packed here as before.
+        if dbf_B_is_packed:
+            if dbf_B_original_shape is None:
+                raise ValueError("dbf_B_original_shape is required when dbf_B is already packed.")
+            self._bp1_shape = tuple(dbf_B_original_shape)
+            bp1 = dbf_B.detach().to(torch.uint8)
+        else:
+            self._bp1_shape = tuple(dbf_B.shape)
+            bp1 = pack_binary_factor(dbf_B)
+
+        if dbf_A_is_packed:
+            if dbf_A_original_shape is None:
+                raise ValueError("dbf_A_original_shape is required when dbf_A is already packed.")
+            self._bp3_shape = tuple(dbf_A_original_shape)
+            bp3 = dbf_A.detach().to(torch.uint8)
+        else:
+            self._bp3_shape = tuple(dbf_A.shape)
+            bp3 = pack_binary_factor(dbf_A)
+
+        self.register_buffer("bp1", bp1)
+        self.register_buffer("bp3", bp3)
+
+        # Derived from the original (unpacked) shapes:
+        # _bp1_shape=(mid, in), _bp3_shape=(out, mid).
+        self.in_features = self._bp1_shape[1]
+        self.out_features = self._bp3_shape[0]
 
         if use_gemlite is None:
             use_gemlite = HAS_GEMLITE_SUPPORT and is_gemlite_available()
@@ -145,8 +216,20 @@ class DoubleBinaryLinear(nn.Module):
         self.use_gemlite = False
         if use_gemlite and HAS_GEMLITE_SUPPORT:
             device_obj = torch.device(device) if device else torch.device("cuda")
-            gemlite1 = create_gemlite_linear(dbf_B, nbits=1, device=device_obj)
-            gemlite3 = create_gemlite_linear(dbf_A, nbits=1, device=device_obj)
+            # GemLite needs the unpacked ±1 matrices. For packed inputs build
+            # short-lived unpacked tensors here only; they are not retained.
+            gemlite_B = (
+                unpack_binary_factor(bp1, self._bp1_shape).to(torch.float16)
+                if dbf_B_is_packed
+                else dbf_B
+            )
+            gemlite_A = (
+                unpack_binary_factor(bp3, self._bp3_shape).to(torch.float16)
+                if dbf_A_is_packed
+                else dbf_A
+            )
+            gemlite1 = create_gemlite_linear(gemlite_B, nbits=1, device=device_obj)
+            gemlite3 = create_gemlite_linear(gemlite_A, nbits=1, device=device_obj)
             if gemlite1 is not None and gemlite3 is not None:
                 self._gemlite_layers["1"] = gemlite1
                 self._gemlite_layers["3"] = gemlite3
@@ -163,7 +246,7 @@ class DoubleBinaryLinear(nn.Module):
 
     def _unpack_bp(self, bp: torch.Tensor, shape: tuple) -> torch.Tensor:
         """Unpack a packed binary buffer to {-1,+1} matrix."""
-        return unpack_binary(bp)[: shape[0] * shape[1]].reshape(shape)
+        return unpack_binary_factor(bp, shape)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """5-stage forward pass."""
@@ -199,6 +282,8 @@ class DoubleBinaryLinear(nn.Module):
         Returns:
             DoubleBinaryLinear instance
         """
+        # Packed-state metadata is optional (old results / unpacked results
+        # simply report False), so read it defensively.
         return cls(
             dbf_Da=result.dbf_Da,
             dbf_A=result.dbf_A,
@@ -208,6 +293,10 @@ class DoubleBinaryLinear(nn.Module):
             bias=bias,
             device=device,
             use_gemlite=use_gemlite,
+            dbf_A_is_packed=getattr(result, "dbf_A_is_packed", False),
+            dbf_B_is_packed=getattr(result, "dbf_B_is_packed", False),
+            dbf_A_original_shape=getattr(result, "dbf_A_original_shape", None),
+            dbf_B_original_shape=getattr(result, "dbf_B_original_shape", None),
         )
 
     @classmethod
@@ -237,6 +326,8 @@ class DoubleBinaryLinear(nn.Module):
         self = cls.__new__(cls)
         nn.Module.__init__(self)
         self.target_bits = target_bits
+        self.in_features = in_features
+        self.out_features = out_features
 
         def _p(k):
             t = layer_state_dict[k]

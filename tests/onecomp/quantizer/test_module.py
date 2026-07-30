@@ -7,6 +7,7 @@ Author: Keiji Kimura
 
 import random
 
+import numpy as np
 import pytest
 import torch
 from torch import nn
@@ -16,8 +17,9 @@ class QuantizeTestHelper:
     """Shared utilities for quantization tests."""
 
     def seed_everything(self, seed: int = 42) -> None:
-        """Seed Python and Torch RNGs for repeatable test runs."""
+        """Seed Python, NumPy, and Torch RNGs for repeatable test runs."""
         random.seed(seed)
+        np.random.seed(seed)
         torch.random.manual_seed(seed)
         torch.manual_seed(seed)
         if torch.cuda.is_available():
@@ -295,6 +297,9 @@ class BaseQuantizeSpec:
         """Validate that quantization error is within tolerance."""
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         quantizer = self.make_quantizer()
+
+        helper.set_deterministic()
+        helper.seed_everything(123)
 
         hidden_size = 2048
         model = TestModel(hidden_size).to(device)

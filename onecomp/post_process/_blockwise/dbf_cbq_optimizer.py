@@ -141,7 +141,7 @@ def optimize_dbf_cross_block(
 
     original_bit_mats = {id(blp): blp.bit_mat.clone() for blp, _ in binary_params}
 
-    from ...quantizer.dbf.dbf_layer import pack_binary
+    from ...quantizer.dbf.dbf_layer import pack_binary_factor
 
     best_eval_mse = initial_error
     best_snap_i = {}
@@ -156,7 +156,7 @@ def optimize_dbf_cross_block(
                     bq = bw.data.sign()
                     bq[bq == 0] = 1
                     blp.bit_mat = bq.to(torch.int8)
-                    blp.bp = pack_binary(bq)
+                    blp.bp = pack_binary_factor(bq)
         return _eval_mse()
 
     # --- Training ---
@@ -226,7 +226,7 @@ def optimize_dbf_cross_block(
                 bq = bw.data.sign()
                 bq[bq == 0] = 1
                 blp.bit_mat = bq.to(torch.int8)
-                blp.bp = pack_binary(bq)
+                blp.bp = pack_binary_factor(bq)
 
     # --- Disable gradients ---
     for _name, mod in all_dbf:

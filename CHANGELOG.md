@@ -21,7 +21,7 @@
 - Added `tests/onecomp/quantizer/mdbf/test_osvd_hessian_bug.py`: a numerical proof-of-concept that the previous `H^{1/2}` formulation inflated the Hessian-weighted reconstruction error for non-diagonal Hessians
 - Added `admm_seed` tests to `tests/onecomp/quantizer/mdbf/test_mdbf.py`: `MDBF(admm_seed=...)` reaches `svd_abs_rank_l()` through the public quantizer API on both the plain and the Hessian-based (activation-aware) ADMM path, a fixed seed pins the ADMM result across different global RNG states, and `admm_seed` boundary / abnormal validation cases (including `MAX_SEED + 1`, which torch would otherwise reject mid-ADMM)
 
-## [v1.3.0(WIP)+feature/mdbf] 2026-06-17
+## [v1.3.0(WIP)+feature/mdbf] 2026-07-30
 
 ### New Feature: MDBF (Multi-Envelope Double Binary Factorization) Quantizer
 
@@ -70,6 +70,184 @@
 
 - Added `tests/onecomp/quantizer/mdbf/test_mdbf.py`: MDBF quantizer unit tests covering `quantize_layer` result validation (type, shape, device, dtype), reproducibility, boundary parameters (`target_bits`, `l`, `P`, `svd_mode`, `use_admm`, `admm_outer_iters`, `admm_inner_iters`, `admm_reg`, `use_gradient_refine`, `gradient_iters`, `gradient_lr`, `activation_aware`, `act_init`, `mlp_target_bits`, `module_target_bits`), abnormal parameter validation (negative/zero/invalid values raise `ValueError`), CPU/GPU output match, quantization error tolerance, forward error of the inference layer, and a check pinning the shipped `(l, P) = (2, 1)` defaults
 - Updated shared quantizer test helpers to unpack `calculate_hessian()` return tuples and forward `nsamples` when required; updated affected JointQ tests to use the shared helper (`tests/onecomp/quantizer/test_module.py`, `tests/onecomp/quantizer/jointq/test_jointq.py`)
+
+## [v1.3.0(WIP)+feature/bitpack_dbf] 2026-07-28
+
+### New Feature / Breaking Changes: DBF bitpack-on-quantize mode
+
+- Added `bitpack_on_quantize` support to `DBF` (enabled by default), so the binary factors `dbf_A` / `dbf_B` are packed into `uint8` immediately after each layer is quantized instead of being kept as unpacked +/-1 `float16` matrices (`onecomp/quantizer/dbf/_dbf.py`)
+- Extended `DBFResult` with packed-state metadata (`dbf_A_is_packed`, `dbf_B_is_packed`, `dbf_A_original_shape`, `dbf_B_original_shape`) and a `get_unpacked_binary_factors()` helper, and updated `compute_dequantized_weight()` so packed and unpacked results reconstruct bit-identical dequantized weights (`onecomp/quantizer/dbf/_dbf.py`)
+- Updated `DoubleBinaryLinear` to consume pre-packed `DBFResult` factors without repacking (registering them directly into `bp1` / `bp3`), still pack unpacked inputs, and preserve the existing `from_saved_state()` behavior (`onecomp/quantizer/dbf/dbf_layer.py`)
+
+### Validation / compatibility tweaks
+
+- Added `bool` validation for `bitpack_on_quantize` in `DBF.validate_params()` (`onecomp/quantizer/dbf/_dbf.py`)
+- Extended the `bitpack_on_quantize` propagation in `AutoBitQuantizer` to DBF child candidates and DBF fallback quantizers created by `inject_dbf()` (`onecomp/quantizer/autobit/_autobit.py`, `onecomp/quantizer/autobit/dbf_fallback.py`)
+- DBF bitpacking has no bit-width restriction because the binary factors are always ±1 (1 bit), and arbitrary tensor shapes are supported through padding (no bit-width restriction)
+
+### Bug Fix
+
+- Exposed `in_features` / `out_features` on `DoubleBinaryLinear` (derived from the original unpacked binary-factor shapes `_bp1_shape` / `_bp3_shape`, and also set in `from_saved_state()`). `register_online_hadamard_hooks()` -> `get_hadK()` introspects `module.in_features`, but `DoubleBinaryLinear` previously stored only `_bp1_shape` / `_bp3_shape`, raising `AttributeError` when re-registering Hadamard hooks on saved DBF-quantized rotation-preprocessed models (`onecomp/quantizer/dbf/dbf_layer.py`)
+
+### Examples
+
+- Added `example/vllm_inference/example_dbf_vllm_inference.py`, which quantizes a model with DBF, saves it, and runs vLLM inference through the DBF plugin.
+
+### Documentation
+
+- Documented DBF quantize-time bitpacking and AutoBit propagation to child and generated DBF quantizers (`docs/algorithms/dbf.md`, `docs/algorithms/autobit.md`).
+
+### Tests
+
+- Added `tests/onecomp/quantizer/dbf/test_dbf_bitpack.py` for packed result metadata, dequantization, `DoubleBinaryLinear.from_quantization_result()` inference, and downstream-consumer handling of packed results.
+- Added `tests/onecomp/quantizer/dbf/test_dbf_bitpack_equivalence.py` for packed-vs-unpacked equivalence of `compute_dequantized_weight()` and the built inference layers.
+- Added `tests/onecomp/quantizer/dbf/test_dbf_layer_pack.py` for unpacked-input packing, packed-input repack avoidance, and `from_saved_state()` forward.
+- Added DBF bitpack runner smoke tests sharing `tests/onecomp/quantizer/dbf/dbf_bitpack_runner_helpers.py`: QEP (`tests/onecomp/test_qep_dbf_bitpack_smoke.py`), LPCD (`tests/onecomp/lpcd/test_lpcd_dbf_bitpack_runner.py`), and chunked-calibration `calc_quant_error` (`tests/onecomp/test_dbf_bitpack_chunked_calc_error.py`) all accept packed DBF results.
+- Added DBF vLLM plugin tests: config parsing/dispatch (`tests/vllm_plugins/dbf/test_dbf_config.py`) and quantize -> save -> vLLM generation e2e (`tests/vllm_plugins/dbf/test_dbf_e2e.py`).
+- Added DBF quantized/dequantized save/load round-trip cases to the rotation + quantization pipeline tests (`tests/onecomp/pre_process/test_save_load_pipeline_tinyllama.py`, `tests/onecomp/pre_process/test_save_load_pipeline_qwen3.py`).
+- Updated `tests/onecomp/quantizer/dbf/test_dbf.py` to be packed/unpacked agnostic and `tests/onecomp/quantizer/autobit/test_fused_group_validation.py` for AutoBit-to-DBF `bitpack_on_quantize` propagation.
+
+## [v1.3.0(WIP)+feature/bitpack_mode] 2026-07-28
+
+### New Feature / Breaking Changes: GPTQ bitpack-on-quantize mode
+
+- Added `bitpack_on_quantize` to the base `Quantizer` (default `False`) and enabled it by default for `GPTQ`; for packer-supported bit widths, `qweight` and `qzeros` are stored in AutoGPTQ-compatible packed format immediately after each layer is quantized (`onecomp/quantizer/_quantizer.py`, `onecomp/quantizer/gptq/_gptq.py`)
+- Extended `GPTQResult` with packed-state metadata (`qweight_is_packed`, `qzeros_is_packed`, `qweight_original_shape`) and updated `compute_dequantized_weight()` so packed and unpacked results reconstruct the same dequantized weights across grouped / per-channel, symmetric / asymmetric, and act-order paths (`onecomp/quantizer/gptq/_gptq.py`)
+- Updated `GPTQLinear` to consume pre-packed `GPTQResult` tensors without repacking, unpack them when `pack_weights=False`, and handle the GPTQ v1 zero-point offset consistently for packed results and inference (`onecomp/quantizer/gptq/gptq_layer.py`)
+
+### Validation / compatibility tweaks
+
+- Limited GPTQ bit-width validation to `1..15` across `wbits`, `mlp_wbits`, `module_wbits`, and saved `quantization_config` loading (`onecomp/quantizer/gptq/_gptq.py`, `onecomp/quantizer/gptq/config.py`)
+- Restricted immediate GPTQ bitpacking to packer-supported widths `{2, 3, 4, 8}`; other valid GPTQ widths can still be used with `bitpack_on_quantize=False` (`onecomp/quantizer/gptq/_gptq.py`)
+- Added `pack_weights=True` validation during GPTQ inference layer creation, so packer-unsupported widths now fail clearly instead of silently falling back to unpacked storage (`onecomp/quantizer/gptq/_gptq.py`)
+- Added `bitpack_on_quantize` to `AutoBitQuantizer` and propagated it to GPTQ child quantizers before child validation, so unsupported packed GPTQ candidates fail with a clear error (`onecomp/quantizer/autobit/_autobit.py`)
+- Preserved JointQ's existing optimization path by keeping its internal GPTQ initialization on unpacked `qweight` / `qzeros` (`onecomp/quantizer/jointq/_jointq.py`)
+- Normalized `GPTQLinear.wbits` in direct and saved-state construction: integer-valued floats are converted to built-in `int`, while `bool`, non-integral or non-finite floats, and other types raise `ValueError`. `is_packable_wbits()` now checks membership without truncation (`onecomp/quantizer/gptq/gptq_layer.py`)
+- Updated base-model export to convert `wbits` to `int` only after confirming it is packable, so non-integral float widths remain unpacked (`onecomp/runner.py`)
+- Fixed saved per-layer `quantization_bits[].bits` validation to reject all floats instead of truncating them before the strict `int` check (`onecomp/quantizer/gptq/config.py`)
+
+### Documentation
+
+- Documented the quantize-time versus save-time packing constraints for GPTQ's `bitpack_on_quantize` (`docs/algorithms/gptq.md`).
+- Documented AutoBit's child-setting override and fused-group constraints for GPTQ candidates, and JointQ's forced unpacked GPTQ initial solution (`docs/algorithms/autobit.md`, `docs/algorithms/jointq.md`).
+
+### Tests
+
+- Added `tests/onecomp/quantizer/gptq/test_gptq_bitpack.py` for packed result metadata, dequantization, `GPTQLinear.from_quantization_result()` inference, unsupported bit-width errors, and packed-result shape checks.
+- Added `tests/onecomp/quantizer/gptq/test_gptq_bitpack_equivalence.py` for packed-vs-unpacked equivalence across supported bit-widths, grouping, symmetry, and act-order combinations.
+- Updated `tests/onecomp/quantizer/gptq/test_gptq.py` for the `bitpack_on_quantize` flag, unpacked-result compatibility, and the shared `1..15` GPTQ bit-width validation limit.
+- Updated `tests/onecomp/quantizer/autobit/test_fused_group_validation.py` for AutoBit-to-GPTQ `bitpack_on_quantize` propagation and unsupported packed GPTQ candidate validation.
+- Updated `tests/onecomp/quantizer/autobit/test_autobit.py` so existing AutoBit tests that exercise unpacked GPTQ candidates pass `bitpack_on_quantize=False` explicitly.
+- Added regression tests for `wbits` normalization, strict saved-config validation, and export behavior for integral and non-integral float widths (`tests/onecomp/quantizer/gptq/test_gptq_layer_pack.py`, `tests/onecomp/quantizer/gptq/test_gptq.py`, `tests/onecomp/runner/test_lora_save_load_roundtrip.py`)
+
+## [v1.3.0(WIP)+feature/rotation-save-load-vllm-infer] 2026-07-27
+
+### Rotation-preprocessed model inference in vLLM (GPTQ & DBF)
+
+- Added vLLM inference support for rotation-preprocessed models: the online Hadamard transform applied to dense `mlp.down_proj` inputs during quantization is now reproduced at inference time inside the vLLM plugins (`vllm_plugins/utils/rotation.py`)
+  - New `RotationMetadata` dataclass reads `rotated` / `fp32_had` from `quantization_config` (`from_quant_config()`), exposes `requires_hadamard(prefix)`, and is the single source of truth for rotation flags instead of re-parsing raw dict keys
+  - New `RotatedLinearMethod` wraps any vLLM `LinearMethodBase` and installs the online Hadamard at layer entry; `maybe_wrap_rotation_method()` wraps a method only when the target prefix requires it
+  - Added `RotatedLinearMethod` and `RotatedLinearMethodV2` variants to preserve the wrapped base method's v1/v2 weight-loader selection: `RotatedLinearMethodV2` is registered as supporting vLLM's `weight_loader_v2`, while `RotatedLinearMethod` remains unregistered for v1-only base methods. The compatibility layer handles differences across vLLM versions and allows metadata-only imports when vLLM is not installed.
+  - **Tensor-parallel handling** (GPTQ; the DBF plugin still requires `tensor_parallel_size=1`): for a `RowParallelLinear` (`down_proj`) input with `tp_size > 1` whose base method supports TP, the row-parallel shards are `all_gather`-ed, Hadamard-transformed over the full intermediate dimension, then re-split per rank (one extra `all_gather` before the normal output reduce); single-TP layers use a forward pre-hook instead. Each layer caches one Hadamard matrix and refreshes it when the input last-dim size changes
+- Added `is_online_hadamard_target(name)` to `onecomp/pre_process/rotation_utils.py` as a shared predicate (`mlp.down_proj` / `*.mlp.down_proj`) so preprocessing and the vLLM plugins target the same layers; `register_online_hadamard_hooks()` now uses it instead of a loose `"down_proj" in name` check. MoE expert `down_proj` paths remain out of scope (rotation preprocessing does not support MoE)
+- `MixedGPTQConfig` and `DbfConfig` now construct `RotationMetadata` from config and route every returned method (quantized and `UnquantizedLinearMethod`) through `maybe_wrap_rotation_method()` (`vllm_plugins/gptq/vllm_plugin.py`, `vllm_plugins/dbf/vllm_plugin.py`)
+- `Runner` now rewrites `quant_method` from `gptq` to `mixed_gptq` when saving a rotated GPTQ model, so vLLM loads the plugin that can apply the `down_proj` Hadamard transform (`onecomp/runner.py`)
+- `DoubleBinaryLinear` now records `in_features` / `out_features` (in both `__init__` and `from_saved_state()`), required by the vLLM rotation wrapper (`onecomp/quantizer/dbf/dbf_layer.py`)
+
+### DBF GemLite automatic fallback
+
+- The DBF vLLM plugin now falls back to the naive linear kernel when the GemLite inference path fails at runtime, instead of crashing the run (`vllm_plugins/dbf/vllm_plugin.py`)
+  - The fallback is **process-wide**: GemLite is disabled on the first failure and a single `WARNING` is logged, since the failure (e.g. the Triton autotune disk-cache bug under vLLM) is a deterministic environment incompatibility that would recur identically on every remaining layer
+  - `torch.cuda.OutOfMemoryError` is re-raised immediately and does **not** trigger the fallback: the naive path needs more memory than GemLite, so falling back on OOM would only hide a real resource problem
+  - Refactored `apply()` to extract `_compute_parts()`, shared by the GemLite and naive paths
+- Documented the automatic fallback, the `TRITON_CACHE_AUTOTUNING=0` workaround, and the OOM behavior in the vLLM inference guide (`docs/user-guide/vllm-inference.md`)
+
+### Tests
+
+- Modularized the `vllm_plugins` test infrastructure: shared `conftest.py`, session-scoped LLM fixtures, and `try/finally` cleanup (`tests/vllm_plugins/conftest.py`)
+- Added rotation coverage: rotation utility unit tests, `RotationMetadata` / plugin unit tests, runner rotated-save tests, a TP1 rotated GPTQ end-to-end test plus a TP2 rotated GPTQ smoke test, and a TP1 rotated DBF end-to-end test
+- Added GemLite fallback regression tests (fused 2D scaling0, real naive path, bias, process-wide disable)
+
+## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step2] 2026-07-22
+
+### Bug fix
+
+- Fixed `QuantizedModelLoader.load_quantized_model()` failing to load MoE quantized checkpoints: `Runner.save_quantized_model()` unfuses fused 3D expert parameters (`gate_up_proj`, `down_proj`) into per-expert `nn.Linear` modules before saving, so checkpoint keys look like `model.layers.0.mlp.experts.0.down_proj.weight`, but the empty model built from `config.json` still had the fused representation and those keys never matched. `load_quantized_model()` now calls `unfuse_moe_experts()` on the freshly-built model before the state_dict is loaded, mirroring the save-time step (`onecomp/quantized_model_loader.py`)
+
+### Test
+
+- Added tests verifying `load_quantized_model()` calls `unfuse_moe_experts()` on the freshly-built model before the state_dict is loaded, including a save/load round trip with the real (unmocked) `unfuse_moe_experts()` confirming each expert's weight matches its checkpoint tensor (`tests/onecomp/test_quantized_model_loader_moe_unfuse.py`)
+
+## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step1] 2026-07-22
+
+### MoE quantization exclusion
+
+- `Runner._exclude_moe_router_if_needed()` now also excludes `shared_expert_gate` layers from quantization, alongside the existing `router` exclusion, since Qwen3.6-A3B-style MoE models route through it the same way vLLM's `GateLinear` does (`onecomp/runner.py`)
+- Added `tests/onecomp/runner/test_exclude_moe_router_if_needed.py`, the first dedicated coverage for `_exclude_moe_router_if_needed()`
+
+## [v1.3.0(WIP)+feature/qwen36_27b_step3] 2026-07-21
+
+### Qwen3.6 vLLM support: full-wrapper quantized model save
+
+- Added a `save_format` parameter (`"auto"` / `"native"` / `"full_wrapper"`, default `"auto"`) to `Runner.save_quantized_model()`. `"full_wrapper"` saves a text-only quantized checkpoint (e.g. Qwen3.6) remapped to the composite `model.language_model.*` state_dict/config namespace that vLLM's full-wrapper VLM loading expects, and additionally saves `AutoProcessor`/`AutoImageProcessor` files (`onecomp/runner.py`)
+- Added `example/vllm_inference/example_gptq_vllm_qwen36_inference.py`, a dedicated Qwen3.6 example demonstrating the full GPTQ quantize → `save_format="full_wrapper"` save → vLLM inference flow
+
+### Bug fix
+
+- Fixed a `SyntaxError` in `onecomp/utils/blockwise.py` and broken save logic in `Runner.save_quantized_model()` (missing `save_format` parameter, dangling `try` without `except`, undefined variable reference), and removed dead duplicate code (`onecomp/runner.py`)
+
+### Test
+
+- Added tests for `save_format`'s namespace-detection/remap helpers and its Qwen3.6-only scoping, plus end-to-end checks that `full_wrapper` restores `model.config` after save and that the default `save_format` remains a no-op for non-Qwen models (`tests/onecomp/runner/test_save_format_full_wrapper.py`)
+
+## [v1.3.0(WIP)+feature/qwen36_27b_step2] 2026-07-21
+
+### Bug fix
+
+- Fixed `load_quantized_model()` silently loading quantized layers (GPTQ/DBF) with all-zero buffers when the checkpoint's on-disk key prefixes don't match `quantization_config`'s recorded module names (e.g. Qwen3.6: `transformers` unconditionally rewrites `model.layers.*` to `model.language_model.layers.*` on save, regardless of any OneComp save option). `_replace_quantized_layers()` now moves the matched tensors to the correct key before `load_state_dict()` instead of only using them to infer buffer shapes (`onecomp/quantized_model_loader.py`)
+  - Added `_check_load_state_dict_result()` / `_assert_quantized_modules_loaded()` post-load checks that fail fast instead of silently producing a model that generates garbage
+  - Generalized the generic suffix-matching fallback in `_resolve_state_dict_key()` to consider the full key depth instead of a hardcoded 8-component limit
+- Fixed `_assert_quantized_modules_loaded()` raising for every DBF-quantized model: it checked for a non-existent `bp` attribute on `DoubleBinaryLinear` instead of the real `scaling0`/`scaling2`/`scaling4`/`bp1`/`bp3` (`onecomp/quantized_model_loader.py`)
+- Fixed a false-positive load failure for tied-embedding models: `lm_head.weight` is legitimately absent from the checkpoint (HF's `save_pretrained` does not duplicate a tensor sharing storage with `embed_tokens.weight`) and is no longer flagged as a critical missing key (`onecomp/quantized_model_loader.py`)
+
+### Refactor
+
+- Extracted the tied-embeddings re-tie decision and `tie_weights()` call in `load_quantized_model()` into `_retie_lm_head_if_needed()` (`onecomp/quantized_model_loader.py`)
+
+### Test
+
+- Added unit tests covering the above fixes (`tests/onecomp/runner/test_remap_state_dict_keys.py`, `tests/onecomp/runner/test_load_tied_embeddings.py`)
+
+## [v1.3.0(WIP)+feature/qwen36_27b_step1] 2026-07-21
+
+### Qwen3.6 support (GatedDeltaNet hybrid linear-attention / full-attention layers)
+
+- Extended blockwise calibration handling in `onecomp/utils/blockwise.py` to support Qwen3.6's hybrid decoder, which mixes GatedDeltaNet `linear_attention` layers with regular `full_attention` layers (same `layer_types` scheme as transformers' `Qwen3_5` architecture)
+  - Hybrid layer-type detection now also recognizes the `linear_attention` + `full_attention` mix (`is_qwen35_like_hybrid`), alongside the existing Gemma-style `full_attention` + `sliding_attention` mix (`is_gemma_like_mixed_attention`); `has_mixed_types` is true when either applies
+  - Added `_create_linear_attention_mask()`, ported from transformers' `Qwen3_5Model._update_linear_attn_mask`: returns `None` for cached-decode or no-padding forwards, otherwise the boolean padding mask
+  - `_compute_per_type_attention_masks()` now dispatches to a Qwen-hybrid mask-creator mapping (`linear_attention` -> `_create_linear_attention_mask`, `full_attention` -> `create_causal_mask`) instead of the Gemma pair (`create_causal_mask` / `create_sliding_window_causal_mask`) when the model's layer types match the hybrid set
+
+### Tests
+
+- Added test coverage for the Qwen3.6 hybrid-attention support above, which previously had no dedicated tests: `_get_block_layer_type`'s `linear_attn` fallback and priority order, `_create_linear_attention_mask`'s cached/no-padding/padding branches, the mask-creator dispatch added to `_compute_per_type_attention_masks` for `{"linear_attention", "full_attention"}` layer-type sets (with a regression guard for the existing Gemma-style `{"full_attention", "sliding_attention"}` path), and end-to-end hybrid-layer-type detection in `get_blocks_and_inputs` (`tests/onecomp/utils/test_blockwise.py`)
+
+## [v1.3.0(WIP)+lab/delete-example]
+
+### Examples
+
+- Removed the legacy LoRA SFT examples that duplicated the current flow: `example/post_process/example_lora_sft_legacy.py` and `example/post_process/example_lora_sft_knowledge_legacy.py`. These relied on the old `.pt`-based `load_quantized_model_pt()` flow and diverged from the current HF-compatible `load_quantized_model()` workflow.
+- Completed the example list in `README.md` so it covers every existing `example/**/example*.py` script, including the Global PTQ, JointQ knowledge-injection, and LoRA + vLLM examples that were previously missing.
+
+### Documentation
+
+- Documented `QuantizedModelLoader.load_quantized_model_pt()` (alias `onecomp.load_quantized_model_pt()`) as a **research/development-only, non-recommended** API. The `.pt` loader is intentionally retained for rapid experimentation (e.g. trying a new post-process before it has a safetensors-compatible `load_quantized_model()` path), but is discouraged for general/production use due to the unsafe-deserialization risk (CWE-502) and the non-HF-compatible format. Added a note to the docstring (`onecomp/quantized_model_loader.py`) and the API reference (`docs/api/quantized_model_loader.md`).
+- Corrected the "Saving and Loading LoRA Models" docs to match the current flow: LoRA-applied models are saved/loaded with `save_quantized_model()` / `load_quantized_model()` (HF-compatible safetensors + PEFT adapter sidecar, auto-detected on load), which is now the **recommended** path. The previous docs incorrectly stated LoRA models were incompatible with safetensors and required the `.pt` format; the `.pt` API is now presented only as the legacy research/development alternative (`docs/user-guide/post-process.md`, `docs/user-guide/examples.md`).
+
+## [v1.3.0(WIP)+lab/test-quip-error]
+
+### Test
+
+- Stabilized quantizer error-bound tests by seeding Python, NumPy, and PyTorch RNGs and enabling deterministic PyTorch behavior in `BaseQuantizeSpec.test_quantize_error`. Added a QUIP-specific `test_quantize_error` override that uses a smaller test model and higher-rank Hessian inputs to avoid environment-dependent Cholesky failures without changing production QUIP code (`tests/onecomp/quantizer/test_module.py`, `tests/onecomp/quantizer/quip/test_quip.py`)
 
 ## [v1.3.0(WIP)+fix/partial-quant-with-rotation-bug] 2026-07-03
 
@@ -129,10 +307,19 @@
 
 (TODO: Add changelog for v1.3.0)
 
+## vLLM ROCm support
+Add a separate, opt-in vLLM plugin for AMD ROCm (vLLM `0.24.0+rocm*`). Install from `envs/vllm/v0_24_0_rocm/`; it is not part of the main `uv sync --extra vllm` workflow.
+
 ### Bug fix
 - Text-only `generate()` on multimodal models (e.g. Gemma-4 12B) could emit modality delimiter tokens and degrade output after quantize→reload, because `load_quantized_model()` did not restore `generation_config.json` (including `suppress_tokens`). Now loads it from the save directory when present (`quantized_model_loader.py`).
 - Fixed VLM (e.g. Gemma3) quantized model save/load: safetensors key prefixes from `save_pretrained` (`model.language_model.model.layers.*`) did not match the `from_config` model (`model.language_model.layers.*`), so `load_state_dict(..., assign=True)` left `qweight` / `scales` / `qzeros` at zero and generation degraded (`onecomp/quantized_model_loader.py`)
   - Added `_remap_state_dict_keys()` to normalize checkpoint keys before `_replace_quantized_layers`; `_apply_known_state_dict_key_rewrites()` rewrites `.language_model.model.` → `.language_model.` (pattern-based, without requiring keys to exist in the empty model yet)
+
+## [v1.2.2] 2026-07-10
+
+### Bug Fix
+
+- Fixed `device="auto"` evaluation crashes in `Runner.calculate_perplexity()` and related paths by adding `ModelConfig.get_device()` and using a resolved `torch.device` for PyTorch operations such as `model.to()` and `empty_cache()`. Hugging Face `device_map="auto"` remains unchanged for model loading, but PyTorch no longer receives the raw `"auto"` string.
 
 ## [v1.2.1] 2026-07-03
 
@@ -142,6 +329,7 @@
   - **Breaking change**: existing callers of `load_quantized_model_pt()` must pass `allow_unsafe_deserialization=True` for trusted `.pt` files.
 - **`Quantizer.load_results()` / `ResultLoader`**: same hardening applied. Loading with `weights_only=False` now requires `allow_unsafe_deserialization=True` (added as a `ResultLoader` field), and logs a warning. The safe `weights_only=True` path is unchanged.
 - Updated docstrings, docs, and the LoRA SFT example to document the risk and the required opt-in.
+- **Credit**: this unsafe deserialization issue (CWE-502) was responsibly disclosed by **Nir Yehoshua, Cipher Security Labs**. Thank you for the report.
 
 ## [v1.2.0] 2026-06-08
 

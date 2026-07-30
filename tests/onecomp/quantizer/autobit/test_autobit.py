@@ -28,7 +28,7 @@ _skip_large = pytest.mark.skipif(
 SMALL_MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 LARGE_MODEL_ID = "meta-llama/Meta-Llama-3-70B"
 
-CANDIDATES = [GPTQ(wbits=b, groupsize=128) for b in (2, 3, 4, 5)]
+CANDIDATES = [GPTQ(wbits=b, groupsize=128, bitpack_on_quantize=False) for b in (2, 3, 4, 5)]
 CANDIDATES2 = [
     GPTQ(wbits=2, groupsize=128),
     GPTQ(wbits=4, groupsize=128),
@@ -63,6 +63,7 @@ def test_autobit_small_model_ilp():
     quantizer = AutoBitQuantizer(
         assignment_strategy="activation_aware",
         target_bit=target_bit,
+        bitpack_on_quantize=False,
         quantizers=CANDIDATES,
         enable_fused_groups=False,
     )
@@ -84,6 +85,7 @@ def test_autobit_small_model_dbf():
         assignment_strategy="activation_aware",
         target_bit=target_bit,
         dbf_iters=10,
+        bitpack_on_quantize=False,
         quantizers=CANDIDATES,
         enable_fused_groups=False,
     )
@@ -109,6 +111,7 @@ def test_autobit_small_model_error():
     quantizer = AutoBitQuantizer(
         assignment_strategy="activation_aware",
         target_bit=target_bit,
+        bitpack_on_quantize=False,
         quantizers=CANDIDATES,
         enable_fused_groups=False,
     )
@@ -129,6 +132,7 @@ def test_autobit_large_model():
     quantizer = AutoBitQuantizer(
         assignment_strategy="activation_aware",
         target_bit=target_bit,
+        bitpack_on_quantize=False,
         quantizers=CANDIDATES,
         enable_fused_groups=False,
     )

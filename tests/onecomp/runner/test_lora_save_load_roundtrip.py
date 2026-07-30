@@ -204,6 +204,37 @@ def _assert_gptq_tensors_are_packed(state_dict, layer_name, layer):
     )
 
 
+def test_export_packs_integral_float_wbits():
+    """Export packs an integral float width without mutating the layer."""
+    model = torch.nn.Module()
+    layer = _make_gptq_linear(32, 32, packed=False)
+    layer.wbits = 4.0
+    model.gptq = layer
+    runner = _make_runner_stub(model)
+
+    state_dict = runner._build_base_quantized_state_dict(model, [])
+
+    assert state_dict["gptq.qweight"].shape == (4, 32)
+    assert state_dict["gptq.qzeros"].shape == (1, 4)
+    assert layer.wbits == 4.0
+    assert layer._weight_is_packed is False
+
+
+def test_export_skips_non_integral_float_wbits():
+    """Export leaves a non-integral float width unpacked instead of truncating it."""
+    model = torch.nn.Module()
+    layer = _make_gptq_linear(32, 32, packed=False)
+    layer.wbits = 4.5
+    model.gptq = layer
+    runner = _make_runner_stub(model)
+
+    state_dict = runner._build_base_quantized_state_dict(model, [])
+
+    assert state_dict["gptq.qweight"].shape == layer.qweight.shape
+    assert state_dict["gptq.qzeros"].shape == layer.qzeros.shape
+    assert layer._weight_is_packed is False
+
+
 def test_gptq_lora_post_process_save_load_roundtrip_preserves_logits(tmp_path):
     """GPTQ + PostProcessLoraSFT saves sidecar and reloads as LoRAGPTQLinear."""
     model = _build_tiny_llama()
