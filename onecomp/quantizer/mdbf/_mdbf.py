@@ -94,7 +94,7 @@ class MDBFResult(QuantizationResult):
     activation_aware: bool = None
     act_init: str = None
     scale_bits: int = None
-    actual_activation_aware: bool = None
+    actual_activation_aware: Optional[bool] = None
     actual_bpw: float = None
     r: int = None
 
