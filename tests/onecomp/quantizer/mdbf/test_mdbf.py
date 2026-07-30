@@ -74,18 +74,18 @@ class TestMDBF(BaseQuantizeSpec):
         # use_admm: bool
         {
             "use_admm": True,
-            "admm_iters": 1,
+            "admm_outer_iters": 1,
             "admm_inner_iters": 1,
         },  # lower boundary combo when enabled
         {"use_admm": False},  # disabled individually
-        # admm_iters: int >= 1 (validated when use_admm=True)
-        {"use_admm": True, "admm_iters": 1},  # lower boundary
-        {"use_admm": True, "admm_iters": 100},  # large value
+        # admm_outer_iters: int >= 1 (validated when use_admm=True)
+        {"use_admm": True, "admm_outer_iters": 1},  # lower boundary
+        {"use_admm": True, "admm_outer_iters": 100},  # large value
         # admm_inner_iters: int >= 1 (validated when use_admm=True)
         {"use_admm": True, "admm_inner_iters": 1},  # lower boundary
         {"use_admm": True, "admm_inner_iters": 10},  # large value
         # admm_* not validated when use_admm=False
-        {"use_admm": False, "admm_iters": 0},  # admm_iters=0 allowed when admm off
+        {"use_admm": False, "admm_outer_iters": 0},  # admm_outer_iters=0 allowed when admm off
         {"use_admm": False, "admm_inner_iters": 0},  # admm_inner_iters=0 allowed when admm off
         # use_gradient_refine: bool
         {
@@ -133,14 +133,15 @@ class TestMDBF(BaseQuantizeSpec):
         # combo: all bools False
         {"use_admm": False, "use_gradient_refine": False, "activation_aware": False},
         # combo: all numerics at lower bounds
-        # use_admm not specified -> class default True applies, so admm_iters/admm_inner_iters are validated
+        # use_admm not specified -> class default True applies,
+        # so admm_outer_iters/admm_inner_iters are validated
         {
             "target_bits": 1.0,
             "l": 1,
             "P": 1,
             "scale_bits": 0,
             "admm_reg": 0.0,
-            "admm_iters": 1,
+            "admm_outer_iters": 1,
             "admm_inner_iters": 1,
         },
         # all class defaults spelled out (the defaults themselves are pinned by
@@ -151,7 +152,7 @@ class TestMDBF(BaseQuantizeSpec):
             "P": 1,
             "svd_mode": "svd",
             "use_admm": True,
-            "admm_iters": 260,
+            "admm_outer_iters": 260,
             "admm_inner_iters": 3,
             "admm_reg": 0.03,
             "use_gradient_refine": False,
@@ -168,7 +169,7 @@ class TestMDBF(BaseQuantizeSpec):
             "P": 1,
             "svd_mode": "svd",
             "use_admm": False,
-            "admm_iters": 0,
+            "admm_outer_iters": 0,
             "admm_inner_iters": 0,
             "admm_reg": 0.0,
             "use_gradient_refine": False,
@@ -185,7 +186,7 @@ class TestMDBF(BaseQuantizeSpec):
             "P": 2,
             "svd_mode": "svd_llm",
             "use_admm": True,
-            "admm_iters": 100,
+            "admm_outer_iters": 100,
             "admm_inner_iters": 10,
             "admm_reg": 100.0,
             "use_gradient_refine": True,
@@ -213,12 +214,12 @@ class TestMDBF(BaseQuantizeSpec):
         {"scale_bits": -1},  # below lower boundary (scale_bits >= 0)
         # admm_reg: float >= 0
         {"admm_reg": -0.01},  # below lower boundary (admm_reg >= 0)
-        # admm_iters: int >= 1 (validated when use_admm=True)
+        # admm_outer_iters: int >= 1 (validated when use_admm=True)
         {
             "use_admm": True,
-            "admm_iters": 0,
-        },  # below lower boundary (admm_iters >= 1 when use_admm=True)
-        {"use_admm": True, "admm_iters": -1},  # negative value
+            "admm_outer_iters": 0,
+        },  # below lower boundary (admm_outer_iters >= 1 when use_admm=True)
+        {"use_admm": True, "admm_outer_iters": -1},  # negative value
         # admm_inner_iters: int >= 1 (validated when use_admm=True)
         {
             "use_admm": True,

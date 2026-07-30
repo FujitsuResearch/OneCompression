@@ -24,7 +24,7 @@
 ### New Feature: MDBF (Multi-Envelope Double Binary Factorization) Quantizer
 
 - Added `onecomp/quantizer/mdbf/` sub-package implementing the MDBF quantizer that approximates weight matrices as a sum of multi-path double binary factorizations: W ≈ Σ_{p=1}^{P} F^(p) @ G^(p) where each path decomposes into sign matrices and multi-scale amplitude factors
-  - `_mdbf.py`: `MDBF` quantizer dataclass with configurable `target_bits`, `l` (multi-scale rank, default `2`), `P` (number of passes, 1 or 2, default `1`), `svd_mode`, `act_init`, ADMM options (`use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`), gradient refinement options, and activation-aware mode; `MDBFResult` dataclass with per-path tensor storage and `compute_dequantized_weight()` reconstruction
+  - `_mdbf.py`: `MDBF` quantizer dataclass with configurable `target_bits`, `l` (multi-scale rank, default `2`), `P` (number of passes, 1 or 2, default `1`), `svd_mode`, `act_init`, ADMM options (`use_admm`, `admm_outer_iters`, `admm_inner_iters`, `admm_reg`), gradient refinement options, and activation-aware mode; `MDBFResult` dataclass with per-path tensor storage and `compute_dequantized_weight()` reconstruction
   - `mdbf_impl.py`: `run_mdbf()` orchestrating initialization, ADMM, and gradient refinement
   - `initialize.py`: SVD-based initialization (`svd`, `svd_llm` modes) with `MDBFParams` dataclass; `init_single_path()` takes `l` as a required argument so a path is never silently built single-envelope
   - `admm.py`: ADMM optimization loop for binary sign and amplitude matrices
@@ -66,7 +66,7 @@
 
 ### Tests
 
-- Added `tests/onecomp/quantizer/mdbf/test_mdbf.py`: MDBF quantizer unit tests covering `quantize_layer` result validation (type, shape, device, dtype), reproducibility, boundary parameters (`target_bits`, `l`, `P`, `svd_mode`, `use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`, `use_gradient_refine`, `gradient_iters`, `gradient_lr`, `activation_aware`, `act_init`, `mlp_target_bits`, `module_target_bits`), abnormal parameter validation (negative/zero/invalid values raise `ValueError`), CPU/GPU output match, quantization error tolerance, forward error of the inference layer, and a check pinning the shipped `(l, P) = (2, 1)` defaults
+- Added `tests/onecomp/quantizer/mdbf/test_mdbf.py`: MDBF quantizer unit tests covering `quantize_layer` result validation (type, shape, device, dtype), reproducibility, boundary parameters (`target_bits`, `l`, `P`, `svd_mode`, `use_admm`, `admm_outer_iters`, `admm_inner_iters`, `admm_reg`, `use_gradient_refine`, `gradient_iters`, `gradient_lr`, `activation_aware`, `act_init`, `mlp_target_bits`, `module_target_bits`), abnormal parameter validation (negative/zero/invalid values raise `ValueError`), CPU/GPU output match, quantization error tolerance, forward error of the inference layer, and a check pinning the shipped `(l, P) = (2, 1)` defaults
 - Updated shared quantizer test helpers to unpack `calculate_hessian()` return tuples and forward `nsamples` when required; updated affected JointQ tests to use the shared helper (`tests/onecomp/quantizer/test_module.py`, `tests/onecomp/quantizer/jointq/test_jointq.py`)
 
 ## [v1.3.0(WIP)+fix/partial-quant-with-rotation-bug] 2026-07-03

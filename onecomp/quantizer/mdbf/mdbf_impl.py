@@ -59,7 +59,7 @@ def run_mdbf(
     P: int = DEFAULT_P,
     svd_mode: Literal["svd", "svd_llm"] = "svd",
     use_admm: bool = False,
-    admm_iters: int = 260,
+    admm_outer_iters: int = 260,
     admm_inner_iters: int = 3,
     admm_reg: float = 0.03,
     use_gradient_refine: bool = False,
@@ -87,7 +87,7 @@ def run_mdbf(
         P: Number of paths
         svd_mode: SVD mode ("svd" or "svd_llm")
         use_admm: Use ADMM optimization
-        admm_iters: Number of ADMM outer iterations
+        admm_outer_iters: Number of ADMM outer iterations
         admm_inner_iters: Number of ADMM inner iterations
         admm_reg: Regularization parameter
         use_gradient_refine: Use gradient-based amplitude optimization
@@ -179,13 +179,13 @@ def run_mdbf(
     cleanup_memory()
 
     # Phase 2: ADMM optimization
-    if use_admm and admm_iters > 0:
+    if use_admm and admm_outer_iters > 0:
         if activation_aware and use_hessian_mode and H_act is not None:
             from .admm import optimize_MDBF_admm_hessian
 
             logger.debug(
                 f"[MDBF] ADMM (Activation-Aware, Hessian-based): "
-                f"outer={admm_iters}, inner={admm_inner_iters}, reg={admm_reg}"
+                f"outer={admm_outer_iters}, inner={admm_inner_iters}, reg={admm_reg}"
             )
 
             all_params, W_recon = optimize_MDBF_admm_hessian(
@@ -194,7 +194,7 @@ def run_mdbf(
                 l=l,
                 H=H_act,
                 nsamples=_nsamples,
-                iters=admm_iters,
+                iters=admm_outer_iters,
                 inner_iters=admm_inner_iters,
                 reg=admm_reg,
             )
@@ -204,14 +204,15 @@ def run_mdbf(
             H_for_display = hessian.clone().to(device) if hessian is not None else None
 
             logger.debug(
-                f"[MDBF] ADMM: outer={admm_iters}, inner={admm_inner_iters}, " f"reg={admm_reg}"
+                f"[MDBF] ADMM: outer={admm_outer_iters}, inner={admm_inner_iters}, "
+                f"reg={admm_reg}"
             )
 
             all_params, W_recon = optimize_MDBF_admm(
                 W_original=W,
                 params_list=all_params,
                 l=l,
-                iters=admm_iters,
+                iters=admm_outer_iters,
                 inner_iters=admm_inner_iters,
                 reg=admm_reg,
                 H=H_for_display,

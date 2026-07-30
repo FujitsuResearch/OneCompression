@@ -112,7 +112,7 @@ MDBF runs in up to three phases:
 | `P`                   | `int`                       | Number of residual paths (`1` or `2`)                                                             | `1`      |
 | `svd_mode`            | `str`                       | Initialization SVD mode: `"svd"` or Hessian-weighted `"svd_llm"`                                  | `"svd"`  |
 | `use_admm`            | `bool`                      | Enable ADMM refinement                                                                            | `True`   |
-| `admm_iters`          | `int`                       | ADMM outer iterations                                                                             | `260`    |
+| `admm_outer_iters`    | `int`                       | ADMM outer iterations                                                                             | `260`    |
 | `admm_inner_iters`    | `int`                       | ADMM inner iterations                                                                             | `3`      |
 | `admm_reg`            | `float`                     | ADMM regularization coefficient                                                                   | `0.03`   |
 | `use_gradient_refine` | `bool`                      | Enable gradient-based amplitude refinement                                                        | `False`  |

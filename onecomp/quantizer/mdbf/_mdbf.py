@@ -42,7 +42,7 @@ class MDBFResult(QuantizationResult):
         P (int): Number of passes.
         svd_mode (str): SVD initialization mode.
         use_admm (bool): Whether ADMM optimization was used.
-        admm_iters (int): ADMM outer iterations.
+        admm_outer_iters (int): ADMM outer iterations.
         admm_inner_iters (int): ADMM inner iterations.
         admm_reg (float): ADMM regularization coefficient.
         use_gradient_refine (bool): Whether gradient refinement was used.
@@ -77,7 +77,7 @@ class MDBFResult(QuantizationResult):
     P: int = None
     svd_mode: str = None
     use_admm: bool = None
-    admm_iters: int = None
+    admm_outer_iters: int = None
     admm_inner_iters: int = None
     admm_reg: float = None
     use_gradient_refine: bool = None
@@ -191,7 +191,7 @@ class MDBF(Quantizer):
         P (int): Number of passes (1 or 2).
         svd_mode (str): SVD initialization mode ("svd" or "svd_llm").
         use_admm (bool): Whether to use ADMM optimization.
-        admm_iters (int): ADMM outer iterations.
+        admm_outer_iters (int): ADMM outer iterations.
         admm_inner_iters (int): ADMM inner iterations.
         admm_reg (float): ADMM regularization coefficient.
         use_gradient_refine (bool): Whether to use gradient refinement.
@@ -220,7 +220,7 @@ class MDBF(Quantizer):
     P: int = DEFAULT_P
     svd_mode: str = "svd"
     use_admm: bool = True
-    admm_iters: int = 260
+    admm_outer_iters: int = 260
     admm_inner_iters: int = 3
     admm_reg: float = 0.03
     use_gradient_refine: bool = False
@@ -263,7 +263,7 @@ class MDBF(Quantizer):
             target_bits: float > 0
             l: int >= 1
             P: int in {1, 2}
-            admm_iters: int >= 1 (when use_admm=True)
+            admm_outer_iters: int >= 1 (when use_admm=True)
             admm_reg: float >= 0
             gradient_iters: int >= 1 (when use_gradient_refine=True)
             gradient_lr: float > 0
@@ -292,9 +292,9 @@ class MDBF(Quantizer):
             )
 
         if self.use_admm:
-            if not (isinstance(self.admm_iters, int) and self.admm_iters >= 1):
+            if not (isinstance(self.admm_outer_iters, int) and self.admm_outer_iters >= 1):
                 bad.append(
-                    f"Invalid MDBF parameter 'admm_iters': {self.admm_iters!r} "
+                    f"Invalid MDBF parameter 'admm_outer_iters': {self.admm_outer_iters!r} "
                     f"(expected int >= 1 when use_admm=True)."
                 )
             if not (isinstance(self.admm_inner_iters, int) and self.admm_inner_iters >= 1):
@@ -389,7 +389,7 @@ class MDBF(Quantizer):
             P=self.P,
             svd_mode=self.svd_mode,
             use_admm=self.use_admm,
-            admm_iters=self.admm_iters,
+            admm_outer_iters=self.admm_outer_iters,
             admm_inner_iters=self.admm_inner_iters,
             admm_reg=self.admm_reg,
             use_gradient_refine=self.use_gradient_refine,
@@ -412,7 +412,7 @@ class MDBF(Quantizer):
             P=actual_P,
             svd_mode=self.svd_mode,
             use_admm=self.use_admm,
-            admm_iters=self.admm_iters,
+            admm_outer_iters=self.admm_outer_iters,
             admm_inner_iters=self.admm_inner_iters,
             admm_reg=self.admm_reg,
             use_gradient_refine=self.use_gradient_refine,
@@ -456,7 +456,7 @@ class MDBF(Quantizer):
             "P": self.P,
             "svd_mode": self.svd_mode,
             "use_admm": self.use_admm,
-            "admm_iters": self.admm_iters,
+            "admm_outer_iters": self.admm_outer_iters,
             "admm_inner_iters": self.admm_inner_iters,
             "admm_reg": self.admm_reg,
             "use_gradient_refine": self.use_gradient_refine,
@@ -497,7 +497,7 @@ class MDBF(Quantizer):
             "P": get_quant_param(quant_config, "P", default=DEFAULT_P),
             "svd_mode": get_quant_param(quant_config, "svd_mode", default="svd"),
             "use_admm": get_quant_param(quant_config, "use_admm", default=True),
-            "admm_iters": get_quant_param(quant_config, "admm_iters", default=260),
+            "admm_outer_iters": get_quant_param(quant_config, "admm_outer_iters", default=260),
             "admm_inner_iters": get_quant_param(quant_config, "admm_inner_iters", default=3),
             "admm_reg": get_quant_param(quant_config, "admm_reg", default=0.03),
             "use_gradient_refine": get_quant_param(
