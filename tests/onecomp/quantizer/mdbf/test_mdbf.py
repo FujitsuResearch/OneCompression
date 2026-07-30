@@ -23,7 +23,13 @@ from onecomp.quantizer.mdbf import mdbf_layer
 from onecomp.quantizer.mdbf._mdbf import MDBF, MDBFResult
 from onecomp.quantizer.mdbf.initialize import MDBFParams, lowrank_osvd
 from onecomp.quantizer.mdbf.mdbf_layer import MDBFLinear, MultipathMDBFLinear
-from onecomp.quantizer.mdbf.utils import bpw_from_rank, rank_from_bpw, reconstruct_weight
+from onecomp.quantizer.mdbf.utils import (
+    DEFAULT_L,
+    DEFAULT_P,
+    bpw_from_rank,
+    rank_from_bpw,
+    reconstruct_weight,
+)
 
 
 class TestMDBF(BaseQuantizeSpec):
@@ -137,11 +143,12 @@ class TestMDBF(BaseQuantizeSpec):
             "admm_iters": 1,
             "admm_inner_iters": 1,
         },
-        # all class defaults
+        # all class defaults spelled out (the defaults themselves are pinned by
+        # test_class_defaults_are_multi_envelope)
         {
             "target_bits": 1.0,
-            "l": 1,
-            "P": 2,
+            "l": 2,
+            "P": 1,
             "svd_mode": "svd",
             "use_admm": True,
             "admm_iters": 260,
@@ -530,6 +537,18 @@ def test_mdbflinear_falls_back_to_dense_when_gemlite_unavailable(monkeypatch):
     # The fallback must take the exact same dense forward path.
     assert y_forced.shape == (4, 16)
     assert torch.equal(y_forced, y_dense)
+
+
+def test_class_defaults_are_multi_envelope():
+    """The shipped defaults must be (l, P) = (2, 1), not a baseline format.
+
+    (l, P) = (1, 1) reproduces DBF and (1, 2) reproduces LittleBit, so a regression in
+    these defaults would silently quantize with a format MDBF is only measured against.
+    """
+    q = MDBF(target_bits=1.0)
+    assert (q.l, q.P) == (DEFAULT_L, DEFAULT_P) == (2, 1)
+    config = q.get_quant_config()
+    assert (config["l"], config["P"]) == (2, 1)
 
 
 def test_rank_from_bpw_matches_paper_formula():

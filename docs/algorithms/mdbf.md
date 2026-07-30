@@ -34,6 +34,35 @@ The rank \(r\) is the main capacity knob; the **multi-scale rank** \(l\) control
 expressive the amplitude envelopes are, and \(P\) adds residual paths that capture what a
 single factorization cannot.
 
+### Choosing \(l\) and \(P\)
+
+At a matched bit budget, \(l\) and \(P\) compete for the same bits: raising either one
+shrinks the rank \(r\). MDBF's finding is that spending them on *magnitude* expressiveness
+(larger \(l\)) beats spending them on *sign* diversity (larger \(P\)). Two settings are
+degenerate and reproduce the baselines MDBF is measured against: \((l, P) = (1, 1)\) is
+[DBF](dbf.md) and \((1, 2)\) is LittleBit. The default \((2, 1)\) is the smallest genuinely
+multi-envelope setting; larger \(l\) (`4`, `8`, `16`) usually improves quality further at
+the cost of rank and optimization time.
+
+!!! warning "The matrix shape caps the reachable BPW"
+    The rank is clamped to \(r \leq \min(n, m)\), so with \(s = \min(n, m)\) and
+    \(t = \max(n, m)\) the achievable BPW cannot exceed
+
+    \[
+    b_{\max} = P \, \frac{s(s + t) + \texttt{scale\_bits} \; l \, (t + 3s)}{st}
+    \]
+
+    A `target_bits` above \(b_{\max}\) is clamped and the layer lands *below* the requested
+    budget, with a warning in the log. Halving \(P\) halves the ceiling, so `P=1` reaches
+    it sooner on strongly rectangular matrices such as MLP projections; for LLM-sized
+    matrices the ~1 bit range MDBF targets is normally unaffected. Use `P=2` if a higher
+    `target_bits` is being clamped.
+
+!!! note "`l > 1` disables the GemLite fast path by default"
+    GemLite 1-bit kernels are auto-enabled only for `l == 1`; with a rank-\(l\) envelope
+    they are slower than dense, so `MDBFLinear` falls back to dense matmuls. Pass
+    `use_gemlite=True` to force them, or quantize with `l=1`.
+
 Compared with DBF — which uses a single factorization \(W \approx A \cdot \text{diag}(d) \cdot B\)
 with one diagonal scaling vector — MDBF replaces the single scale vector with four
 rank-\(l\) envelope matrices per path and sums over \(P\) paths, giving finer control over
@@ -79,8 +108,8 @@ MDBF runs in up to three phases:
 | Parameter             | Type                        | Description                                                                                       | Default  |
 |-----------------------|-----------------------------|---------------------------------------------------------------------------------------------------|----------|
 | `target_bits`         | `float`                     | Target bit-width / BPW (e.g., `1.0`)                                                               | `1.0`    |
-| `l`                   | `int`                       | Multi-scale rank of the amplitude envelopes (\(\geq 1\))                                           | `1`      |
-| `P`                   | `int`                       | Number of residual paths (`1` or `2`)                                                             | `2`      |
+| `l`                   | `int`                       | Multi-scale rank of the amplitude envelopes (\(\geq 1\)); `1` degenerates to a single envelope     | `2`      |
+| `P`                   | `int`                       | Number of residual paths (`1` or `2`)                                                             | `1`      |
 | `svd_mode`            | `str`                       | Initialization SVD mode: `"svd"` or Hessian-weighted `"svd_llm"`                                  | `"svd"`  |
 | `use_admm`            | `bool`                      | Enable ADMM refinement                                                                            | `True`   |
 | `admm_iters`          | `int`                       | ADMM outer iterations                                                                             | `260`    |
@@ -142,7 +171,7 @@ calib_config = CalibrationConfig(
     num_calibration_samples=128,  # Increase to 256-512 for higher accuracy
     batch_size=32,                # Tune to GPU free memory (8-32)
 )
-mdbf = MDBF(target_bits=1.0, l=1, P=2)
+mdbf = MDBF(target_bits=1.0, l=2, P=1)  # the defaults; raise l for more accuracy
 runner = Runner(
     model_config=model_config,
     quantizer=mdbf,

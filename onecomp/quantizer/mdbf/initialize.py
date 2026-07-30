@@ -28,6 +28,8 @@ import torch
 logger = getLogger(__name__)
 
 from .utils import (
+    DEFAULT_L,
+    DEFAULT_P,
     cleanup_gpu_memory,
     ensure_float32,
     reconstruct_weight,
@@ -305,7 +307,7 @@ def amplitude_rank_l_approx(U_abs: torch.Tensor, l: int) -> Tuple[torch.Tensor, 
 def init_single_path(
     W: torch.Tensor,
     r: int,
-    l: int = 1,
+    l: int,
     H: Optional[torch.Tensor] = None,
     mode: Literal["svd", "svd_llm"] = "svd",
     act_init: Literal["none", "osvd", "svd_llm"] = "none",
@@ -316,7 +318,8 @@ def init_single_path(
     Args:
         W: Input matrix (n, m)
         r: Rank
-        l: Multi-scale rank
+        l: Multi-scale rank (required: a silent l=1 would build a single-envelope
+            path, i.e. a DBF factor, instead of the caller's MDBF configuration)
         H: Hessian matrix (m, m) - for SVD-LLM/OSVD
         mode: SVD mode ("svd" or "svd_llm")
         act_init: Initialization mode ("none", "osvd", "svd_llm")
@@ -354,8 +357,8 @@ def init_single_path(
 def initialize_MDBF(
     W: torch.Tensor,
     r: int,
-    l: int = 1,
-    P: int = 2,
+    l: int = DEFAULT_L,
+    P: int = DEFAULT_P,
     H: Optional[torch.Tensor] = None,
     mode: Literal["svd", "svd_llm"] = "svd",
     act_init: Literal["none", "osvd", "svd_llm"] = "none",

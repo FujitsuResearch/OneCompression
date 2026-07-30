@@ -29,7 +29,7 @@ from onecomp.utils.quant_config import get_quant_param
 
 from .initialize import MDBFParams
 from .mdbf_impl import run_mdbf
-from .utils import DEFAULT_SCALE_BITS
+from .utils import DEFAULT_L, DEFAULT_P, DEFAULT_SCALE_BITS
 
 
 @dataclass
@@ -186,7 +186,8 @@ class MDBF(Quantizer):
         flag_calibration (bool): Calibration mode flag.
         flag_hessian (bool): Hessian computation flag.
         target_bits (float): Target BPW (e.g., 1.0).
-        l (int): Multi-scale rank.
+        l (int): Multi-scale (envelope) rank. l=1 collapses the envelope to rank
+            one; (l, P) = (1, 1) is DBF and (1, 2) is LittleBit.
         P (int): Number of passes (1 or 2).
         svd_mode (str): SVD initialization mode ("svd" or "svd_llm").
         use_admm (bool): Whether to use ADMM optimization.
@@ -214,8 +215,9 @@ class MDBF(Quantizer):
 
     # Parameters for the MDBF quantizer
     target_bits: float = 1.0
-    l: int = 1
-    P: int = 2
+    # See DEFAULT_L / DEFAULT_P in utils.py for why the default is (l, P) = (2, 1).
+    l: int = DEFAULT_L
+    P: int = DEFAULT_P
     svd_mode: str = "svd"
     use_admm: bool = True
     admm_iters: int = 260
@@ -488,8 +490,10 @@ class MDBF(Quantizer):
             get_quant_param(quant_config, "module_target_bits") or {}
         )
         params: dict[str, Any] = {
-            "l": get_quant_param(quant_config, "l", default=1),
-            "P": get_quant_param(quant_config, "P", default=2),
+            # quant_config comes from get_quant_config() on the save path, so every key
+            # below is present in practice; the fallbacks only cover a partial config.
+            "l": get_quant_param(quant_config, "l", default=DEFAULT_L),
+            "P": get_quant_param(quant_config, "P", default=DEFAULT_P),
             "svd_mode": get_quant_param(quant_config, "svd_mode", default="svd"),
             "use_admm": get_quant_param(quant_config, "use_admm", default=True),
             "admm_iters": get_quant_param(quant_config, "admm_iters", default=260),

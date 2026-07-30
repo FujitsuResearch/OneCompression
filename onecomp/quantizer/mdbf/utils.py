@@ -31,6 +31,13 @@ logger = getLogger(__name__)
 # the binary matrices alone (binary-only estimate / backward comparison).
 DEFAULT_SCALE_BITS = 16
 
+# Default envelope rank l and path count P, shared by the MDBF quantizer and the
+# functions it drives so the two cannot drift apart. (l, P) = (1, 1) reproduces DBF
+# and (1, 2) reproduces LittleBit, so (2, 1) is the smallest genuinely multi-envelope
+# setting; larger l usually improves quality at the cost of rank and runtime.
+DEFAULT_L = 2
+DEFAULT_P = 1
+
 
 def cleanup_gpu_memory() -> None:
     """Release GPU memory"""
@@ -83,8 +90,8 @@ def rank_from_bpw(
     n: int,
     m: int,
     b_target: float,
-    l: int = 1,
-    P: int = 2,
+    l: int = DEFAULT_L,
+    P: int = DEFAULT_P,
     min_rank: int = 1,
     rounding: Literal["floor", "ceil", "round"] = "floor",
     scale_bits: int = DEFAULT_SCALE_BITS,
@@ -149,7 +156,12 @@ def rank_from_bpw(
 
 
 def bpw_from_rank(
-    n: int, m: int, r: int, l: int = 1, P: int = 2, scale_bits: int = DEFAULT_SCALE_BITS
+    n: int,
+    m: int,
+    r: int,
+    l: int = DEFAULT_L,
+    P: int = DEFAULT_P,
+    scale_bits: int = DEFAULT_SCALE_BITS,
 ) -> float:
     """
     # Calculate effective BPW from rank r

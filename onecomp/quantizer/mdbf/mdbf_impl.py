@@ -26,7 +26,14 @@ import transformers
 logger = getLogger(__name__)
 
 from .initialize import MDBFParams, initialize_MDBF
-from .utils import DEFAULT_SCALE_BITS, bpw_from_rank, cleanup_gpu_memory, rank_from_bpw
+from .utils import (
+    DEFAULT_L,
+    DEFAULT_P,
+    DEFAULT_SCALE_BITS,
+    bpw_from_rank,
+    cleanup_gpu_memory,
+    rank_from_bpw,
+)
 
 
 def _move_MDBF_params_to_cpu(params_list: List[MDBFParams]) -> List[MDBFParams]:
@@ -49,8 +56,8 @@ def run_mdbf(
     module: nn.Module,
     input=None,
     target_bits: float = 1.0,
-    l: int = 1,
-    P: int = 2,
+    l: int = DEFAULT_L,
+    P: int = DEFAULT_P,
     svd_mode: Literal["svd", "svd_llm"] = "svd",
     use_admm: bool = False,
     admm_iters: int = 260,

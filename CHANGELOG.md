@@ -24,14 +24,17 @@
 ### New Feature: MDBF (Multi-Envelope Double Binary Factorization) Quantizer
 
 - Added `onecomp/quantizer/mdbf/` sub-package implementing the MDBF quantizer that approximates weight matrices as a sum of multi-path double binary factorizations: W ≈ Σ_{p=1}^{P} F^(p) @ G^(p) where each path decomposes into sign matrices and multi-scale amplitude factors
-  - `_mdbf.py`: `MDBF` quantizer dataclass with configurable `target_bits`, `l` (multi-scale rank), `P` (number of passes, 1 or 2), `svd_mode`, `act_init`, ADMM options (`use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`), gradient refinement options, and activation-aware mode; `MDBFResult` dataclass with per-path tensor storage and `compute_dequantized_weight()` reconstruction
+  - `_mdbf.py`: `MDBF` quantizer dataclass with configurable `target_bits`, `l` (multi-scale rank, default `2`), `P` (number of passes, 1 or 2, default `1`), `svd_mode`, `act_init`, ADMM options (`use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`), gradient refinement options, and activation-aware mode; `MDBFResult` dataclass with per-path tensor storage and `compute_dequantized_weight()` reconstruction
   - `mdbf_impl.py`: `run_mdbf()` orchestrating initialization, ADMM, and gradient refinement
-  - `initialize.py`: SVD-based initialization (`svd`, `svd_llm` modes) with `MDBFParams` dataclass
+  - `initialize.py`: SVD-based initialization (`svd`, `svd_llm` modes) with `MDBFParams` dataclass; `init_single_path()` takes `l` as a required argument so a path is never silently built single-envelope
   - `admm.py`: ADMM optimization loop for binary sign and amplitude matrices
   - `gradient_refine.py`: Optional gradient-based refinement of amplitude parameters
   - `mdbf_layer.py`: `MDBFLinear` (single-path) and `MultipathMDBFLinear` (multi-path) inference layers with bit-packed sign matrices and `forward()` implementation
-  - `utils.py`: `reconstruct_weight()` helper for weight reconstruction from MDBF parameters
+  - `utils.py`: `reconstruct_weight()` helper for weight reconstruction from MDBF parameters, the `rank_from_bpw()` / `bpw_from_rank()` rank-BPW conversion, and the shared `DEFAULT_L` / `DEFAULT_P` / `DEFAULT_SCALE_BITS` defaults
   - `config.py`: `resolve_mdbf_layer_bits()` for per-layer bit-width resolution from `quantization_config` (priority: `quantization_bits` table > `module_target_bits` > `mlp_target_bits` > default)
+- Defaults to `(l, P) = (2, 1)`, the smallest genuinely multi-envelope setting: `(1, 1)` reproduces DBF and `(1, 2)` reproduces LittleBit, the baselines the MDBF paper (arXiv:2512.24545) compares against. The paper evaluates `l` in {2, 8, 16} with `P=1` rather than prescribing a single default, so larger `l` remains worth sweeping. `DEFAULT_L` / `DEFAULT_P` are the single source of these values, used by the `MDBF` dataclass, `run_mdbf()`, `initialize_MDBF()`, `rank_from_bpw()` / `bpw_from_rank()`, and the `MDBF._build_quantization_bits()` fallbacks (which only apply to a partial config, since `get_quant_config()` always writes `l`/`P` on the save path)
+  - At the same `target_bits`, `P=1` uses roughly twice the rank of `P=2`, so the binary sign-matrix footprint stays roughly unchanged while ADMM optimizes one path at a larger rank. Since `rank_from_bpw()` clamps `r` to `min(n, m)`, reducing `P` from 2 to 1 halves the reachable BPW ceiling at fixed `l` and matrix shape; a `target_bits` above the ceiling is clamped with a warning and lands below the requested budget (see the BPW note in `docs/algorithms/mdbf.md`)
+  - With `l=2`, the GemLite 1-bit inference path is not auto-enabled (auto mode is `l == 1` only); pass `use_gemlite=True` to force it, or quantize with `l=1` to keep it
 - Supports per-layer and per-MLP bit-width overrides via `mlp_target_bits` and `module_target_bits` parameters
 - Supports activation-aware quantization mode (`activation_aware=True`, P=1 only) that uses Hessian information for initialization
 - Registered `MDBF` in `onecomp/quantizer/__init__.py`
@@ -63,7 +66,7 @@
 
 ### Tests
 
-- Added `tests/onecomp/quantizer/mdbf/test_mdbf.py`: MDBF quantizer unit tests covering `quantize_layer` result validation (type, shape, device, dtype), reproducibility, boundary parameters (`target_bits`, `l`, `P`, `svd_mode`, `use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`, `use_gradient_refine`, `gradient_iters`, `gradient_lr`, `activation_aware`, `act_init`, `mlp_target_bits`, `module_target_bits`), abnormal parameter validation (negative/zero/invalid values raise `ValueError`), CPU/GPU output match, quantization error tolerance, and forward error of the inference layer
+- Added `tests/onecomp/quantizer/mdbf/test_mdbf.py`: MDBF quantizer unit tests covering `quantize_layer` result validation (type, shape, device, dtype), reproducibility, boundary parameters (`target_bits`, `l`, `P`, `svd_mode`, `use_admm`, `admm_iters`, `admm_inner_iters`, `admm_reg`, `use_gradient_refine`, `gradient_iters`, `gradient_lr`, `activation_aware`, `act_init`, `mlp_target_bits`, `module_target_bits`), abnormal parameter validation (negative/zero/invalid values raise `ValueError`), CPU/GPU output match, quantization error tolerance, forward error of the inference layer, and a check pinning the shipped `(l, P) = (2, 1)` defaults
 - Updated shared quantizer test helpers to unpack `calculate_hessian()` return tuples and forward `nsamples` when required; updated affected JointQ tests to use the shared helper (`tests/onecomp/quantizer/test_module.py`, `tests/onecomp/quantizer/jointq/test_jointq.py`)
 
 ## [v1.3.0(WIP)+fix/partial-quant-with-rotation-bug] 2026-07-03
