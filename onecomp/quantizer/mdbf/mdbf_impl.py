@@ -17,7 +17,7 @@ Author: Yuma Ichikawa
 """
 
 from logging import getLogger
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -55,7 +55,7 @@ def _move_MDBF_params_to_cpu(params_list: List[MDBFParams]) -> List[MDBFParams]:
 def run_mdbf(
     hessian: Optional[torch.Tensor],
     module: nn.Module,
-    input=None,
+    input: Optional[Union[torch.Tensor, Tuple[torch.Tensor, ...], List[torch.Tensor]]] = None,
     target_bits: float = 1.0,
     l: int = DEFAULT_L,
     P: int = DEFAULT_P,
@@ -82,7 +82,8 @@ def run_mdbf(
     Args:
         hessian: Precomputed Hessian matrix (passed from the base class)
         module: Layer to be quantized
-        input: Input activations during calibration (passed from the base class)
+        input: Input activations during calibration (passed from the base class).
+            When a tuple/list is passed, the first element is used.
         target_bits: Target BPW
         l: Multi-scale rank
         P: Number of paths
