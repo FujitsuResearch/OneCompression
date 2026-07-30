@@ -1038,7 +1038,7 @@ def optimize_MDBF_admm_hessian(
     final_weight_err = torch.norm(W_float - W_recon, p="fro").item()
     final_hess_err = compute_hess_err(W_recon)
 
-    weight_impr = (init_weight_err - final_weight_err) / init_weight_err * 100
+    weight_impr = (init_weight_err - final_weight_err) / (init_weight_err + 1e-12) * 100
     output_impr = (init_hess_err - final_hess_err) / (init_hess_err + 1e-12) * 100
     logger.debug(
         f"[MDBF-ADMM] Final: output_err={final_hess_err:.4e}, weight_err={final_weight_err:.4e}"

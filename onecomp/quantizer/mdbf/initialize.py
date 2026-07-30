@@ -378,7 +378,7 @@ def initialize_MDBF(
     """
     n, m = W.shape
     W_float = ensure_float32(W)
-    orig_norm = torch.norm(W_float, p="fro").item()
+    orig_norm = torch.norm(W_float, p="fro").item() + 1e-12
 
     # Display OSVD initialization
     if act_init == "osvd" and H is not None:
