@@ -54,7 +54,7 @@ class MDBFResult(QuantizationResult):
         actual_activation_aware (bool): Whether activation-aware mode was actually
             used. run_mdbf falls back to non-aware mode when P != 1 or when no
             Hessian is supplied, so this may be False even if activation_aware
-            is True.
+            is True. None means unknown (run_mdbf did not report it).
         scale_bits (int): Bit-width used to account for the FP16 amplitude scales
             when sizing the rank and reporting BPW (accounting only; does not
             change the stored dtype). 16 = FP16, 0 = binary-only.
@@ -432,10 +432,11 @@ class MDBF(Quantizer):
             mdbf_Q_U_amp=[p.Q_U_amp for p in params_list],
             mdbf_Q_V_amp=[p.Q_V_amp for p in params_list],
             # Keep the requested flag (as set on the quantizer) and record the
-            # actually-used flag returned by run_mdbf.
-            actual_activation_aware=weight_results.get(
-                "actual_activation_aware", self.activation_aware
-            ),
+            # actually-used flag returned by run_mdbf. If the key is absent we
+            # leave it None ("unknown") rather than assuming the requested value:
+            # finalize_quant_config_for_save() skips None layers instead of
+            # reporting a flag that was never confirmed.
+            actual_activation_aware=weight_results.get("actual_activation_aware"),
         )
 
         return mdbf_result
