@@ -307,8 +307,10 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_lora_sft_knowledge_jointq.py](./example/post_process/example_lora_sft_knowledge_jointq.py) | LoRA SFT knowledge injection on a JointQ-quantized model |
 | | [example_lora_gptq_vllm_inference.py](./example/post_process/example_lora_gptq_vllm_inference.py) | GPTQ + LoRA SFT quantization and vLLM inference |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
+| | [example_gptq_vllm_qwen36_inference.py](./example/vllm_inference/example_gptq_vllm_qwen36_inference.py) | GPTQ quantization and vLLM inference for Qwen3.6 (full-wrapper save) |
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
+| | [example_dbf_vllm_inference.py](./example/vllm_inference/example_dbf_vllm_inference.py) | DBF quantization and vLLM inference |
 
 ## 🔌 vLLM Inference
 

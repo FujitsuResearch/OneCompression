@@ -1,5 +1,74 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/bitpack_dbf] 2026-07-28
+
+### New Feature / Breaking Changes: DBF bitpack-on-quantize mode
+
+- Added `bitpack_on_quantize` support to `DBF` (enabled by default), so the binary factors `dbf_A` / `dbf_B` are packed into `uint8` immediately after each layer is quantized instead of being kept as unpacked +/-1 `float16` matrices (`onecomp/quantizer/dbf/_dbf.py`)
+- Extended `DBFResult` with packed-state metadata (`dbf_A_is_packed`, `dbf_B_is_packed`, `dbf_A_original_shape`, `dbf_B_original_shape`) and a `get_unpacked_binary_factors()` helper, and updated `compute_dequantized_weight()` so packed and unpacked results reconstruct bit-identical dequantized weights (`onecomp/quantizer/dbf/_dbf.py`)
+- Updated `DoubleBinaryLinear` to consume pre-packed `DBFResult` factors without repacking (registering them directly into `bp1` / `bp3`), still pack unpacked inputs, and preserve the existing `from_saved_state()` behavior (`onecomp/quantizer/dbf/dbf_layer.py`)
+
+### Validation / compatibility tweaks
+
+- Added `bool` validation for `bitpack_on_quantize` in `DBF.validate_params()` (`onecomp/quantizer/dbf/_dbf.py`)
+- Extended the `bitpack_on_quantize` propagation in `AutoBitQuantizer` to DBF child candidates and DBF fallback quantizers created by `inject_dbf()` (`onecomp/quantizer/autobit/_autobit.py`, `onecomp/quantizer/autobit/dbf_fallback.py`)
+- DBF bitpacking has no bit-width restriction because the binary factors are always ±1 (1 bit), and arbitrary tensor shapes are supported through padding (no bit-width restriction)
+
+### Bug Fix
+
+- Exposed `in_features` / `out_features` on `DoubleBinaryLinear` (derived from the original unpacked binary-factor shapes `_bp1_shape` / `_bp3_shape`, and also set in `from_saved_state()`). `register_online_hadamard_hooks()` -> `get_hadK()` introspects `module.in_features`, but `DoubleBinaryLinear` previously stored only `_bp1_shape` / `_bp3_shape`, raising `AttributeError` when re-registering Hadamard hooks on saved DBF-quantized rotation-preprocessed models (`onecomp/quantizer/dbf/dbf_layer.py`)
+
+### Examples
+
+- Added `example/vllm_inference/example_dbf_vllm_inference.py`, which quantizes a model with DBF, saves it, and runs vLLM inference through the DBF plugin.
+
+### Documentation
+
+- Documented DBF quantize-time bitpacking and AutoBit propagation to child and generated DBF quantizers (`docs/algorithms/dbf.md`, `docs/algorithms/autobit.md`).
+
+### Tests
+
+- Added `tests/onecomp/quantizer/dbf/test_dbf_bitpack.py` for packed result metadata, dequantization, `DoubleBinaryLinear.from_quantization_result()` inference, and downstream-consumer handling of packed results.
+- Added `tests/onecomp/quantizer/dbf/test_dbf_bitpack_equivalence.py` for packed-vs-unpacked equivalence of `compute_dequantized_weight()` and the built inference layers.
+- Added `tests/onecomp/quantizer/dbf/test_dbf_layer_pack.py` for unpacked-input packing, packed-input repack avoidance, and `from_saved_state()` forward.
+- Added DBF bitpack runner smoke tests sharing `tests/onecomp/quantizer/dbf/dbf_bitpack_runner_helpers.py`: QEP (`tests/onecomp/test_qep_dbf_bitpack_smoke.py`), LPCD (`tests/onecomp/lpcd/test_lpcd_dbf_bitpack_runner.py`), and chunked-calibration `calc_quant_error` (`tests/onecomp/test_dbf_bitpack_chunked_calc_error.py`) all accept packed DBF results.
+- Added DBF vLLM plugin tests: config parsing/dispatch (`tests/vllm_plugins/dbf/test_dbf_config.py`) and quantize -> save -> vLLM generation e2e (`tests/vllm_plugins/dbf/test_dbf_e2e.py`).
+- Added DBF quantized/dequantized save/load round-trip cases to the rotation + quantization pipeline tests (`tests/onecomp/pre_process/test_save_load_pipeline_tinyllama.py`, `tests/onecomp/pre_process/test_save_load_pipeline_qwen3.py`).
+- Updated `tests/onecomp/quantizer/dbf/test_dbf.py` to be packed/unpacked agnostic and `tests/onecomp/quantizer/autobit/test_fused_group_validation.py` for AutoBit-to-DBF `bitpack_on_quantize` propagation.
+
+## [v1.3.0(WIP)+feature/bitpack_mode] 2026-07-28
+
+### New Feature / Breaking Changes: GPTQ bitpack-on-quantize mode
+
+- Added `bitpack_on_quantize` to the base `Quantizer` (default `False`) and enabled it by default for `GPTQ`; for packer-supported bit widths, `qweight` and `qzeros` are stored in AutoGPTQ-compatible packed format immediately after each layer is quantized (`onecomp/quantizer/_quantizer.py`, `onecomp/quantizer/gptq/_gptq.py`)
+- Extended `GPTQResult` with packed-state metadata (`qweight_is_packed`, `qzeros_is_packed`, `qweight_original_shape`) and updated `compute_dequantized_weight()` so packed and unpacked results reconstruct the same dequantized weights across grouped / per-channel, symmetric / asymmetric, and act-order paths (`onecomp/quantizer/gptq/_gptq.py`)
+- Updated `GPTQLinear` to consume pre-packed `GPTQResult` tensors without repacking, unpack them when `pack_weights=False`, and handle the GPTQ v1 zero-point offset consistently for packed results and inference (`onecomp/quantizer/gptq/gptq_layer.py`)
+
+### Validation / compatibility tweaks
+
+- Limited GPTQ bit-width validation to `1..15` across `wbits`, `mlp_wbits`, `module_wbits`, and saved `quantization_config` loading (`onecomp/quantizer/gptq/_gptq.py`, `onecomp/quantizer/gptq/config.py`)
+- Restricted immediate GPTQ bitpacking to packer-supported widths `{2, 3, 4, 8}`; other valid GPTQ widths can still be used with `bitpack_on_quantize=False` (`onecomp/quantizer/gptq/_gptq.py`)
+- Added `pack_weights=True` validation during GPTQ inference layer creation, so packer-unsupported widths now fail clearly instead of silently falling back to unpacked storage (`onecomp/quantizer/gptq/_gptq.py`)
+- Added `bitpack_on_quantize` to `AutoBitQuantizer` and propagated it to GPTQ child quantizers before child validation, so unsupported packed GPTQ candidates fail with a clear error (`onecomp/quantizer/autobit/_autobit.py`)
+- Preserved JointQ's existing optimization path by keeping its internal GPTQ initialization on unpacked `qweight` / `qzeros` (`onecomp/quantizer/jointq/_jointq.py`)
+- Normalized `GPTQLinear.wbits` in direct and saved-state construction: integer-valued floats are converted to built-in `int`, while `bool`, non-integral or non-finite floats, and other types raise `ValueError`. `is_packable_wbits()` now checks membership without truncation (`onecomp/quantizer/gptq/gptq_layer.py`)
+- Updated base-model export to convert `wbits` to `int` only after confirming it is packable, so non-integral float widths remain unpacked (`onecomp/runner.py`)
+- Fixed saved per-layer `quantization_bits[].bits` validation to reject all floats instead of truncating them before the strict `int` check (`onecomp/quantizer/gptq/config.py`)
+
+### Documentation
+
+- Documented the quantize-time versus save-time packing constraints for GPTQ's `bitpack_on_quantize` (`docs/algorithms/gptq.md`).
+- Documented AutoBit's child-setting override and fused-group constraints for GPTQ candidates, and JointQ's forced unpacked GPTQ initial solution (`docs/algorithms/autobit.md`, `docs/algorithms/jointq.md`).
+
+### Tests
+
+- Added `tests/onecomp/quantizer/gptq/test_gptq_bitpack.py` for packed result metadata, dequantization, `GPTQLinear.from_quantization_result()` inference, unsupported bit-width errors, and packed-result shape checks.
+- Added `tests/onecomp/quantizer/gptq/test_gptq_bitpack_equivalence.py` for packed-vs-unpacked equivalence across supported bit-widths, grouping, symmetry, and act-order combinations.
+- Updated `tests/onecomp/quantizer/gptq/test_gptq.py` for the `bitpack_on_quantize` flag, unpacked-result compatibility, and the shared `1..15` GPTQ bit-width validation limit.
+- Updated `tests/onecomp/quantizer/autobit/test_fused_group_validation.py` for AutoBit-to-GPTQ `bitpack_on_quantize` propagation and unsupported packed GPTQ candidate validation.
+- Updated `tests/onecomp/quantizer/autobit/test_autobit.py` so existing AutoBit tests that exercise unpacked GPTQ candidates pass `bitpack_on_quantize=False` explicitly.
+- Added regression tests for `wbits` normalization, strict saved-config validation, and export behavior for integral and non-integral float widths (`tests/onecomp/quantizer/gptq/test_gptq_layer_pack.py`, `tests/onecomp/quantizer/gptq/test_gptq.py`, `tests/onecomp/runner/test_lora_save_load_roundtrip.py`)
+
 ## [v1.3.0(WIP)+feature/rotation-save-load-vllm-infer] 2026-07-27
 
 ### Rotation-preprocessed model inference in vLLM (GPTQ & DBF)
