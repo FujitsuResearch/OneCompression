@@ -19,9 +19,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from test_module import BaseQuantizeSpec
 
 from onecomp.quantizer.gemlite import is_gemlite_available
-from onecomp.quantizer.mdbf import mdbf_layer
-from onecomp.quantizer.mdbf._mdbf import MDBF, MDBFResult
-from onecomp.quantizer.mdbf.initialize import MDBFParams, lowrank_osvd
+from onecomp.quantizer.mdbf import admm, mdbf_layer
+from onecomp.quantizer.mdbf._mdbf import MAX_SEED, MDBF, MDBFResult
+from onecomp.quantizer.mdbf.initialize import MDBFParams, initialize_MDBF, lowrank_osvd
 from onecomp.quantizer.mdbf.mdbf_layer import MDBFLinear, MultipathMDBFLinear
 from onecomp.quantizer.mdbf.utils import (
     DEFAULT_L,
@@ -71,6 +71,10 @@ class TestMDBF(BaseQuantizeSpec):
         # admm_reg: float >= 0 (always validated)
         {"admm_reg": 0.0},  # lower boundary (0.0 is valid)
         {"admm_reg": 100.0},  # large value
+        # admm_seed: int in [0, MAX_SEED] or None
+        {"admm_seed": None},  # default value (global RNG)
+        {"admm_seed": 0},  # lower boundary
+        {"admm_seed": MAX_SEED},  # upper boundary (largest seed torch accepts)
         # use_admm: bool
         {
             "use_admm": True,
@@ -155,6 +159,7 @@ class TestMDBF(BaseQuantizeSpec):
             "admm_outer_iters": 260,
             "admm_inner_iters": 3,
             "admm_reg": 0.03,
+            "admm_seed": None,
             "use_gradient_refine": False,
             "gradient_iters": 1000,
             "gradient_lr": 0.01,
@@ -189,6 +194,7 @@ class TestMDBF(BaseQuantizeSpec):
             "admm_outer_iters": 100,
             "admm_inner_iters": 10,
             "admm_reg": 100.0,
+            "admm_seed": 12345,
             "use_gradient_refine": True,
             "gradient_iters": 100,
             "gradient_lr": 100.0,
@@ -214,6 +220,11 @@ class TestMDBF(BaseQuantizeSpec):
         {"scale_bits": -1},  # below lower boundary (scale_bits >= 0)
         # admm_reg: float >= 0
         {"admm_reg": -0.01},  # below lower boundary (admm_reg >= 0)
+        # admm_seed: int in [0, MAX_SEED] or None
+        {"admm_seed": -1},  # below lower boundary (admm_seed >= 0)
+        {"admm_seed": MAX_SEED + 1},  # above upper boundary (torch overflows)
+        {"admm_seed": 1.5},  # wrong type (not an int)
+        {"admm_seed": True},  # wrong type (bool; torch.manual_seed rejects it)
         # admm_outer_iters: int >= 1 (validated when use_admm=True)
         {
             "use_admm": True,
@@ -608,3 +619,97 @@ def test_lowrank_osvd_beats_plain_svd_in_hessian_error():
     assert abs(err_osvd - err_svd) > 1e-8 * abs(
         err_svd
     ), "OSVD and plain SVD errors are identical: the H-weighting is not being exercised"
+
+
+def _spy_on_projection_seeds(monkeypatch):
+    """Record the seed handed to every svd_abs_rank_l() call and return the log."""
+    seen = []
+    original = admm.svd_abs_rank_l
+
+    def spy(W, l, seed=None):
+        seen.append(seed)
+        return original(W, l, seed=seed)
+
+    monkeypatch.setattr(admm, "svd_abs_rank_l", spy)
+    return seen
+
+
+def _make_admm_inputs(n=32, m=24, r=8, l=2):
+    """Build a weight matrix and its Phase 1 MDBF parameters for ADMM tests."""
+    torch.manual_seed(0)
+    W = torch.randn(n, m, dtype=torch.float32)
+    params_list, _ = initialize_MDBF(W, r, l, P=1)
+    return W, params_list
+
+
+def _make_seeded_quantizer(seed, activation_aware=False):
+    """Quantizer for the seed-propagation tests.
+
+    target_bits=2.0 on the layer size below yields r=6, which must stay above l: at
+    r <= l the projection takes its exact (non-randomized) branch and would never touch
+    the seed, making a propagation test pass without exercising anything.
+    """
+    return MDBF(
+        target_bits=2.0,
+        l=2,
+        P=1,
+        use_admm=True,
+        admm_outer_iters=2,
+        admm_inner_iters=2,
+        use_gradient_refine=False,
+        activation_aware=activation_aware,
+        admm_seed=seed,
+    )
+
+
+def test_admm_seed_reaches_projection_from_quantizer(monkeypatch):
+    """MDBF(admm_seed=...) must reach svd_abs_rank_l(): the projection takes a seed,
+    so the whole quantizer -> run_mdbf -> ADMM chain has to forward it, otherwise the
+    randomized SVD silently falls back to the global RNG (Test plan: admm_seed)."""
+    seen = _spy_on_projection_seeds(monkeypatch)
+
+    torch.manual_seed(0)
+    layer = torch.nn.Linear(64, 32, bias=False, dtype=torch.float32)
+    inp = torch.randn(2, 4, 64, dtype=torch.float32)
+    quantizer = _make_seeded_quantizer(seed=1234)
+    result = quantizer.quantize_layer(layer, inp)
+
+    assert result.r > quantizer.l, "rank too low: the projection skips its random branch"
+    assert seen, "ADMM never reached the MDBF projection"
+    assert set(seen) == {1234}
+
+
+def test_admm_seed_reaches_projection_in_hessian_mode(monkeypatch):
+    """The Hessian-based (activation-aware) ADMM path must forward the seed too, again
+    all the way from the quantizer."""
+    seen = _spy_on_projection_seeds(monkeypatch)
+
+    torch.manual_seed(0)
+    layer = torch.nn.Linear(64, 32, bias=False, dtype=torch.float32)
+    inp = torch.randn(2, 4, 64, dtype=torch.float32)
+    quantizer = _make_seeded_quantizer(seed=99, activation_aware=True)
+    hessian, nsamples = quantizer.calculate_hessian(layer, inp)
+    result = quantizer.quantize_layer(layer, inp, hessian=hessian, nsamples=nsamples)
+
+    # Without this the run would have fallen back to the plain ADMM path, which the
+    # test above already covers.
+    assert result.actual_activation_aware is True
+
+    assert result.r > quantizer.l, "rank too low: the projection skips its random branch"
+    assert seen, "Hessian-based ADMM never reached the MDBF projection"
+    assert set(seen) == {99}
+
+
+@pytest.mark.parametrize("l", [1, 2])
+def test_admm_seed_makes_result_independent_of_global_rng(l):
+    """A fixed seed must pin the ADMM result regardless of the ambient RNG state,
+    which is the point of being able to fix it at all."""
+    W, params_list = _make_admm_inputs(l=l)
+    kwargs = dict(iters=3, inner_iters=2)
+
+    torch.manual_seed(11)
+    _, recon_seeded_a = admm.optimize_MDBF_admm(W, params_list, l=l, seed=7, **kwargs)
+    torch.manual_seed(123456)
+    _, recon_seeded_b = admm.optimize_MDBF_admm(W, params_list, l=l, seed=7, **kwargs)
+
+    assert torch.equal(recon_seeded_a, recon_seeded_b)

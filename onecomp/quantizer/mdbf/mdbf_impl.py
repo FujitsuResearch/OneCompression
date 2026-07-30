@@ -62,6 +62,7 @@ def run_mdbf(
     admm_outer_iters: int = 260,
     admm_inner_iters: int = 3,
     admm_reg: float = 0.03,
+    admm_seed: Optional[int] = None,
     use_gradient_refine: bool = False,
     gradient_iters: int = 1000,
     gradient_lr: float = 0.01,
@@ -90,6 +91,10 @@ def run_mdbf(
         admm_outer_iters: Number of ADMM outer iterations
         admm_inner_iters: Number of ADMM inner iterations
         admm_reg: Regularization parameter
+        admm_seed: Random seed for the randomized SVD initialization inside the ADMM
+            MDBF projection. If None, the global RNG is used, so results depend on
+            the ambient RNG state; an integer makes the ADMM phase reproducible
+            regardless of that state.
         use_gradient_refine: Use gradient-based amplitude optimization
         gradient_iters: Number of gradient optimization iterations
         gradient_lr: Gradient optimization learning rate
@@ -185,7 +190,8 @@ def run_mdbf(
 
             logger.debug(
                 f"[MDBF] ADMM (Activation-Aware, Hessian-based): "
-                f"outer={admm_outer_iters}, inner={admm_inner_iters}, reg={admm_reg}"
+                f"outer={admm_outer_iters}, inner={admm_inner_iters}, reg={admm_reg}, "
+                f"seed={admm_seed}"
             )
 
             all_params, W_recon = optimize_MDBF_admm_hessian(
@@ -197,6 +203,7 @@ def run_mdbf(
                 iters=admm_outer_iters,
                 inner_iters=admm_inner_iters,
                 reg=admm_reg,
+                seed=admm_seed,
             )
         else:
             from .admm import optimize_MDBF_admm
@@ -205,7 +212,7 @@ def run_mdbf(
 
             logger.debug(
                 f"[MDBF] ADMM: outer={admm_outer_iters}, inner={admm_inner_iters}, "
-                f"reg={admm_reg}"
+                f"reg={admm_reg}, seed={admm_seed}"
             )
 
             all_params, W_recon = optimize_MDBF_admm(
@@ -217,6 +224,7 @@ def run_mdbf(
                 reg=admm_reg,
                 H=H_for_display,
                 nsamples=_nsamples,
+                seed=admm_seed,
             )
 
             if H_for_display is not None:

@@ -31,6 +31,11 @@ from .initialize import MDBFParams
 from .mdbf_impl import run_mdbf
 from .utils import DEFAULT_L, DEFAULT_P, DEFAULT_SCALE_BITS
 
+# Upper bound accepted by torch.Generator.manual_seed(); above it torch raises
+# "ValueError: Overflow when unpacking long long" from inside the ADMM phase.
+# Torch also takes negative seeds, but MDBF restricts them to non-negative values.
+MAX_SEED = 2**64 - 1
+
 
 @dataclass
 class MDBFResult(QuantizationResult):
@@ -45,6 +50,8 @@ class MDBFResult(QuantizationResult):
         admm_outer_iters (int): ADMM outer iterations.
         admm_inner_iters (int): ADMM inner iterations.
         admm_reg (float): ADMM regularization coefficient.
+        admm_seed (Optional[int]): Random seed used for the ADMM MDBF projection
+            (None = global RNG).
         use_gradient_refine (bool): Whether gradient refinement was used.
         gradient_iters (int): Gradient refinement iterations.
         gradient_lr (float): Gradient refinement learning rate.
@@ -80,6 +87,7 @@ class MDBFResult(QuantizationResult):
     admm_outer_iters: int = None
     admm_inner_iters: int = None
     admm_reg: float = None
+    admm_seed: Optional[int] = None
     use_gradient_refine: bool = None
     gradient_iters: int = None
     gradient_lr: float = None
@@ -194,6 +202,10 @@ class MDBF(Quantizer):
         admm_outer_iters (int): ADMM outer iterations.
         admm_inner_iters (int): ADMM inner iterations.
         admm_reg (float): ADMM regularization coefficient.
+        admm_seed (Optional[int]): Random seed (int in [0, MAX_SEED]) for the
+            randomized SVD initialization inside the ADMM MDBF projection. None uses
+            the global RNG, so results depend on the ambient RNG state; setting an
+            integer makes the ADMM phase reproducible regardless of that state.
         use_gradient_refine (bool): Whether to use gradient refinement.
         gradient_iters (int): Gradient refinement iterations.
         gradient_lr (float): Gradient refinement learning rate.
@@ -223,6 +235,7 @@ class MDBF(Quantizer):
     admm_outer_iters: int = 260
     admm_inner_iters: int = 3
     admm_reg: float = 0.03
+    admm_seed: Optional[int] = None
     use_gradient_refine: bool = False
     gradient_iters: int = 1000
     gradient_lr: float = 0.01
@@ -265,6 +278,7 @@ class MDBF(Quantizer):
             P: int in {1, 2}
             admm_outer_iters: int >= 1 (when use_admm=True)
             admm_reg: float >= 0
+            admm_seed: int in [0, MAX_SEED] or None
             gradient_iters: int >= 1 (when use_gradient_refine=True)
             gradient_lr: float > 0
         """
@@ -290,6 +304,19 @@ class MDBF(Quantizer):
             bad.append(
                 f"Invalid MDBF parameter 'admm_reg': {self.admm_reg!r} (expected numeric >= 0)."
             )
+
+        if self.admm_seed is not None:
+            # bool is an int subclass, but torch.Generator.manual_seed() rejects it
+            # ("expected a long, but got bool"), so screen it out here.
+            if (
+                isinstance(self.admm_seed, bool)
+                or not isinstance(self.admm_seed, int)
+                or not 0 <= self.admm_seed <= MAX_SEED
+            ):
+                bad.append(
+                    f"Invalid MDBF parameter 'admm_seed': {self.admm_seed!r} "
+                    f"(expected int in [0, {MAX_SEED}] or None)."
+                )
 
         if self.use_admm:
             if not (isinstance(self.admm_outer_iters, int) and self.admm_outer_iters >= 1):
@@ -392,6 +419,7 @@ class MDBF(Quantizer):
             admm_outer_iters=self.admm_outer_iters,
             admm_inner_iters=self.admm_inner_iters,
             admm_reg=self.admm_reg,
+            admm_seed=self.admm_seed,
             use_gradient_refine=self.use_gradient_refine,
             gradient_iters=self.gradient_iters,
             gradient_lr=self.gradient_lr,
@@ -415,6 +443,7 @@ class MDBF(Quantizer):
             admm_outer_iters=self.admm_outer_iters,
             admm_inner_iters=self.admm_inner_iters,
             admm_reg=self.admm_reg,
+            admm_seed=self.admm_seed,
             use_gradient_refine=self.use_gradient_refine,
             gradient_iters=self.gradient_iters,
             gradient_lr=self.gradient_lr,
@@ -459,6 +488,7 @@ class MDBF(Quantizer):
             "admm_outer_iters": self.admm_outer_iters,
             "admm_inner_iters": self.admm_inner_iters,
             "admm_reg": self.admm_reg,
+            "admm_seed": self.admm_seed,
             "use_gradient_refine": self.use_gradient_refine,
             "gradient_iters": self.gradient_iters,
             "gradient_lr": self.gradient_lr,
@@ -500,6 +530,7 @@ class MDBF(Quantizer):
             "admm_outer_iters": get_quant_param(quant_config, "admm_outer_iters", default=260),
             "admm_inner_iters": get_quant_param(quant_config, "admm_inner_iters", default=3),
             "admm_reg": get_quant_param(quant_config, "admm_reg", default=0.03),
+            "admm_seed": get_quant_param(quant_config, "admm_seed", default=None),
             "use_gradient_refine": get_quant_param(
                 quant_config, "use_gradient_refine", default=False
             ),

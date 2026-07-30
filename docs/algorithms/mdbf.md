@@ -115,6 +115,7 @@ MDBF runs in up to three phases:
 | `admm_outer_iters`    | `int`                       | ADMM outer iterations                                                                             | `260`    |
 | `admm_inner_iters`    | `int`                       | ADMM inner iterations                                                                             | `3`      |
 | `admm_reg`            | `float`                     | ADMM regularization coefficient                                                                   | `0.03`   |
+| `admm_seed`           | `Optional[int]`             | Random seed for the randomized SVD initialization inside the ADMM projection. MDBF allows non-negative seeds up to \(2^{64}-1\) (Torch's upper limit). `None` draws from the global RNG, so results depend on the ambient RNG state; an integer makes the ADMM phase reproducible independently of it | `None`   |
 | `use_gradient_refine` | `bool`                      | Enable gradient-based amplitude refinement                                                        | `False`  |
 | `gradient_iters`      | `int`                       | Gradient refinement iterations                                                                    | `1000`   |
 | `gradient_lr`         | `float`                     | Gradient refinement learning rate                                                                 | `0.01`   |
@@ -203,6 +204,21 @@ mdbf = MDBF(
     - When sharing the GPU with other processes: `batch_size=8`
 
     If you still hit `CUDA out of memory`, halve the value until the run succeeds.
+
+### Reproducibility
+
+The ADMM projection initializes its randomized SVD (block power iteration) at random.
+Set `admm_seed` to make that initialization deterministic, independent of how many random
+numbers the rest of the pipeline (calibration sampling, other layers) has already drawn:
+
+```python
+mdbf = MDBF(target_bits=1.0, admm_seed=0)
+```
+
+!!! note "Seeding the rest of the pipeline"
+    `admm_seed` covers the ADMM phase only. The initialization phase stabilizes its SVD
+    with a small random perturbation drawn from the global RNG, so seed that separately
+    with `torch.manual_seed()` for an end-to-end reproducible run.
 
 ## Save and Load
 

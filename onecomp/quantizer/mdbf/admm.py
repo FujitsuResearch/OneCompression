@@ -44,7 +44,7 @@ def _tsvd_block_power(
     k: int,
     n_iter: int = 5,
     oversample: int = 4,
-    seed: int = None,
+    seed: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Approximate top-k singular value decomposition using block power iteration (subspace iteration).
@@ -174,7 +174,7 @@ def _solve_linear_system(
 def svd_abs_rank_l(
     W: torch.Tensor,
     l: int,
-    seed: int = None,
+    seed: Optional[int] = None,
 ) -> torch.Tensor:
     """
     MDBF (rank-l) projection: Z = sign(W) * TSVD_l(|W|)
@@ -197,13 +197,9 @@ def svd_abs_rank_l(
 
         # Random initialization (robust for degenerate eigenvalues)
         # Deterministic initialization when seed is specified (for reproducibility)
-        if seed is not None:
-            gen = torch.Generator(device=W.device).manual_seed(seed)
-            a = torch.randn(n, device=W.device, dtype=torch.float32, generator=gen)
-            m_vec = torch.randn(m_dim, device=W.device, dtype=torch.float32, generator=gen)
-        else:
-            a = torch.randn(n, device=W.device, dtype=torch.float32)
-            m_vec = torch.randn(m_dim, device=W.device, dtype=torch.float32)
+        gen = torch.Generator(device=W.device).manual_seed(seed) if seed is not None else None
+        a = torch.randn(n, device=W.device, dtype=torch.float32, generator=gen)
+        m_vec = torch.randn(m_dim, device=W.device, dtype=torch.float32, generator=gen)
         a = a / (torch.norm(a) + 1e-12)
         m_vec = m_vec / (torch.norm(m_vec) + 1e-12)
 
@@ -323,6 +319,7 @@ def _admm_optimize_one_side(
     inner_iters: int = 3,
     reg: float = 0.03,
     rho_start: float = 0.03,
+    seed: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     One-side fixed ADMM optimization (DBF-compatible fixed rho mode)
@@ -340,6 +337,7 @@ def _admm_optimize_one_side(
         inner_iters: Number of inner iterations
         reg: Regularization coefficient (multiplied by the mean of the diagonal elements of Fixed^T @ Fixed)
         rho_start: Initial rho
+        seed: Random seed for the MDBF projection (if None, use global seed)
 
     Returns:
         (Z, U): Optimized variables
@@ -358,7 +356,7 @@ def _admm_optimize_one_side(
         XX = XX + I * (XX.diag().mean() * reg)
     XY = Fixed.T @ W_target
 
-    Z, U = _admm_fixed_rho_loop(XX, XY, I, Z, U, l, inner_iters, rho_start)
+    Z, U = _admm_fixed_rho_loop(XX, XY, I, Z, U, l, inner_iters, rho_start, seed)
 
     del XX, XY, I
     return Z.float(), U.float()
@@ -373,6 +371,7 @@ def _admm_fixed_rho_loop(
     l: int,
     inner_iters: int,
     rho_start: float,
+    seed: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """ADMM inner loop in fixed rho mode"""
     rho = 1.0
@@ -395,13 +394,13 @@ def _admm_fixed_rho_loop(
 
     # Remaining iterations (rho=1.0)
     for _ in range(inner_iters - 1):
-        Z = svd_abs_rank_l(B + U, l)
+        Z = svd_abs_rank_l(B + U, l, seed=seed)
         U = U + (B - Z)
         rhs = XY + rho * (Z - U)
         B = _solve_linear_system(lhs_rho, rhs, L_rho)
 
     # Final Z, U update
-    Z = svd_abs_rank_l(B + U, l)
+    Z = svd_abs_rank_l(B + U, l, seed=seed)
     U = U + (B - Z)
 
     del lhs_rho, lhs_rho_start
@@ -429,6 +428,7 @@ def _admm_refine_single_path(
     path_idx: int = 0,
     H: Optional[torch.Tensor] = None,
     nsamples: int = 1,
+    seed: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     ADMM optimization for a single path (alternating F<->G optimization, DBF-compatible fixed rho mode)
@@ -485,6 +485,7 @@ def _admm_refine_single_path(
             inner_iters=inner_iters,
             reg=reg,
             rho_start=rho_start,
+            seed=seed,
         )
 
         # G update (F fixed): Normalize each column of F
@@ -501,6 +502,7 @@ def _admm_refine_single_path(
             inner_iters=inner_iters,
             reg=reg,
             rho_start=rho_start,
+            seed=seed,
         )
 
         # Log output
@@ -552,11 +554,17 @@ def optimize_MDBF_admm(
     verbose: bool = True,
     H: Optional[torch.Tensor] = None,
     nsamples: int = 1,
+    seed: Optional[int] = None,
 ) -> Tuple[List[MDBFParams], torch.Tensor]:
     """
     Refine MDBF parameters using ADMM optimization (Phase 2, DBF-compatible fixed rho mode)
 
     Minimize the residual W - Σ_{p≠p'} W^p for each path p'
+
+    Args:
+        seed: Random seed for the MDBF projection (if None, use global seed; if
+            integer, the randomized SVD initialization is deterministic and
+            independent of the global RNG state)
     """
     device = W_original.device
     dtype = W_original.dtype
@@ -638,6 +646,7 @@ def optimize_MDBF_admm(
             path_idx=p_idx,
             H=H_float,
             nsamples=nsamples,
+            seed=seed,
         )
         optimized_factors.append((F_opt, G_opt))
         del W_target, F_init, G_init
@@ -726,6 +735,7 @@ def _admm_refine_single_path_hessian(
     inner_iters: int = 3,
     reg: float = 0.03,
     path_idx: int = 0,
+    seed: Optional[int] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Hessian-based Activation-aware version: Single-path ADMM optimization
@@ -806,7 +816,7 @@ def _admm_refine_single_path_hessian(
                 except RuntimeError:
                     Vtilde = torch.linalg.lstsq(lhs_v, rhs.T).solution.T
 
-            V = svd_abs_rank_l(Vtilde + GamV, l)
+            V = svd_abs_rank_l(Vtilde + GamV, l, seed=seed)
             GamV = GamV + (Vtilde - V)
 
         # Release intermediate tensors (Problem 10)
@@ -859,12 +869,21 @@ def _admm_refine_single_path_hessian(
             # Fallback: block power method
             k_eff = min(l * 25, r_dim)
             try:
-                Q_k, sigma_k, _ = _tsvd_block_power(VtV_reg, k=k_eff, n_iter=5, oversample=4)
+                Q_k, sigma_k, _ = _tsvd_block_power(
+                    VtV_reg, k=k_eff, n_iter=5, oversample=4, seed=seed
+                )
                 sigma = torch.full((r_dim,), eps_damp, device=V.device, dtype=V.dtype)
                 sigma[:k_eff] = sigma_k
                 del sigma_k
                 if k_eff < r_dim:
-                    Q_rest = torch.randn(r_dim, r_dim - k_eff, device=V.device, dtype=V.dtype)
+                    gen = (
+                        torch.Generator(device=V.device).manual_seed(seed)
+                        if seed is not None
+                        else None
+                    )
+                    Q_rest = torch.randn(
+                        r_dim, r_dim - k_eff, device=V.device, dtype=V.dtype, generator=gen
+                    )
                     Q_rest = Q_rest - Q_k @ (Q_k.T @ Q_rest)
                     Q_rest, _ = torch.linalg.qr(Q_rest, mode="reduced")
                     Q = torch.cat([Q_k, Q_rest], dim=1)
@@ -899,7 +918,7 @@ def _admm_refine_single_path_hessian(
             UQ = H_eig_vecs @ (QtB / denom)
             Utilde = UQ @ Q.T
 
-            U = svd_abs_rank_l(Utilde + LamU, l)
+            U = svd_abs_rank_l(Utilde + LamU, l, seed=seed)
             LamU = LamU + (Utilde - U)
 
         # Release intermediate tensors (Problem 10)
@@ -971,11 +990,17 @@ def optimize_MDBF_admm_hessian(
     iters: int = 260,
     inner_iters: int = 3,
     reg: float = 0.03,
+    seed: Optional[int] = None,
 ) -> Tuple[List[MDBFParams], torch.Tensor]:
     """
     Hessian-based Activation-aware ADMM optimization (Phase 2) - P=1 only
 
     Objective function: N * tr((W - W_hat) @ H @ (W - W_hat)^T)
+
+    Args:
+        seed: Random seed for the MDBF projection (if None, use global seed; if
+            integer, the randomized SVD initialization is deterministic and
+            independent of the global RNG state)
     """
     device = W_original.device
     dtype = W_original.dtype
@@ -1030,6 +1055,7 @@ def optimize_MDBF_admm_hessian(
         inner_iters=inner_iters,
         reg=reg,
         path_idx=0,
+        seed=seed,
     )
 
     W_recon = F_opt @ G_opt
