@@ -60,7 +60,7 @@
 
 - Renamed internal identifiers from `MSVID` to `MDBF` across the entire `onecomp/quantizer/mdbf/` package and tests
 - Normalized MDBF internal logging output and removed an unused warning argument from MDBF utilities
-- Removed QEP-DEV compatibility shims from `mdbf_layer.py`: `PackedMDBFParams`, `pack/unpack_MDBF_params`, `PackedBinaryLinear`, `create_mdbf_layer_from_linear`, `replace_linear_with_mdbf`, `replace_all_MDBF_layers`, `save/load_MDBF_weights`, `verify_binary_values`, `verify_all_params`, and their associated imports
+- Removed unused helpers from `mdbf_layer.py`: `PackedMDBFParams`, `pack/unpack_MDBF_params`, `PackedBinaryLinear`, `create_mdbf_layer_from_linear`, `replace_linear_with_mdbf`, `replace_all_MDBF_layers`, `save/load_MDBF_weights`, `verify_binary_values`, `verify_all_params`, and their associated imports
 - Removed `preunpack` option from `MDBFLinear` / `MultipathMDBFLinear`; sign matrices are always unpacked on-the-fly (consistent with DBF)
 - Translated MDBF comments and docstrings to English (`onecomp/quantizer/mdbf/`)
 

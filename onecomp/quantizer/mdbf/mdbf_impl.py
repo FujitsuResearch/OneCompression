@@ -1,14 +1,12 @@
 """
-MDBF (Multi-Envelope Double Binary Factorization) OneComp wrapper
+MDBF (Multi-Envelope Double Binary Factorization) quantization driver
 
-Convert QEP-DEV's run_MDBF() to match OneComp's calling convention.
+Runs the MDBF phases (initialize / admm / gradient_refine) for a single layer.
 
-Changes:
+Interface:
 
-- Instead of using a helper object, directly receive the Hessian tensor and input tensor
-- Remove weight overwriting (side effects) and return the result as a dict
-
-The core algorithm (initialize / admm / gradient_refine) remains unchanged.
+- Receives the Hessian tensor, the target module, and the calibration input directly
+- Returns the quantized parameters as a dict, leaving the module weight untouched
 
 Copyright 2025-2026 Fujitsu Ltd.
 
@@ -73,7 +71,7 @@ def run_mdbf(
     scale_bits: int = DEFAULT_SCALE_BITS,
 ) -> dict:
     """
-    Run MDBF quantization (OneComp convention)
+    Run MDBF quantization for a single layer
 
     Phase 1: Initialization (SVD decomposition + binarization + Multi-scale amplitude decomposition)
     Phase 2: ADMM optimization (optional)
