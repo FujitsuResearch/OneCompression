@@ -281,8 +281,7 @@ class TestJointQ(BaseQuantizeSpec):
             lambda_list=[0.01, 0.5, 1.0],
             log_level=1,
         )
-        hessian = q.calculate_hessian(layer, inp)
-        result = q.quantize_layer(layer, inp, hessian=hessian)
+        result = self._quantize_with_calculated_hessian(q, layer, inp)
         self.check_quantize_layer(result, layer)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -299,8 +298,7 @@ class TestJointQ(BaseQuantizeSpec):
             lambda_mode="incremental_lambda",
             lambda_list=[0.2],
         )
-        hessian = q.calculate_hessian(layer, inp)
-        result = q.quantize_layer(layer, inp, hessian=hessian)
+        result = self._quantize_with_calculated_hessian(q, layer, inp)
         self.check_quantize_layer(result, layer)
 
     def test_accept_candidate_both_decrease(self):

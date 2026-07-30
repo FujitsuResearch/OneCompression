@@ -137,6 +137,13 @@ class Quantizer(metaclass=ABCMeta):
     - Must implement the following method: quantize_layer
     - Set flag_calibration to True if calibration data is needed
     - Set flag_hessian to True if the Hessian matrix is needed
+    - Set flag_nsamples to True if the sample count used to build the
+      Hessian is needed; quantize_layer then also receives ``nsamples``
+    - Set flag_xtx to True if X^T X is needed instead of the Hessian;
+      quantizers that implement it directly (e.g. JointQ) accept
+      precomputed ``matrix_XX`` / ``dim_n``, which only the chunked
+      quantization path supplies, while the other paths pass input
+      activations for quantize_layer to build X^T X itself
 
     Examples:
         # Example 1: Exclude lm_head (default behavior)
@@ -370,7 +377,7 @@ class Quantizer(metaclass=ABCMeta):
         weight = weight.float()
 
         # Get the Hessian matrix
-        # adjust_weight does not need nsamples; discard it for ``flag_csamples``-aware quantizers.
+        # adjust_weight does not need nsamples; discard it for ``flag_nsamples``-aware quantizers.
         if original_hessian is None:
             hessian, _ = self.calculate_hessian(module, quant_input_activation)
         else:
@@ -411,6 +418,15 @@ class Quantizer(metaclass=ABCMeta):
             module (torch.nn.Module): The layer module
             input (tuple or torch.Tensor): The input to the layer
             hessian (torch.Tensor): The Hessian matrix
+
+        Subclasses that set ``flag_nsamples=True`` (e.g. MDBF) must also
+        accept an ``nsamples`` keyword argument; ``quantize()`` /
+        ``quantize_with_qep()`` pass the sample count returned by
+        ``calculate_hessian()`` (or supplied by the caller) only for those
+        quantizers. Quantizers that implement ``flag_xtx=True`` directly
+        (e.g. JointQ) additionally accept ``matrix_XX`` / ``dim_n``, which only
+        the chunked quantization path supplies; the other paths pass input
+        activations instead, leaving quantize_layer to build X^T X itself.
 
         Returns:
             Union[torch.Tensor, QuantizationResult]:
@@ -740,7 +756,7 @@ class Quantizer(metaclass=ABCMeta):
         Returns:
             tuple[torch.Tensor, int]: ``(hessian, nsamples)``. ``nsamples`` is
             the total number of (batch * seq_len) rows folded into the Hessian.
-            Quantizers with ``flag_csamples=True`` (e.g. MDBF) consume
+            Quantizers with ``flag_nsamples=True`` (e.g. MDBF) consume
             this; others ignore it.
         """
 
