@@ -21,12 +21,14 @@ from test_module import BaseQuantizeSpec
 from onecomp.quantizer.gemlite import is_gemlite_available
 from onecomp.quantizer.mdbf import admm, mdbf_layer
 from onecomp.quantizer.mdbf._mdbf import MAX_SEED, MDBF, MDBFResult
+from onecomp.quantizer.mdbf.gradient_refine import refine_amplitude_gradient
 from onecomp.quantizer.mdbf.initialize import MDBFParams, initialize_MDBF, lowrank_osvd
 from onecomp.quantizer.mdbf.mdbf_layer import MDBFLinear, MultipathMDBFLinear
 from onecomp.quantizer.mdbf.utils import (
     DEFAULT_L,
     DEFAULT_P,
     bpw_from_rank,
+    compute_hessian_error,
     rank_from_bpw,
     reconstruct_weight,
 )
@@ -713,3 +715,47 @@ def test_admm_seed_makes_result_independent_of_global_rng(l):
     _, recon_seeded_b = admm.optimize_MDBF_admm(W, params_list, l=l, seed=7, **kwargs)
 
     assert torch.equal(recon_seeded_a, recon_seeded_b)
+
+
+def _hessian_output_error(W, params_list, H, nsamples=1):
+    """N * tr(E H E^T) of the MDBF reconstruction of params_list."""
+    W_recon = sum(
+        reconstruct_weight(p.A_sign, p.B_sign, p.A_amp, p.B_amp, p.Q_U_amp, p.Q_V_amp)
+        for p in params_list
+    )
+    return compute_hessian_error(W - W_recon, H, nsamples)
+
+
+def test_gradient_refine_restores_initial_params_when_no_step_improves():
+    W, params_list = _make_admm_inputs(l=2)
+    m = W.shape[1]
+
+    # Non-diagonal SPD Hessian, so the activation-aware branch is genuinely exercised.
+    torch.manual_seed(0)
+    A = torch.randn(m, m, dtype=torch.float32)
+    H = A @ A.T + 0.1 * torch.eye(m, dtype=torch.float32)
+
+    init_error = _hessian_output_error(W, params_list, H)
+
+    # A large learning rate makes every update worse than the initial solution.
+    refined, W_recon = refine_amplitude_gradient(
+        W_original=W,
+        params_list=params_list,
+        l=2,
+        lr=1e3,
+        iters=5,
+        activation_aware=True,
+        H=H,
+        nsamples=1,
+    )
+
+    final_error = compute_hessian_error(W - W_recon, H, 1)
+    assert (
+        final_error <= init_error
+    ), f"gradient refine regressed the solution: {init_error:.6e} -> {final_error:.6e}"
+
+    for p_init, p_out in zip(params_list, refined):
+        for name in ("A_amp", "B_amp", "Q_U_amp", "Q_V_amp"):
+            assert torch.equal(
+                getattr(p_init, name), getattr(p_out, name)
+            ), f"{name} was replaced by a diverged solution"

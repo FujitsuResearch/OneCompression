@@ -43,6 +43,16 @@ def _prepare_hessian(
     return symmetrize_matrix(H_float)
 
 
+def _snapshot_amp_params(
+    amp_params: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
+) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+    """Detached copy of the amplitude parameters, for the best-so-far snapshot"""
+    return [
+        (A.detach().clone(), B.detach().clone(), QU.detach().clone(), QV.detach().clone())
+        for A, B, QU, QV in amp_params
+    ]
+
+
 def refine_amplitude_gradient(
     W_original: torch.Tensor,
     params_list: List[MDBFParams],
@@ -174,7 +184,8 @@ def refine_amplitude_gradient(
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=iters)
 
     best_error = init_error
-    best_amp_params = None
+    # Fall back to the initial solution if no iteration improves the error.
+    best_amp_params = _snapshot_amp_params(amp_params)
 
     # Gradient optimization loop
     with torch.enable_grad():
@@ -207,15 +218,7 @@ def refine_amplitude_gradient(
 
             if current_error < best_error:
                 best_error = current_error
-                best_amp_params = [
-                    (
-                        A.detach().clone(),
-                        B.detach().clone(),
-                        QU.detach().clone(),
-                        QV.detach().clone(),
-                    )
-                    for A, B, QU, QV in amp_params
-                ]
+                best_amp_params = _snapshot_amp_params(amp_params)
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(all_params, max_norm=1.0)
@@ -243,9 +246,7 @@ def refine_amplitude_gradient(
                         f"(rel: {current_error**.5/orig_norm:.4f}), lr={current_lr:.2e}"
                     )
 
-    # Restore best parameters
-    if best_amp_params is not None:
-        amp_params = best_amp_params
+    amp_params = best_amp_params
 
     # Construct MDBFParams
     optimized_params = []
