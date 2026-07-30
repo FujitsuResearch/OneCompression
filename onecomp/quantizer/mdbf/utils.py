@@ -137,14 +137,12 @@ def rank_from_bpw(
         )
         return max_rank
 
+    # r_real >= min_rank (an integer), so even floor cannot fall below it; no clamping needed.
     if rounding == "floor":
-        r = int(math.floor(r_real))
-    elif rounding == "ceil":
-        r = int(math.ceil(r_real))
-    else:
-        r = int(round(r_real))
-
-    return max(r, min_rank)
+        return int(math.floor(r_real))
+    if rounding == "ceil":
+        return int(math.ceil(r_real))
+    return int(round(r_real))
 
 
 def bpw_from_rank(
