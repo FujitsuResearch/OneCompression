@@ -201,7 +201,8 @@ class JointQ(Quantizer):
             Pass a custom GPTQ instance to control parameters like blocksize,
             percdamp, mse, q_grid, q_norm. The GPTQ instance must have
             wbits/groupsize/sym matching JointQ's bits/group_size/symmetric,
-            and actorder must be False.
+            and actorder must be False. JointQ forces its internal GPTQ
+            instance to return unpacked qweight/qzeros.
 
     Example:
         Basic usage::
@@ -298,12 +299,22 @@ class JointQ(Quantizer):
     gptq: Optional[GPTQ] = None
 
     def __post_init__(self):
+        super().__post_init__()
         if self.gptq is None:
             gptq_groupsize = self.group_size if self.group_size is not None else -1
-            self.gptq = GPTQ(wbits=self.bits, groupsize=gptq_groupsize, sym=self.symmetric)
+            self.gptq = GPTQ(
+                wbits=self.bits,
+                groupsize=gptq_groupsize,
+                sym=self.symmetric,
+                bitpack_on_quantize=False,
+            )
+        else:
+            self.logger.info(
+                "Overriding GPTQ bitpack_on_quantize=False for JointQ initial solution."
+            )
+            self.gptq.bitpack_on_quantize = False
         if self.lambda_list is None:
             self.lambda_list = list(_DEFAULT_LAMBDA_LIST)
-        super().__post_init__()
 
     def validate_params(self):
         """Validate JointQ and GPTQ parameters.

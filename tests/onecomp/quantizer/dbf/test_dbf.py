@@ -127,7 +127,12 @@ class TestDBF(BaseQuantizeSpec):
         result: dict,
         layer: torch.nn.Module,
     ):
-        """Validate types, shapes, and device of quantize_layer outputs."""
+        """Validate types, shapes, and device of quantize_layer outputs.
+
+        Handles both representations of the binary factors:
+        - ``bitpack_on_quantize=True``  : dbf_A / dbf_B are packed uint8 (1D).
+        - ``bitpack_on_quantize=False`` : dbf_A / dbf_B are unpacked ±1 float16.
+        """
         assert isinstance(result, self.result_cls)
         for attr in [
             "is_dbf_quantized",
@@ -136,6 +141,8 @@ class TestDBF(BaseQuantizeSpec):
             "dbf_mid",
             "dbf_B",
             "dbf_Db",
+            "dbf_A_is_packed",
+            "dbf_B_is_packed",
         ]:
             assert hasattr(result, attr)
 
@@ -144,29 +151,55 @@ class TestDBF(BaseQuantizeSpec):
             tensor = getattr(result, attr)
             assert isinstance(tensor, torch.Tensor)
 
+        # Scaling vectors are always unpacked float16 CPU tensors.
         assert result.dbf_Da.dtype == torch.float16
         assert result.dbf_Da.device == torch.device("cpu")
-        assert result.dbf_A.dtype == torch.float16
-        assert result.dbf_A.device == torch.device("cpu")
         assert result.dbf_mid.dtype == torch.float16
         assert result.dbf_mid.device == torch.device("cpu")
-        assert result.dbf_B.dtype == torch.float16
-        assert result.dbf_B.device == torch.device("cpu")
         assert result.dbf_Db.dtype == torch.float16
         assert result.dbf_Db.device == torch.device("cpu")
 
-        W_reconstructed = result.dbf_A @ torch.diag(result.dbf_mid) @ result.dbf_B
+        # Binary factor storage depends on the bitpack flag.
+        if result.dbf_A_is_packed:
+            assert result.dbf_A.dtype == torch.uint8
+            assert result.dbf_A.device == torch.device("cpu")
+            assert result.dbf_A.ndim == 1
+            assert result.dbf_A_original_shape is not None
+        else:
+            assert result.dbf_A.dtype == torch.float16
+            assert result.dbf_A.device == torch.device("cpu")
+
+        if result.dbf_B_is_packed:
+            assert result.dbf_B.dtype == torch.uint8
+            assert result.dbf_B.device == torch.device("cpu")
+            assert result.dbf_B.ndim == 1
+            assert result.dbf_B_original_shape is not None
+        else:
+            assert result.dbf_B.dtype == torch.float16
+            assert result.dbf_B.device == torch.device("cpu")
+
+        # Recover the unpacked ±1 factors via the representation-agnostic helper
+        # and validate shapes/values uniformly.
+        dbf_A, dbf_B = result.get_unpacked_binary_factors()
+        W_reconstructed = dbf_A.float() @ torch.diag(result.dbf_mid.float()) @ dbf_B.float()
         assert W_reconstructed.shape == layer.weight.shape
 
-        assert torch.all((-1 <= result.dbf_A) & (result.dbf_A <= 1))
-        assert torch.all((-1 <= result.dbf_B) & (result.dbf_B <= 1))
+        assert torch.all((-1 <= dbf_A) & (dbf_A <= 1))
+        assert torch.all((-1 <= dbf_B) & (dbf_B <= 1))
 
     def check_equal_results(self, r1, r2):
         """Validate equality of quantization result objects."""
         assert torch.equal(r1.compute_dequantized_weight(), r2.compute_dequantized_weight())
         assert r1.is_dbf_quantized == r2.is_dbf_quantized
-        assert torch.equal(r1.dbf_A, r2.dbf_A)
-        assert torch.equal(r1.dbf_B, r2.dbf_B)
+        # Packed-state metadata must match for reproducibility.
+        assert r1.dbf_A_is_packed == r2.dbf_A_is_packed
+        assert r1.dbf_B_is_packed == r2.dbf_B_is_packed
+        # Compare via the representation-agnostic helper so the check holds for
+        # both packed (uint8) and unpacked (float16) storage.
+        a1, b1 = r1.get_unpacked_binary_factors()
+        a2, b2 = r2.get_unpacked_binary_factors()
+        assert torch.equal(a1, a2)
+        assert torch.equal(b1, b2)
         assert torch.equal(r1.dbf_mid, r2.dbf_mid)
 
     def check_quantize_error(self, error, max_error):
@@ -197,7 +230,10 @@ class TestDBF(BaseQuantizeSpec):
         """Apply quantized weights to a module."""
         dtype = module.weight.data.dtype
         module.weight.data = result.compute_dequantized_weight().to(device).to(dtype)
-        module.dbf_A = result.dbf_A.to(device)
-        module.dbf_B = result.dbf_B.to(device)
+        # Store the unpacked ±1 factors so the attributes are usable regardless
+        # of whether the result kept them packed.
+        dbf_A, dbf_B = result.get_unpacked_binary_factors(device=device)
+        module.dbf_A = dbf_A
+        module.dbf_B = dbf_B
         module.dbf_mid = result.dbf_mid.to(device)
         module.is_dbf_quantized = True

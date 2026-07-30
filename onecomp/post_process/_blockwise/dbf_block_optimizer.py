@@ -22,13 +22,13 @@ dbf_block_optimizer.py with the following adaptations:
     dbf_seq[3].bp                      mod.binary_multiplication3.bp
     dbf_seq[4].w                       mod.scaling4
     _is_dbf_sequential(mod)            isinstance(mod, DoubleBinaryLinear)
-    _pack_binary_to_uint8(bq)          pack_binary(bq) from dbf_layer.py
+    _pack_binary_to_uint8(bq)          pack_binary_factor(bq) from dbf_layer.py
 
 Key differences from qep-dev:
   - onecomp-lab uses a single DoubleBinaryLinear class (not nn.Sequential).
   - BitLinearPacked.scale (nn.Parameter, init=1.0) is frozen during
     optimisation to match qep-dev behaviour.
-  - pack_binary is imported from dbf_layer.py instead of being defined here.
+  - pack_binary_factor is imported from dbf_layer.py instead of being defined here.
 """
 
 import copy
@@ -184,7 +184,7 @@ def optimize_dbf_block(
     )
 
     # --- Prepare for hard evaluation (GPTQ-style best tracking) ---
-    from ...quantizer.dbf.dbf_layer import pack_binary
+    from ...quantizer.dbf.dbf_layer import pack_binary_factor
 
     original_bit_mats = {}
     if optimize_binary:
@@ -203,7 +203,7 @@ def optimize_dbf_block(
                     bq = bw.data.sign()
                     bq[bq == 0] = 1
                     blp.bit_mat = bq.to(torch.int8)
-                    blp.bp = pack_binary(bq)
+                    blp.bp = pack_binary_factor(bq)
         layer.eval()
         with torch.no_grad():
             total = 0.0
@@ -280,7 +280,7 @@ def optimize_dbf_block(
                     bq = bw.data.sign()
                     bq[bq == 0] = 1
                     blp.bit_mat = bq.to(torch.int8)
-                    blp.bp = pack_binary(bq)
+                    blp.bp = pack_binary_factor(bq)
     finally:
         # --- Disable gradients on scaling params ---
         for _name, mod in dbf_modules:
