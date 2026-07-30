@@ -25,13 +25,14 @@ import transformers
 
 logger = getLogger(__name__)
 
+from onecomp.utils.device import cleanup_memory
+
 from .initialize import MDBFParams, initialize_MDBF
 from .utils import (
     DEFAULT_L,
     DEFAULT_P,
     DEFAULT_SCALE_BITS,
     bpw_from_rank,
-    cleanup_gpu_memory,
     rank_from_bpw,
 )
 
@@ -177,7 +178,7 @@ def run_mdbf(
 
     if H_svd is not None:
         del H_svd
-    cleanup_gpu_memory()
+    cleanup_memory()
 
     # Phase 2: ADMM optimization
     if use_admm and admm_iters > 0:
@@ -260,7 +261,7 @@ def run_mdbf(
         logger.debug(f"[MDBF] After Gradient Refine: r={r}, P={P}")
 
     del W
-    cleanup_gpu_memory()
+    cleanup_memory()
 
     # Move results to CPU and return
     all_params_cpu = _move_MDBF_params_to_cpu(all_params)
@@ -274,7 +275,7 @@ def run_mdbf(
     if H_act is not None:
         del H_act
 
-    cleanup_gpu_memory()
+    cleanup_memory()
 
     return {
         "mdbf_params": all_params_cpu,

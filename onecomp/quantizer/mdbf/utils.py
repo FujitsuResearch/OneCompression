@@ -16,7 +16,6 @@ Author: Yuma Ichikawa
 
 """
 
-import gc
 import math
 from logging import getLogger
 from typing import Literal
@@ -37,13 +36,6 @@ DEFAULT_SCALE_BITS = 16
 # setting; larger l usually improves quality at the cost of rank and runtime.
 DEFAULT_L = 2
 DEFAULT_P = 1
-
-
-def cleanup_gpu_memory() -> None:
-    """Release GPU memory"""
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    gc.collect()
 
 
 def ensure_float32(
