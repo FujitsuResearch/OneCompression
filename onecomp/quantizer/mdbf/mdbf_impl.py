@@ -118,7 +118,6 @@ def run_mdbf(
 
     n, m = W.shape
     device = W.device
-    dtype = W.dtype
 
     # Hessian for SVD-LLM
     H_svd = None
