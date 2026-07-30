@@ -69,11 +69,8 @@ def _tsvd_block_power(
     k0 = min(k_eff + oversample, n, m)
 
     # Initialize the right subspace (random)
-    if seed is not None:
-        gen = torch.Generator(device=M.device).manual_seed(seed)
-        V = torch.randn(m, k0, device=M.device, dtype=M.dtype, generator=gen)
-    else:
-        V = torch.randn(m, k0, device=M.device, dtype=M.dtype)
+    gen = torch.Generator(device=M.device).manual_seed(seed) if seed is not None else None
+    V = torch.randn(m, k0, device=M.device, dtype=M.dtype, generator=gen)
     V, _ = torch.linalg.qr(V, mode="reduced")  # (m, k0)
 
     # Subspace iteration
