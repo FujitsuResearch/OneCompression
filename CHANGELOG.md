@@ -1,5 +1,23 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step3] 2026-07-22
+
+### Qwen3.6-A3B MoE vLLM inference support
+
+- Achieved a working vLLM inference run on a GPTQ-quantized Qwen3.6-A3B (MoE) model. `run_quantize_with_qep_arch()` now recovers expert modules missed by `make_grouped_module()`'s single-sample grouping and recomputes their Hessian from the full calibration set; experts that still get zero tokens are RTN-quantized via the new `_rtn_fallback_result()` instead of being skipped (`onecomp/qep/_quantize_with_qep_arch.py`)
+- Added `Runner._strip_moe_expert_g_idx_for_vllm()`, which drops per-expert `g_idx` buffers unsupported by vLLM's GPTQ FusedMoE kernel on `full_wrapper` export, raising instead if `desc_act`/`actorder` is enabled (`onecomp/runner.py`)
+- `MixedGPTQConfig` now dispatches `FusedMoE` layers to vLLM's `MoeWNA16Config` GPTQ MoE kernel, aggregating each expert's config via the new `_lookup_moe_config()` (`vllm_plugins/gptq/vllm_plugin.py`, `vllm_plugins/utils/module.py`)
+
+### Bug fix
+
+- Fixed `_resolve_fused_bits()`/`_validate_quant_config_within_shard()` hardcoding the `self_attn.`/`mlp.` parent path for fused module (`qkv_proj`/`gate_up_proj`) lookups, which broke on other parent paths (e.g. `linear_attn.qkv_proj`); now substitutes constituents at the fused name's own position (`vllm_plugins/utils/module.py`)
+
+### Test
+
+- Added unit tests for `_rtn_fallback_result()` and `_strip_moe_expert_g_idx_for_vllm()` (`tests/onecomp/test_rtn_fallback_result.py`, `tests/onecomp/runner/test_strip_moe_expert_g_idx.py`)
+- Added a CPU-only integration test with a synthetic MoE block that exercises the "recovered + real Hessian" and "recovered + RTN fallback" expert paths without an HF model download (`tests/onecomp/test_qep_expert_recovery_integration.py`)
+  - Added coverage for the non-`GPTQ` quantizer path: an expert receiving zero calibration tokens is skipped (not RTN-quantized) when the quantizer isn't `GPTQ`
+  - Added coverage confirming the RTN-fallback `GPTQResult` is actually applied to the expert module's live weight, not just recorded in `quantizer.results`
 ## [v1.3.0(WIP)+feature/bitpack_dbf] 2026-07-28
 
 ### New Feature / Breaking Changes: DBF bitpack-on-quantize mode
