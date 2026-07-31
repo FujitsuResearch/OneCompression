@@ -444,13 +444,13 @@ class GPTQ(Quantizer):
 
         if self.bitpack_on_quantize:
             from onecomp.quantizer.gptq.gptq_layer import (
-                GPTQLinear,
+                normalize_scale_zero,
                 pack_int_weights,
                 pack_zeros,
             )
 
             out_features = qweight_original_shape[0]
-            qzeros_for_pack = GPTQLinear._normalize_scale_zero(qzeros, out_features)
+            qzeros_for_pack = normalize_scale_zero(qzeros, out_features)
 
             packed_qweight = pack_int_weights(qweight.to(torch.int32), resolved_wbits).cpu()
 

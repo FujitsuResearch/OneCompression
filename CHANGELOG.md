@@ -1,5 +1,16 @@
 # Change log
 
+## [v1.3.0(WIP)+refactor/gptq-normalize-scale-zero] 2026-07-31
+
+### Refactor
+
+- Moved the scale/zero layout normalization out of `GPTQLinear` into the module-level `normalize_scale_zero()` helper, so the quantize-time bitpack path no longer calls a private static method of `GPTQLinear` from outside the class. The normalization logic itself is unchanged (`onecomp/quantizer/gptq/gptq_layer.py`, `onecomp/quantizer/gptq/_gptq.py`)
+- Documented that `normalize_scale_zero()` returns shapes outside the three supported scale/zero layouts as-is, without validation (`onecomp/quantizer/gptq/gptq_layer.py`)
+
+### Tests
+
+- Added direct unit tests for `normalize_scale_zero()` covering the three supported scale/zero layouts and the unvalidated pass-through of any other shape (`tests/onecomp/quantizer/gptq/test_gptq_layer_pack.py`)
+
 ## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step3] 2026-07-22
 
 ### Qwen3.6-A3B MoE vLLM inference support

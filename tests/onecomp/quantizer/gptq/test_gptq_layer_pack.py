@@ -68,6 +68,7 @@ from onecomp.quantizer.gptq.gptq_layer import (
     GPTQLinear,
     _normalize_wbits,
     is_packable_wbits,
+    normalize_scale_zero,
     pack_int_weights,
     pack_zeros,
     unpack_zeros,
@@ -491,6 +492,47 @@ def test_normalize_wbits_accepts_integral_rejects_others():
     for bad in (2.5, True, False, "2", float("nan"), float("inf")):
         with pytest.raises(ValueError):
             _normalize_wbits(bad)
+
+
+def test_normalize_scale_zero_layouts():
+    """Every scale/zero layout OneComp produces maps to (num_groups, out_features)."""
+    out_features = 4
+    values = torch.arange(out_features, dtype=torch.float32)
+
+    # (out_features,) → (1, out_features)
+    normalized = normalize_scale_zero(values, out_features)
+    assert normalized.shape == (1, out_features)
+    assert torch.equal(normalized[0], values)
+
+    # (out_features, 1) → (1, out_features)
+    normalized = normalize_scale_zero(values.reshape(out_features, 1), out_features)
+    assert normalized.shape == (1, out_features)
+    assert torch.equal(normalized[0], values)
+
+    # (num_groups, out_features) is already normalized
+    grouped = torch.arange(2 * out_features, dtype=torch.float32).reshape(2, out_features)
+    assert normalize_scale_zero(grouped, out_features) is grouped
+
+
+def test_normalize_scale_zero_transposes_only_the_out_features_column():
+    """``out_features`` alone decides which 2-D layout is a per-channel column.
+
+    The transpose is deliberately asymmetric: ``(out_features, 1)`` is a
+    per-channel column and must be transposed, while the already-normalized
+    ``(1, out_features)`` must not be. Shapes matching neither documented
+    layout pass through unvalidated.
+    """
+    out_features = 4
+
+    already_normalized = torch.zeros(1, out_features)
+    assert normalize_scale_zero(already_normalized, out_features) is already_normalized
+
+    # Same (n, 1) shape as a per-channel column, but n != out_features → left alone.
+    not_per_channel = torch.zeros(2, 1)
+    assert normalize_scale_zero(not_per_channel, out_features) is not_per_channel
+
+    unknown = torch.zeros(3, 7)
+    assert normalize_scale_zero(unknown, out_features) is unknown
 
 
 def _minimal_gptq_kwargs(shape_wbits, device="cpu"):

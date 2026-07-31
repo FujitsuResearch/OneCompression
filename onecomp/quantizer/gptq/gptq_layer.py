@@ -184,6 +184,27 @@ def unpack_zeros(packed_zeros: torch.Tensor, wbits: int, out_features: int) -> t
     return _unpack_rows(packed_zeros.t().contiguous(), wbits, out_features).t().contiguous()
 
 
+def normalize_scale_zero(tensor: torch.Tensor, out_features: int) -> torch.Tensor:
+    """Normalize scale/zero to (num_groups, out_features) for AutoGPTQ.
+
+    Args:
+        tensor: Scale or zero tensor in any of the layouts OneComp produces —
+            ``(out_features,)``, ``(out_features, 1)``, or already
+            ``(num_groups, out_features)``.
+        out_features: Output feature count, used to disambiguate the
+            ``(out_features, 1)`` per-channel layout.
+
+    Returns:
+        (num_groups, out_features) tensor. Any other shape is returned as-is,
+        unvalidated.
+    """
+    if tensor.dim() == 1:
+        return tensor.unsqueeze(0)  # (out_features,) → (1, out_features)
+    if tensor.dim() == 2 and tensor.shape == (out_features, 1):
+        return tensor.t()  # (out_features, 1) → (1, out_features)
+    return tensor  # (num_groups, out_features)
+
+
 # Bit widths OneComp can store in the AutoGPTQ packed INT32 format
 # (see ``_pack_rows`` / ``_unpack_rows``). Widths outside this set — notably
 # JointQ's 1-bit weights — have no packing layout and are kept unpacked.
@@ -316,7 +337,7 @@ class GPTQLinear(nn.Module):
                     zero_raw = (_get_zero_int() + 1) & wbits_mask
                 else:
                     # Normalize to the saved/inference layout used by AutoGPTQ.
-                    zero_raw = self._normalize_scale_zero(zero, out_features)
+                    zero_raw = normalize_scale_zero(zero, out_features)
             return zero_raw
 
         def _get_zero_int():
@@ -376,7 +397,7 @@ class GPTQLinear(nn.Module):
             self.register_buffer("qweight", _get_quantized_weight_unpacked().to(device))
 
         # --- Scales: normalize to (num_groups, out_features) ---
-        scale = self._normalize_scale_zero(scale, out_features)
+        scale = normalize_scale_zero(scale, out_features)
         self.register_buffer("scales", scale.to(torch.float16).to(device))
 
         # --- Zeros: normalize then pack (AutoGPTQ v1 convention) ---
@@ -417,15 +438,6 @@ class GPTQLinear(nn.Module):
             g_idx = torch.zeros(in_features, dtype=torch.int32, device=device)
         self.register_buffer("g_idx", g_idx)
         self._weight_is_packed = should_pack_weights
-
-    @staticmethod
-    def _normalize_scale_zero(tensor: torch.Tensor, out_features: int) -> torch.Tensor:
-        """Normalize scale/zero to (num_groups, out_features) for AutoGPTQ."""
-        if tensor.dim() == 1:
-            return tensor.unsqueeze(0)  # (out_features,) → (1, out_features)
-        if tensor.dim() == 2 and tensor.shape == (out_features, 1):
-            return tensor.t()  # (out_features, 1) → (1, out_features)
-        return tensor  # (num_groups, out_features)
 
     def unpack_in_place(self) -> None:
         """Expand ``qweight``/``qzeros`` to dense INT form, in place.
