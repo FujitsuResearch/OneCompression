@@ -20,8 +20,6 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from vllm_plugins.utils.module import is_moe_expert_g_idx_key
-
 from .__version__ import __version__
 from .calibration import CalibrationConfig, prepare_calibration_dataset
 from .log import setup_logger
@@ -2879,6 +2877,8 @@ class Runner:
         just the trivial ``arange(in_features) // group_size`` grouping the
         kernel already assumes; raises otherwise.
         """
+        from vllm_plugins.utils.module import is_moe_expert_g_idx_key
+
         moe_g_idx_keys = [key for key in state_dict if is_moe_expert_g_idx_key(key)]
         if not moe_g_idx_keys:
             return state_dict
