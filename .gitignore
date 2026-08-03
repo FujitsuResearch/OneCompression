@@ -28,6 +28,8 @@ tests/onecomp/quantizer/jointq/data/model_layers_0_self_attn_k_proj.pth
 .uv-sync.done
 .uv-sync-vllm.lock
 .uv-sync-vllm.done
+.uv-sync-cpu-llamacpp.lock
+.uv-sync-cpu-llamacpp.done
 .venv-vllm/
 # MT-Bench eval data (download via onecomp/eval/scripts/download_mt_bench_data*.sh)
 onecomp/eval/data/
