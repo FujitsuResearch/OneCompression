@@ -38,7 +38,8 @@ def _quantize_layer(device, *, bitpack_on_quantize=True):
     _skip_if_cuda_unavailable(device)
     layer, inp = _make_layer_and_input(device)
     quantizer = _make_quantizer(bitpack_on_quantize)
-    hessian = quantizer.calculate_hessian(layer, inp)
+    # GPTQ has flag_nsamples=False, so the sample count is not needed here.
+    hessian, _ = quantizer.calculate_hessian(layer, inp)
     result = quantizer.quantize_layer(layer, inp, hessian=hessian)
     return layer, inp, result
 
@@ -49,7 +50,7 @@ def _quantize_layer_pair(device):
     layer, inp = _make_layer_and_input(device)
     unpacked_quantizer = _make_quantizer(bitpack_on_quantize=False)
     packed_quantizer = _make_quantizer(bitpack_on_quantize=True)
-    hessian = unpacked_quantizer.calculate_hessian(layer, inp)
+    hessian, _ = unpacked_quantizer.calculate_hessian(layer, inp)
     unpacked_result = unpacked_quantizer.quantize_layer(layer, inp, hessian=hessian.clone())
     packed_result = packed_quantizer.quantize_layer(layer, inp, hessian=hessian.clone())
     return layer, inp, unpacked_result, packed_result
@@ -113,7 +114,7 @@ def test_bitpack_unsupported_wbits_raise_clear_error(device, wbits):
     _skip_if_cuda_unavailable(device)
     layer, inp = _make_layer_and_input(device)
     quantizer = GPTQ(wbits=wbits, bitpack_on_quantize=True)
-    hessian = quantizer.calculate_hessian(layer, inp)
+    hessian, _ = quantizer.calculate_hessian(layer, inp)
 
     with pytest.raises(
         ValueError,
@@ -129,7 +130,7 @@ def test_bitpack_unaligned_shape_raises_assertion_error(device):
     layer = torch.nn.Linear(4, 4, bias=False, device=device, dtype=torch.float32)
     inp = torch.randn(1, 1, 4, device=device, dtype=torch.float32)
     quantizer = GPTQ(wbits=4, bitpack_on_quantize=True)
-    hessian = quantizer.calculate_hessian(layer, inp)
+    hessian, _ = quantizer.calculate_hessian(layer, inp)
 
     with pytest.raises(AssertionError, match="rows \\(4\\) must be divisible"):
         quantizer.quantize_layer(layer, inp, hessian=hessian)

@@ -70,6 +70,7 @@
 
 - Added `tests/onecomp/quantizer/mdbf/test_mdbf.py`: MDBF quantizer unit tests covering `quantize_layer` result validation (type, shape, device, dtype), reproducibility, boundary parameters (`target_bits`, `l`, `P`, `svd_mode`, `use_admm`, `admm_outer_iters`, `admm_inner_iters`, `admm_reg`, `use_gradient_refine`, `gradient_iters`, `gradient_lr`, `activation_aware`, `act_init`, `mlp_target_bits`, `module_target_bits`), abnormal parameter validation (negative/zero/invalid values raise `ValueError`), CPU/GPU output match, quantization error tolerance, forward error of the inference layer, and a check pinning the shipped `(l, P) = (2, 1)` defaults
 - Updated shared quantizer test helpers to unpack `calculate_hessian()` return tuples and forward `nsamples` when required; updated affected JointQ tests to use the shared helper (`tests/onecomp/quantizer/test_module.py`, `tests/onecomp/quantizer/jointq/test_jointq.py`)
+- Updated the GPTQ/DBF bitpack and QUIP tests merged from `develop/v1-3-0` to unpack `calculate_hessian()`; they previously passed the whole `(hessian, nsamples)` tuple as the Hessian, which broke GPTQ/QUIP outright and silently slipped past the DBF tests only because their default `use_balancing=True` never dereferences the Hessian (`tests/onecomp/quantizer/gptq/test_gptq_bitpack.py`, `tests/onecomp/quantizer/dbf/test_dbf_bitpack.py`, `tests/onecomp/quantizer/dbf/test_dbf_bitpack_equivalence.py`, `tests/onecomp/quantizer/quip/test_quip.py`)
 
 ## [v1.3.0(WIP)+feature/bitpack_dbf] 2026-07-28
 

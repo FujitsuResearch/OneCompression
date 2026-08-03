@@ -75,8 +75,8 @@ def _quantize_both_modes():
     inp = helper.make_input(device="cpu", dtype=torch.float32)
 
     params = {"target_bits": 1.0, "iters": 1, "balance_iters": 1}
-    h_p = DBF().calculate_hessian(layer_p, inp)
-    h_u = DBF().calculate_hessian(layer_u, inp)
+    h_p, _ = DBF().calculate_hessian(layer_p, inp)
+    h_u, _ = DBF().calculate_hessian(layer_u, inp)
 
     helper.seed_everything(123)
     result_packed = DBF(bitpack_on_quantize=True, **params).quantize_layer(

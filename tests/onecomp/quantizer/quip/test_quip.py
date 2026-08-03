@@ -135,8 +135,9 @@ class TestQUIP(BaseQuantizeSpec):
                             device=device,
                             dtype=torch.float32,
                         )
-                        hessian = quantizer.calculate_hessian(module, module_inp)
-                        result = quantizer.quantize_layer(module, module_inp, hessian)
+                        result = self._quantize_with_calculated_hessian(
+                            quantizer, module, module_inp
+                        )
                         self.apply_quantized_weights(module, result, device)
 
         with torch.no_grad():
