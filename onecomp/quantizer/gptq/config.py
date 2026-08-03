@@ -12,15 +12,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from onecomp.quantizer.gptq._gptq import GPTQ
+from onecomp.quantizer.gptq._gptq import GPTQ, GPTQ_MAX_BITS
 from onecomp.utils.quant_config import get_quant_param
 
 
 def _validate_int_bits(name: str, bits: Any) -> int:
     if isinstance(bits, bool) or not isinstance(bits, int):
-        raise ValueError(f"{name} must be an int in 1..64, got {bits!r}.")
-    if not (1 <= bits <= 64):
-        raise ValueError(f"{name} must be in 1..64, got {bits}.")
+        raise ValueError(f"{name} must be an int in 1..{GPTQ_MAX_BITS}, got {bits!r}.")
+    if not (1 <= bits <= GPTQ_MAX_BITS):
+        raise ValueError(f"{name} must be in 1..{GPTQ_MAX_BITS}, got {bits}.")
     return bits
 
 
@@ -55,7 +55,8 @@ def resolve_gptq_layer_wbits(layer_name: str, quant_config: dict[str, Any]) -> i
                         if key == "_all" or suffix == key or suffix.startswith(key):
                             qb_bits = mod_cfg.get("bits") if isinstance(mod_cfg, dict) else None
                             if qb_bits is not None:
-                                return _validate_int_bits("quantization_bits[].bits", int(qb_bits))
+                                # Validate the raw value so floats are not silently truncated.
+                                return _validate_int_bits("quantization_bits[].bits", qb_bits)
 
     # GPTQ override priority (module > mlp > default), then validate
     bits = GPTQ.resolve_bits(

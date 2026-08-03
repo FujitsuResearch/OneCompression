@@ -29,11 +29,12 @@ especially at lower bit-widths.
 
 | Parameter    | Type   | Description                                          | Default  |
 |-------------|--------|------------------------------------------------------|----------|
-| `wbits`      | `int`  | Quantization bit-width                              | —        |
+| `wbits`      | `int`  | Quantization bit-width                              | `4`     |
 | `groupsize`  | `int`  | Group size for group-wise quantization (-1 = none)  | `-1`     |
 | `sym`        | `bool` | Symmetric quantization                              | `True`   |
 | `actorder`   | `bool` | Reorder columns by activation magnitude             | `False`  |
 | `percdamp`   | `float`| Hessian damping percentage                          | `0.01`   |
+| `bitpack_on_quantize` | `bool`  | Pack `qweight` and `qzeros` after each layer; supported resolved `wbits` are `{2, 3, 4, 8}` only | `True`  |
 
 ## Usage
 
@@ -72,6 +73,26 @@ runner = Runner(
 )
 runner.run()
 ```
+
+## Quantize-time Bitpacking
+
+When `bitpack_on_quantize=True` (the default), GPTQ stores `qweight` and
+`qzeros` in bitpacked form immediately after each layer is quantized. GPTQ
+supports this mode only when every resolved bit-width is one of `{2, 3, 4, 8}`.
+Here, resolved means the width selected after applying `mlp_wbits` or
+`module_wbits`; validation fails if any resolved width is not packable.
+
+With `bitpack_on_quantize=False`, the GPTQ quantization algorithm accepts any
+integer `wbits` from 1 through 15 and keeps the quantization results unpacked.
+
+!!! note "Packing when creating or saving a model"
+    `bitpack_on_quantize` controls only the representation held in the
+    quantization results. `Runner.create_quantized_model()` and
+    `Runner.save_quantized_model()` use the separate `pack_weights=True`
+    default and reject widths outside `{2, 3, 4, 8}`. For another width, pass
+    `pack_weights=False` to create an unpacked inference model or to write
+    unpacked tensors. These tensors do not use the standard packed GPTQ format
+    and are not compatible with vLLM's GPTQ kernels.
 
 ## Group-wise Quantization
 

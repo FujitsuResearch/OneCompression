@@ -12,7 +12,7 @@ Some methods are served by vLLM's **built-in** GPTQ plugin, while others use the
 |-------------------|----------------|-----------|-------|
 | `GPTQ` (uniform bit-width), `RTN` | `gptq` | vLLM built-in GPTQ plugin | Uses GPTQ tensor layout (`qweight`/`scales`/`qzeros`). Use `wbits` in {2, 3, 4, 8} for vLLM serving. |
 | `JointQ` | `gptq` | vLLM built-in GPTQ plugin | Reuses GPTQ's tensor layout. Use `bits` in {2, 3, 4} for vLLM serving; `bits=1` is OneComp load-only with `pack_weights=False`. |
-| `GPTQ` (mixed bit-width), `AutoBitQuantizer` | `mixed_gptq` | OneComp Mixed-GPTQ plugin | Per-layer mixed-bitwidth GPTQ. Automatically dispatches to Marlin or Exllama kernels based on bit-width and symmetry. |
+| `GPTQ` (mixed bit-width), `AutoBitQuantizer` | `mixed_gptq` | OneComp Mixed-GPTQ plugin | Per-layer mixed-bitwidth GPTQ. Automatically dispatches to Marlin or Exllama kernels based on bit-width and symmetry. `FusedMoE` layers are dispatched to vLLM's `MoeWNA16Config` GPTQ MoE kernel instead, using one GPTQ scheme aggregated across all experts in the layer (see [GPTQ MoE + vLLM](#gptq-moe--vllm)). |
 | `DBF` | `dbf` | OneComp DBF plugin | 1-bit Double Binary Factorization. Uses GemLite kernels by default; set `ONECOMP_DBF_NAIVE_LINEAR=1` to use the naive fallback. |
 
 !!! note "`Onebit` is not vLLM-servable"
@@ -21,8 +21,16 @@ Some methods are served by vLLM's **built-in** GPTQ plugin, while others use the
     [`load_quantized_model()`](examples.md#load-a-saved-quantized-model),
     but not served through vLLM.
 
-!!! warning "Rotation-preprocessed models are not supported"
-    Models quantized after rotation preprocessing (`prepare_rotated_model`) cannot be served with vLLM. vLLM kernels do not apply the online Hadamard transform on `down_proj` inputs that rotation-preprocessed models require for correct inference.
+!!! note "Rotation-preprocessed models"
+    Models quantized after rotation preprocessing (`prepare_rotated_model`) are supported with the `mixed_gptq` and `dbf` plugins: the plugins reproduce the online Hadamard transform on `down_proj` inputs at inference time. The `dbf` plugin currently supports rotation only with `tensor_parallel_size=1`; `mixed_gptq` supports `tensor_parallel_size>1`.
+
+!!! warning "GPTQ MoE models with activation reordering (`desc_act`/`actorder`) are not vLLM-servable"
+    vLLM's GPTQ `FusedMoE` kernel (`MoeWNA16Method`) has no `g_idx` parameter, so a GPTQ
+    MoE checkpoint quantized with `desc_act=True` carries activation-order information
+    that cannot be served. `save_quantized_model(..., save_format="full_wrapper")` raises
+    `RuntimeError` at export time rather than producing a checkpoint that fails to load in
+    vLLM. Quantize MoE models with `desc_act=False` (the default) if you intend to serve
+    them with vLLM.
 
 ## Installation
 
@@ -80,6 +88,29 @@ When `enable_fused_groups=True`, the ILP solver constrains fused-layer constitue
 
 `Runner.auto_run()` always sets `enable_fused_groups=True`, so models quantized via `auto_run` or the CLI are always vLLM-compatible.
 
+## GPTQ MoE + vLLM
+
+This section covers models saved with `quant_method="mixed_gptq"` (OneComp Mixed-GPTQ
+plugin). vLLM's GPTQ `FusedMoE` kernel (`MoeWNA16Method`) dispatches **one** kernel
+instance per MoE layer, so every expert in that layer must share the same GPTQ scheme
+(bits, method, group size) — a mix within one layer is not representable.
+
+`_lookup_moe_config()` enforces this at model-load time: it aggregates each expert's
+config from `quantization_config`'s `quantization_bits`, and raises `ValueError` if the
+layer's experts disagree on bits/group size, or if some experts were left unquantized
+while others weren't.
+
+!!! warning "Partially- or inconsistently-quantized MoE layers fail to load in vLLM"
+    If a MoE layer has experts quantized with different `wbits`/`groupsize`, or only
+    some of its experts were quantized at all, vLLM raises `ValueError` while building
+    the model. This is the reason `run_quantize_with_qep_arch()` RTN-quantizes experts
+    that receive zero calibration tokens via `_rtn_fallback_result()` rather than
+    skipping them: an unquantized expert would otherwise leave its MoE layer partially
+    quantized and unservable.
+
+Quantizing MoE models with uniform `GPTQ` settings (no `module_wbits` overrides that
+single out individual experts) keeps every layer's experts consistent.
+
 ## Usage
 
 ### 1. Quantize and save a model with OneComp
@@ -109,6 +140,11 @@ runner.save_quantized_model("./Llama-3.1-8B-Instruct-gptq-4bit")
     This option is specific to Qwen3.6 and will raise `RuntimeError` for any
     other model. Leave `save_format` at its default (`"auto"`) for everything
     else, including other VLMs.
+
+    For MoE variants (e.g. Qwen3.6-A3B), `full_wrapper` also drops each expert's
+    trivial `g_idx` buffer, since vLLM's GPTQ `FusedMoE` kernel has no `g_idx`
+    parameter and an unmapped one would crash weight loading — see the `desc_act`/
+    `actorder` warning above for when this isn't safe to drop.
 
 ### 2. Serve with vLLM
 
@@ -180,8 +216,10 @@ print(outputs[0].outputs[0].text)
 Complete working examples (quantization + vLLM inference) are available:
 
 - GPTQ: [`example/vllm_inference/example_gptq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_gptq_vllm_inference.py)
+- GPTQ (Qwen3.6 full-wrapper save): [`example/vllm_inference/example_gptq_vllm_qwen36_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_gptq_vllm_qwen36_inference.py)
 - JointQ: [`example/vllm_inference/example_jointq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_jointq_vllm_inference.py)
 - AutoBit (mixed-precision): [`example/vllm_inference/example_autobit_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_autobit_vllm_inference.py)
+- DBF: [`example/vllm_inference/example_dbf_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_dbf_vllm_inference.py)
 
 `JointQ` and `RTN` follow exactly the same flow as the GPTQ example above —
 substitute `JointQ(bits=4, group_size=128)` or `RTN(wbits=4, groupsize=128)` for the
@@ -260,6 +298,43 @@ Select the model from the dropdown at the top of the chat screen and start a con
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ONECOMP_DBF_NAIVE_LINEAR` | `0` | Set to `1` to force the naive (non-GemLite) kernel for DBF inference. Useful for debugging or when GemLite is unavailable. |
+| `TRITON_CACHE_AUTOTUNING` | `1` | Set to `0` to disable Triton's autotune disk-cache. Recommended when GemLite fails at inference time due to the Triton autotune disk-cache bug (see below). |
+
+### GemLite Automatic Fallback
+
+The DBF plugin automatically falls back to the naive linear kernel if GemLite fails during inference.
+When this happens, a `WARNING` is logged:
+
+```
+WARNING [...] [DBF] GemLite inference path failed (ErrorType: detail).
+Disabling GemLite and falling back to the naive linear path for the remainder of this run.
+To run with GemLite, relaunch with TRITON_CACHE_AUTOTUNING=0 (works around the triton autotune disk-cache bug).
+To skip GemLite from the start, set ONECOMP_DBF_NAIVE_LINEAR=1.
+```
+
+The fallback is **process-wide**: once GemLite fails on any layer, all subsequent layers use the naive path for the rest of the process lifetime.
+Inference continues and produces correct output, but throughput may be lower than with GemLite.
+
+If the WARNING appears, try the following in order:
+
+1. **Set `TRITON_CACHE_AUTOTUNING=0`** — works around the Triton autotune disk-cache bug that is the most common cause of GemLite failures under vLLM:
+
+    ```bash
+    TRITON_CACHE_AUTOTUNING=0 vllm serve ./your-quantized-model
+    # or
+    TRITON_CACHE_AUTOTUNING=0 python your_vllm_script.py
+    ```
+
+2. **Set `ONECOMP_DBF_NAIVE_LINEAR=1`** — skips GemLite entirely from startup. Use this if the issue persists after step 1 or if you do not need GemLite performance:
+
+    ```bash
+    ONECOMP_DBF_NAIVE_LINEAR=1 vllm serve ./your-quantized-model
+    ```
+
+!!! note "Out-of-memory errors are not caught"
+    `torch.cuda.OutOfMemoryError` is re-raised immediately and does **not** trigger the fallback.
+    The naive path requires more memory than GemLite, so falling back on OOM would make the situation worse rather than better.
+    If you see an OOM error, reduce `--gpu-memory-utilization` or the model's context length.
 
 ## Troubleshooting
 

@@ -125,8 +125,11 @@ required Hadamard hooks on `down_proj` layers.
 
 ## Limitations
 
-- **vLLM inference is not supported.** vLLM kernels do not apply the online Hadamard
-  transform required by rotation-preprocessed models.
+- **vLLM inference** is supported for rotation-preprocessed checkpoints through the
+  `mixed_gptq` and `dbf` plugins, which reproduce the online Hadamard transform on
+  `down_proj` inputs at inference time. The `dbf` plugin supports rotation only with
+  `tensor_parallel_size=1`. Checkpoints served via the built-in `gptq` path (e.g. RTN,
+  JointQ) are not covered; see [vLLM Inference](vllm-inference.md).
 - Only Llama and Qwen3 architectures are currently supported.
 
 ## API Reference

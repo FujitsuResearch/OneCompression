@@ -189,6 +189,10 @@ jointq = JointQ(
 )
 ```
 
+JointQ uses this nested GPTQ quantizer only for its initial solution and always
+sets its `bitpack_on_quantize` value to `False`. This overwrites any value
+specified on the supplied `GPTQ` instance.
+
 ## Save and Load
 
 JointQ reuses GPTQ's scale/zero/assignment structure, so it emits

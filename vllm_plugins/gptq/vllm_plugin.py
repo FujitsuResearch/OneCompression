@@ -34,10 +34,11 @@ Kernel dispatch per module (automatic, Marlin preferred):
   - bits 0 or not listed: UnquantizedLinearMethod
 """
 
-from typing import Any, List
+from typing import Any, Optional
 
 import torch
 from vllm.logger import init_logger
+from vllm.model_executor.layers.fused_moe.layer import FusedMoE
 from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
 from vllm.model_executor.layers.quantization import register_quantization_config
 from vllm.model_executor.layers.quantization.base_config import (
@@ -49,13 +50,16 @@ from vllm.model_executor.layers.quantization.gptq_marlin import (
     GPTQMarlinConfig,
     GPTQMarlinLinearMethod,
 )
+from vllm.model_executor.layers.quantization.moe_wna16 import MoeWNA16Config
 
 from vllm_plugins.gptq.constants import GPTQ_MARLIN_SUPPORTED_BITS, should_use_gptq_marlin
 from vllm_plugins.utils.module import (
     _lookup_module_config,
+    _lookup_moe_config,
     _parse_layer_and_module,
     _validate_quant_config_within_shard,
 )
+from vllm_plugins.utils.rotation import RotationMetadata, maybe_wrap_rotation_method
 
 logger = init_logger(__name__)
 
@@ -71,6 +75,7 @@ class MixedGPTQConfig(QuantizationConfig):
         sym=False,
         lm_head_quantized=False,
         checkpoint_format="gptq_v2",
+        rotation_metadata: Optional[RotationMetadata] = None,
     ):
         super().__init__()
         self.quantization_bits = quantization_bits
@@ -79,6 +84,9 @@ class MixedGPTQConfig(QuantizationConfig):
         self.sym = sym
         self.lm_head_quantized = lm_head_quantized
         self.checkpoint_format = checkpoint_format
+        self.rotation_metadata = (
+            rotation_metadata if rotation_metadata is not None else RotationMetadata()
+        )
 
         all_bits = set()
         all_methods = set()
@@ -135,19 +143,20 @@ class MixedGPTQConfig(QuantizationConfig):
             sym=sym,
             lm_head_quantized=lm_head_quantized,
             checkpoint_format=checkpoint_format,
+            rotation_metadata=RotationMetadata.from_quant_config(config),
         )
 
     def _resolve_group_size(self, mod_cfg: dict) -> int:
         """Resolve group_size: per-module direct > params > global."""
         if mod_cfg is not None:
-            if "group_size" in mod_cfg:
+            if mod_cfg.get("group_size") is not None:
                 return mod_cfg["group_size"]
             additional = mod_cfg.get("params", {})
-            if isinstance(additional, dict) and "group_size" in additional:
+            if isinstance(additional, dict) and additional.get("group_size") is not None:
                 return additional["group_size"]
         return self.group_size
 
-    def _make_gptq_config(self, bits: int, group_size: int | None = None) -> GPTQConfig:
+    def _make_gptq_config(self, bits: int, group_size: Optional[int] = None) -> GPTQConfig:
         gs = group_size if group_size is not None else self.group_size
         return GPTQConfig(
             weight_bits=bits,
@@ -158,7 +167,7 @@ class MixedGPTQConfig(QuantizationConfig):
             checkpoint_format=self.checkpoint_format,
         )
 
-    def _make_marlin_config(self, bits: int, group_size: int | None = None) -> GPTQMarlinConfig:
+    def _make_marlin_config(self, bits: int, group_size: Optional[int] = None) -> GPTQMarlinConfig:
         gs = group_size if group_size is not None else self.group_size
         return GPTQMarlinConfig(
             weight_bits=bits,
@@ -182,17 +191,30 @@ class MixedGPTQConfig(QuantizationConfig):
         # Signature updated for vLLM>=0.20 (added hf_config kwarg).
         pass
 
-    def get_quant_method(self, layer: torch.nn.Module, prefix: str) -> QuantizeMethodBase | None:
+    def get_quant_method(
+        self, layer: torch.nn.Module, prefix: str
+    ) -> Optional[QuantizeMethodBase]:
+        if isinstance(layer, FusedMoE):
+            return self._get_moe_quant_method(layer, prefix)
+
         if not isinstance(layer, LinearBase):
             return None
 
         layer_idx, module_suffix = _parse_layer_and_module(prefix)
         if layer_idx is None:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         mod_cfg = _lookup_module_config(self.quantization_bits, layer_idx, module_suffix)
         if mod_cfg is None:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         if not _validate_quant_config_within_shard(
             self.quantization_bits, layer_idx, module_suffix
@@ -208,7 +230,11 @@ class MixedGPTQConfig(QuantizationConfig):
         group_size = self._resolve_group_size(mod_cfg)
 
         if bits == 0:
-            return UnquantizedLinearMethod()
+            return maybe_wrap_rotation_method(
+                UnquantizedLinearMethod(),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         int_bits = int(bits)
 
@@ -220,12 +246,20 @@ class MixedGPTQConfig(QuantizationConfig):
         ):
             try:
                 cfg = self._make_marlin_config(int_bits, group_size)
-                return GPTQMarlinLinearMethod(cfg)
+                return maybe_wrap_rotation_method(
+                    GPTQMarlinLinearMethod(cfg),
+                    prefix=prefix,
+                    metadata=self.rotation_metadata,
+                )
             except Exception:
                 pass
 
         if method == "gptq" and int_bits in (2, 3, 4, 8):
-            return GPTQLinearMethod(self._make_gptq_config(int_bits, group_size))
+            return maybe_wrap_rotation_method(
+                GPTQLinearMethod(self._make_gptq_config(int_bits, group_size)),
+                prefix=prefix,
+                metadata=self.rotation_metadata,
+            )
 
         logger.warning(
             "mixed_gptq: unsupported method=%s bits=%s at %s, " "falling back to unquantized",
@@ -233,7 +267,51 @@ class MixedGPTQConfig(QuantizationConfig):
             bits,
             prefix,
         )
-        return UnquantizedLinearMethod()
+        return maybe_wrap_rotation_method(
+            UnquantizedLinearMethod(),
+            prefix=prefix,
+            metadata=self.rotation_metadata,
+        )
+
+    def _get_moe_quant_method(
+        self, layer: torch.nn.Module, prefix: str
+    ) -> QuantizeMethodBase | None:
+        """Dispatch a FusedMoE layer to vLLM's GPTQ MoE kernel (MoeWNA16).
+
+        All experts in a FusedMoE layer share one kernel, so bits/group_size
+        are aggregated across the whole layer rather than looked up per-shard.
+        """
+        layer_idx, _ = _parse_layer_and_module(prefix)
+        if layer_idx is None:
+            return None
+
+        mod_cfg = _lookup_moe_config(self.quantization_bits, layer_idx, layer.global_num_experts)
+        if mod_cfg is None:
+            return None
+
+        bits = mod_cfg.get("bits", 0)
+        method = mod_cfg.get("method", "gptq")
+        group_size = self._resolve_group_size(mod_cfg)
+
+        if bits == 0 or method != "gptq":
+            if bits != 0:
+                logger.warning(
+                    "mixed_gptq: unsupported MoE method=%s bits=%s at %s, "
+                    "falling back to unquantized",
+                    method,
+                    bits,
+                    prefix,
+                )
+            return None
+
+        moe_config = {
+            "quant_method": "gptq",
+            "bits": int(bits),
+            "group_size": group_size,
+            "sym": self.sym,
+            "lm_head": False,
+        }
+        return MoeWNA16Config.from_config(moe_config).get_quant_method(layer, prefix)
 
 
 def register_vllm_plugin():

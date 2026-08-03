@@ -34,6 +34,7 @@ from .utils import calculate_perplexity as calc_perplexity
 from .utils import empty_cache
 from .utils.device import is_mps_device
 from .utils.lora import LORA_ADAPTER_SUBDIR
+from .utils.quant_config import get_quant_param
 from .utils.quantization_progress import QuantizationProgressTracker
 
 
@@ -1750,6 +1751,15 @@ class Runner:
         quant_config["rotated"] = self.model_config.has_additional_data()
         quant_config["fp32_had"] = fp32_had
 
+        # Rotated GPTQ models need the mixed_gptq plugin in vLLM so the
+        # down_proj path can apply the online Hadamard transform.
+        if quant_config.get("quant_method") == "gptq" and quant_config["rotated"]:
+            quant_config["quant_method"] = "mixed_gptq"
+            self.logger.info(
+                "Rotated GPTQ model detected: switching quant_method to mixed_gptq "
+                "for vLLM rotation compatibility"
+            )
+
         # MoE expert layers are not nn.Linear but fused3d tensors and are skipped by the
         # quantizer.  vLLM's built-in "gptq" handler still assumes them
         # GPTQ-quantized.  "mixed_gptq" returns None
@@ -1928,11 +1938,12 @@ class Runner:
             if getattr(layer, "_weight_is_packed", False):
                 continue
 
-            wbits = int(getattr(layer, "wbits", 0))
+            wbits = getattr(layer, "wbits", 0)
             if not self._packable_gptq_wbits(wbits):
                 if wbits != 1:
                     skipped_layers.append((layer_name, wbits))
                 continue
+            wbits = int(wbits)
 
             prefix = f"{layer_name}." if layer_name else ""
             qweight_key = f"{prefix}qweight"
@@ -2795,6 +2806,7 @@ class Runner:
         # Remap tensors to match the full-wrapper config.
         source_state_dict = state_dict if state_dict is not None else model.state_dict()
         full_state_dict = self._remap_text_only_state_dict_to_full_wrapper(source_state_dict)
+        full_state_dict = self._strip_moe_expert_g_idx_for_vllm(full_state_dict, full_quant_config)
 
         self.logger.info(
             "Prepared full-wrapper quantized save: model_type=%s, first_quantized=%s",
@@ -2855,3 +2867,37 @@ class Runner:
             remapped[new_key] = tensor
 
         return remapped
+
+    def _strip_moe_expert_g_idx_for_vllm(self, state_dict: dict, quant_config: dict) -> dict:
+        """Drop per-expert GPTQ ``g_idx`` buffers from a vLLM-facing export.
+
+        vLLM's GPTQ MoE kernel (MoeWNA16) has no ``g_idx`` parameter, so an
+        unmapped ``g_idx`` key crashes weight loading. Safe to drop only
+        when ``desc_act``/``actorder`` is disabled, since ``g_idx`` is then
+        just the trivial ``arange(in_features) // group_size`` grouping the
+        kernel already assumes; raises otherwise.
+        """
+        from vllm_plugins.utils.module import is_moe_expert_g_idx_key
+
+        moe_g_idx_keys = [key for key in state_dict if is_moe_expert_g_idx_key(key)]
+        if not moe_g_idx_keys:
+            return state_dict
+
+        desc_act = get_quant_param(quant_config, "desc_act", "actorder", default=False)
+        if desc_act:
+            raise RuntimeError(
+                "Cannot export an actorder/desc_act GPTQ MoE checkpoint for "
+                "vLLM: vLLM's GPTQ FusedMoE kernel (MoeWNA16Method) has no "
+                "g_idx support, so activation-order MoE quantization is not "
+                "servable by vLLM yet."
+            )
+
+        state_dict = dict(state_dict)
+        for key in moe_g_idx_keys:
+            del state_dict[key]
+        self.logger.info(
+            "Dropped %d trivial MoE expert g_idx buffer(s) unsupported by "
+            "vLLM's GPTQ FusedMoE kernel",
+            len(moe_g_idx_keys),
+        )
+        return state_dict

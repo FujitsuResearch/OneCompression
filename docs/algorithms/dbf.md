@@ -37,6 +37,7 @@ with optional weight balancing.
 | `use_adaptive_rho`   | `bool`                     | Adapt the ADMM penalty parameter ρ during optimization                            | `True`  |
 | `mlp_target_bits`    | `Optional[float]`          | Override `target_bits` for layers whose name contains `"mlp"`                     | `None`  |
 | `module_target_bits` | `Optional[dict[str,float]]`| Per-layer override of `target_bits`, keyed by exact layer name (highest priority) | `None`  |
+| `bitpack_on_quantize`| `bool`                     | Pack binary factors to `uint8` right after quantization (reduces RAM)             | `True`  |
 
 ## Usage
 
@@ -109,6 +110,17 @@ runner.run()
 
     If you still hit `CUDA out of memory`, halve the value until the run
     succeeds.
+
+## Quantize-time Bitpacking
+
+When `bitpack_on_quantize=True` (the default), DBF packs the binary factors
+`dbf_A` and `dbf_B` into `uint8` tensors immediately after each layer is
+successfully quantized. When it is `False`, the factors remain unpacked ±1
+`float16` matrices in the quantization result.
+
+Unlike GPTQ, DBF has no bit-width restriction for quantize-time bitpacking:
+the factors are always binary, and the packer supports arbitrary tensor shapes
+through padding.
 
 ## Save and Load
 

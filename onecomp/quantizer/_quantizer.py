@@ -111,6 +111,8 @@ class Quantizer(metaclass=ABCMeta):
         num_layers (int): The number of layers to be quantized,
             if None, all layers will be quantized.
         calc_quant_error (bool): If True, calculate quantization error.
+        bitpack_on_quantize (bool): If True, store quantized weights in a
+            bitpacked form during quantization. Default is False.
         exclude_layer_names (list[str]): List of layer names to exclude
             from quantization (exact match).
         include_layer_names (list[str]): List of layer names to include
@@ -166,6 +168,7 @@ class Quantizer(metaclass=ABCMeta):
     # Parameters for the quantizer
     num_layers: int = None
     calc_quant_error: bool = False
+    bitpack_on_quantize: bool = False
 
     # Layer selection parameters
     include_layer_names: list[str] = None  # Layers to explicitly quantize (exact match)
