@@ -15,16 +15,65 @@ Quantize ──► Build Model ──► Post-Process 1 ──► Post-Process 2
                               (e.g. GlobalPTQ)   (e.g. LoRA SFT)
 ```
 
+## Load -> Post-process -> Re-save
+
+Saved quantized checkpoints can be loaded, refined with additional
+structure-preserving post-processes, and saved again. Load with
+`device_map=None` to keep the model on CPU before `run_post_processes()`:
+
+```python
+from onecomp import BlockWisePTQ, CalibrationConfig, ModelConfig, Runner, load_quantized_model
+
+model_config = ModelConfig(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="cuda:0",
+)
+
+model, _ = load_quantized_model(
+    "./tinyllama-gptq4-initial",
+    device_map=None,
+)
+
+runner = Runner(
+    model_config=model_config,
+    quantizer=None,
+    post_processes=[
+        BlockWisePTQ(
+            lr=1e-4,
+            epochs=10,
+            cbq_enable=True,
+            calibration_config=CalibrationConfig(num_calibration_samples=128),
+        )
+    ],
+)
+runner.quantized_model = model
+runner.run_post_processes()
+runner.save_quantized_model("./tinyllama-gptq4-blockwise-resaved")
+```
+
+`quantizer=None` is valid for this flow because `runner.quantized_model` is
+assigned before calling `run_post_processes()`. Each post-process run that
+completes without raising appends an entry to
+`quantization_config["onecomp_post_processes"]`, so the audit metadata
+accumulates across repeated load -> post-process -> re-save cycles. Every
+entry records an `executed` flag; when a post-process skips its work (for
+example `GlobalPTQ` on a model with no quantized layers) the entry records
+`executed: false` together with a `reason` such as `not_quantized`.
+
+!!! tip
+    A complete working example is available at
+    [`example/post_process/example_reload_post_process_resave.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_reload_post_process_resave.py).
+
 ---
 
 ## Global PTQ: Parameter Optimisation
 
-Global PTQ improves quantized model accuracy by globally optimising continuous quantization parameters (scales and zeros for GPTQ; scaling factors for DBF) using KL-divergence distillation from a full-precision teacher model.
+Global PTQ improves quantized model accuracy by globally optimising continuous quantization parameters (scales and zeros for GPTQLinear-backed quantizers such as GPTQ, RTN, and JointQ; scaling factors for DBF) using KL-divergence distillation from a full-precision teacher model.
 
 ### Single-GPU (GlobalPTQ)
 
 ```python
-from onecomp import CalibrationConfig, GPTQ, ModelConfig, Runner, GlobalPTQ, setup_logger
+from onecomp import CalibrationConfig, DBF, GPTQ, JointQ, RTN, ModelConfig, Runner, GlobalPTQ, setup_logger
 
 setup_logger()
 
@@ -32,7 +81,10 @@ model_config = ModelConfig(
     model_id="meta-llama/Llama-2-7b-hf",
     device="cuda:0",
 )
-gptq = GPTQ(wbits=4, groupsize=128)
+quantizer = GPTQ(wbits=4, groupsize=128)
+# quantizer = RTN(wbits=4, groupsize=128)
+# quantizer = JointQ(bits=4, group_size=128)
+# quantizer = DBF(target_bits=1.5)
 
 global_ptq = GlobalPTQ(
     epochs=5,
@@ -45,11 +97,40 @@ global_ptq = GlobalPTQ(
 
 runner = Runner(
     model_config=model_config,
-    quantizer=gptq,
+    quantizer=quantizer,
     post_processes=[global_ptq],
 )
 runner.run()
 ```
+
+To invoke GlobalPTQ directly on a model instance, use the following pattern
+instead of passing it through `post_processes`:
+
+```python
+runner = Runner(
+    model_config=model_config,
+    quantizer=quantizer,
+)
+runner.run()
+
+model, _ = runner.create_quantized_model(use_gemlite=False)
+post_process = global_ptq
+post_process.run(model, model_config)
+runner.quantized_model = model
+```
+
+The direct path uses the same post-process metadata recording as
+`run_post_processes()`. For explicit unpacked buffers, use
+`runner.create_quantized_model(pack_weights=False, use_gemlite=False)`; this is
+only needed when GPTQLinear bit packing cannot represent the quantizer output
+(e.g. 1-bit JointQ, or GPTQ/RTN bit widths outside `{2, 3, 4, 8}`), and is
+documented in the `GlobalPTQ` API reference.
+
+!!! tip
+    A complete working example of the Runner-managed packed/default path (GPTQ
+    by default; uncomment `DBF(target_bits=1.5)` in the script to run DBF) is
+    available at
+    [`example/post_process/example_global_ptq.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_global_ptq.py).
 
 ### Multi-GPU with DeepSpeed (GlobalPTQDistributed)
 
@@ -133,11 +214,23 @@ torchrun --nproc_per_node=2 my_script.py
 
 See the [API Reference](../api/post_process.md) for the full parameter list.
 
+!!! info "Save / Load"
+    GlobalPTQ and GlobalPTQDistributed update quantized-layer buffers without
+    introducing custom module types, so optimised models can be saved with
+    `save_quantized_model()` and reloaded with `load_quantized_model()`. They
+    also record an entry under
+    `quantization_config["onecomp_post_processes"]`, so the saved checkpoint
+    retains the post-process audit trail across load → post-process → re-save
+    cycles. Skipped runs (no quantized layers, unsupported method, or zero
+    trainable parameters) are recorded with `executed: false` and a `reason`
+    (`not_quantized`, `unsupported_method_<method>`, `no_params`). The `.pt` path remains available when whole-object PyTorch
+    serialization is explicitly needed.
+
 ---
 
 ## Block-wise PTQ
 
-Block-wise PTQ improves quantized model accuracy by minimising intermediate-representation MSE against an FP16 teacher at Transformer-block granularity. It supports GPTQ, DBF, and OneBit quantizers.
+Block-wise PTQ improves quantized model accuracy by minimising intermediate-representation MSE against an FP16 teacher at Transformer-block granularity. It supports GPTQLinear-backed quantizers (GPTQ, RTN, JointQ), DBF, and Onebit.
 
 ### How it works
 
@@ -149,7 +242,7 @@ Only 1–2 blocks are loaded onto GPU at a time, so large models can be processe
 ### Usage via Runner
 
 ```python
-from onecomp import GPTQ, BlockWisePTQ, ModelConfig, Runner, setup_logger
+from onecomp import DBF, GPTQ, JointQ, Onebit, RTN, BlockWisePTQ, ModelConfig, Runner, setup_logger
 
 setup_logger()
 
@@ -157,7 +250,11 @@ model_config = ModelConfig(
     model_id="meta-llama/Llama-2-7b-hf",
     device="cuda:0",
 )
-gptq = GPTQ(wbits=4, groupsize=128)
+quantizer = GPTQ(wbits=4, groupsize=128)
+# quantizer = RTN(wbits=4, groupsize=128)
+# quantizer = JointQ(bits=4, group_size=128)
+# quantizer = DBF(target_bits=1.5)
+# quantizer = Onebit()
 
 blockwise_ptq = BlockWisePTQ(
     lr=1e-4,
@@ -168,7 +265,7 @@ blockwise_ptq = BlockWisePTQ(
 
 runner = Runner(
     model_config=model_config,
-    quantizer=gptq,
+    quantizer=quantizer,
     post_processes=[blockwise_ptq],
 )
 runner.run()
@@ -185,14 +282,16 @@ print(f"Quantized + BlockWisePTQ PPL:    {quantized_ppl:.4f}")
 You can also call BlockWisePTQ directly on an existing quantized model to compare before/after PPL without re-running quantization:
 
 ```python
-runner = Runner(model_config=model_config, quantizer=gptq)
+runner = Runner(model_config=model_config, quantizer=quantizer)
 runner.run()
 
 # Baseline PPL
 _, _, baseline_ppl = runner.calculate_perplexity(quantized_model=True)
 
 # Apply BlockWisePTQ
-model, _ = runner.create_quantized_model(pack_weights=False, use_gemlite=False)
+# pack_weights defaults to True (matches run_post_processes); use_gemlite=False
+# keeps the plain PyTorch path the block optimiser needs.
+model, _ = runner.create_quantized_model(use_gemlite=False)
 blockwise_ptq.run(model, model_config)
 runner.quantized_model = model
 
@@ -201,8 +300,13 @@ _, _, improved_ppl = runner.calculate_perplexity(quantized_model=True)
 ```
 
 !!! tip
-    A complete working example is available at
+    A complete working example of the Runner-managed packed/default path is
+    available at
     [`example/post_process/example_blockwise_ptq.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_blockwise_ptq.py).
+    The explicit unpacked path (`create_quantized_model(pack_weights=False)`
+    → `BlockWisePTQ.run()`) is only needed when GPTQLinear bit packing cannot
+    represent the quantizer output (e.g. 1-bit JointQ, or GPTQ/RTN bit widths
+    outside `{2, 3, 4, 8}`); see the `BlockWisePTQ` API reference for that path.
 
 ### Key Parameters
 
@@ -222,8 +326,15 @@ _, _, improved_ppl = runner.calculate_perplexity(quantized_model=True)
 
 See the [API Reference](../api/post_process.md) for the full parameter list.
 
-!!! warning "Save / Load"
-    Saving and loading BlockWisePTQ-optimised models via `save_quantized_model()` / `load_quantized_model()` is not yet supported. This will be addressed in a future release.
+!!! info "Save / Load"
+    BlockWisePTQ-optimised models can be saved with `save_quantized_model()` and
+    reloaded with `load_quantized_model()`. On the standard Runner path
+    (`run()` → `run_post_processes()` → `save_quantized_model()`) the quantized
+    model is built with packed buffers by default, so the saved checkpoint keeps
+    the packed layout. A saved checkpoint can also be reloaded, refined with
+    further post-processes, and saved again; the applied post-processes are
+    recorded under `quantization_config["onecomp_post_processes"]` as an audit
+    trail across save/load cycles.
 
 ---
 
@@ -346,23 +457,29 @@ model, tokenizer = load_quantized_model("./my_model_lora")
 ```
 
 !!! info "save_quantized_model vs save_quantized_model_pt"
+    Outputs from **all** built-in post-processes — `BlockWisePTQ`, `GlobalPTQ`,
+    `GlobalPTQDistributed`, and `PostProcessLoraSFT` and its teacher variants —
+    are saved and loaded through the standard `save_quantized_model()` /
+    `load_quantized_model()` path. None of them requires the legacy `.pt` path.
+
     | Method | Format | Use Case |
     |--------|--------|----------|
-    | `save_quantized_model()` | safetensors (HF-compatible; LoRA via PEFT sidecar) | **Recommended** for all models, including LoRA post-processed ones |
-    | `save_quantized_model_pt()` | PyTorch `.pt` | Legacy / research-only alternative (see below) |
+    | `save_quantized_model()` | HF-compatible safetensors; LoRA adds a `lora_adapter/` PEFT sidecar | Standard path for supported quantized models and all built-in post-process outputs. vLLM compatibility depends on the saved `quant_method` |
+    | `save_quantized_model_pt()` | PyTorch `.pt` whole-object serialization | Legacy research/development path, e.g. for custom module types that the safetensors loader cannot reconstruct |
 
-    Similarly, use `load_quantized_model()` for safetensors and, only for legacy
-    `.pt` checkpoints, `load_quantized_model_pt()`.
+    Use `load_quantized_model()` for safetensors and `load_quantized_model_pt()`
+    only for legacy `.pt` checkpoints.
 
 ### Legacy `.pt` save/load (research/development only)
 
 The PyTorch `.pt` format (`save_quantized_model_pt()` /
 `load_quantized_model_pt()`) serializes full custom module objects (e.g.
 `LoRAGPTQLinear`) directly. It predates the safetensors sidecar flow above and
-is **not recommended** for general or production use. Keep using it only for
-research and development -- for example, to quickly experiment with a new
-post-process before it has a safetensors-compatible `load_quantized_model()`
-path.
+is **not recommended** for general or production use. Every in-tree
+post-process, LoRA SFT included, has a safetensors save/load path, so this
+format is not needed for them. Keep using it only for research and development
+-- for example, to quickly experiment with a post-process of your own before it
+has a safetensors-compatible `load_quantized_model()` path.
 
 ```python
 from onecomp import load_quantized_model_pt
@@ -495,10 +612,20 @@ post_process = PostProcessLoraSFT(
 
 ## Limitations
 
-!!! warning "vLLM Inference"
-    LoRA-applied models saved with `save_quantized_model_pt()` are **not currently supported** by the vLLM plugins. vLLM integration for LoRA post-processed models is planned for a future release.
+!!! info "vLLM Inference"
+    LoRA-applied models saved with `save_quantized_model()` (base safetensors +
+    PEFT adapter sidecar) can be served by vLLM via its native LoRA mechanism:
+    load with `enable_lora=True` and pass a
+    `LoRARequest(lora_path=".../lora_adapter")`. See
+    [`example/post_process/example_lora_gptq_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_lora_gptq_vllm_inference.py).
+    Models saved with the legacy `save_quantized_model_pt()` (`.pt`) format are
+    **not** servable by vLLM — re-save with `save_quantized_model()` for vLLM.
 
-    For standard quantized models (without LoRA), use `save_quantized_model()` and serve via vLLM as described in the [vLLM Inference guide](vllm-inference.md).
+    For standard quantized models, and for post-processes that keep the
+    quantized layer structure such as `BlockWisePTQ`, `GlobalPTQ`, and
+    `GlobalPTQDistributed`, use `save_quantized_model()`. Models whose saved
+    `quant_method` is supported by vLLM can then be served as described in the
+    [vLLM Inference guide](vllm-inference.md).
 
 !!! note "Supported Quantizers"
     LoRA SFT currently supports **GPTQ**-quantized models only. Support for other quantization methods (DBF, RTN) may be added in the future.

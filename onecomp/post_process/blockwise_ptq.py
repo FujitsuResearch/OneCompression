@@ -72,7 +72,27 @@ class BlockWisePTQ(PostQuantizationProcess):
             ``num_calibration_samples=128``.
             See :class:`~onecomp.calibration.CalibrationConfig`.
 
+    Buffer layout:
+        ``BlockWisePTQ`` accepts a quantized model with either packed or
+        unpacked ``GPTQLinear`` buffers.  The recommended Runner-managed path
+        (``post_processes=[BlockWisePTQ(...)]`` + ``Runner.run()``) builds packed
+        buffers by default, and packed outputs are what the save / load and vLLM
+        workflows expect, so prefer it for reusable checkpoints.
+
+        Unpacked buffers are required only when ``GPTQLinear`` bit packing cannot
+        represent the quantizer output:
+
+        - ``JointQ(bits=1, ...)`` — 1-bit JointQ output is not supported by the
+          ``GPTQLinear`` packing helpers.
+        - ``GPTQ`` / ``RTN`` bit widths in ``{1, 5, 6, 7}`` — the packing helpers
+          currently support only ``{2, 3, 4, 8}``.
+
+        For those cases, build the post-process input with ``pack_weights=False``
+        and call :meth:`run` directly instead of going through ``Runner.run()``.
+
     Examples:
+        Recommended Runner-managed path (packed buffers by default):
+
         >>> from onecomp import Runner, ModelConfig, GPTQ, BlockWisePTQ
         >>> model_config = ModelConfig(model_id="meta-llama/Llama-2-7b-hf")
         >>> quantizer = GPTQ(wbits=4, groupsize=128)
@@ -82,6 +102,18 @@ class BlockWisePTQ(PostQuantizationProcess):
         ...     post_processes=[BlockWisePTQ(lr=1e-4, epochs=10, cbq_enable=True)],
         ... )
         >>> runner.run()
+
+        Explicit unpacked path (e.g. 1-bit JointQ or GPTQ/RTN bit widths
+        outside ``{2, 3, 4, 8}``):
+
+        >>> runner = Runner(model_config=model_config, quantizer=quantizer)
+        >>> runner.run()
+        >>> blockwise_ptq = BlockWisePTQ(lr=1e-4, epochs=10, cbq_enable=True)
+        >>> model, _ = runner.create_quantized_model(
+        ...     pack_weights=False, use_gemlite=False
+        ... )
+        >>> blockwise_ptq.run(model, model_config)
+        >>> runner.quantized_model = model
 
     """
 
@@ -106,7 +138,7 @@ class BlockWisePTQ(PostQuantizationProcess):
     # Calibration (qep-dev: cfg.dataset / cfg.nsamples via get_loaders())
     calibration_config: CalibrationConfig = None
 
-    def run(
+    def _run(
         self,
         quantized_model: nn.Module,
         model_config: ModelConfig,

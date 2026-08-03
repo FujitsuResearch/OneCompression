@@ -9,9 +9,13 @@ Usage:
     pytest tests/onecomp/post_process/test_global_ptq_core.py -v
 """
 
+from types import SimpleNamespace
+
 import pytest
 import torch
 import torch.nn as nn
+
+from tests.onecomp.fixtures.quant_config import valid_quant_config
 
 # ---------------------------------------------------------------------------
 # cosine_warmup_lr_lambda
@@ -311,3 +315,81 @@ class TestRemovedDiscreteFields:
         }
         mod = importlib.import_module(mod_map[symbol])
         assert not hasattr(mod, symbol), f"{symbol} should not be defined (removed)"
+
+
+# ---------------------------------------------------------------------------
+# GlobalPTQ — skip-path audit metadata
+# ---------------------------------------------------------------------------
+
+
+class _PlainPostProcessModel(nn.Module):
+    """Schema-valid model with no quantized inference layers."""
+
+    def __init__(self):
+        super().__init__()
+        self.proj = nn.Linear(2, 2)
+        self.config = SimpleNamespace(quantization_config=valid_quant_config())
+
+
+class TestGlobalPTQSkipMetadata:
+    """Regression tests for early-return audit metadata (cf. GlobalPTQDistributed)."""
+
+    def test_not_quantized_skip_records_reason(self):
+        from onecomp.post_process.global_ptq import GlobalPTQ
+
+        model = _PlainPostProcessModel()
+        GlobalPTQ().run(model, object())
+
+        entry = model.config.quantization_config["onecomp_post_processes"][-1]
+        assert entry["class"] == "GlobalPTQ"
+        assert entry["executed"] is False
+        assert entry["reason"] == "not_quantized"
+
+    def test_unsupported_method_skip_records_reason(self, monkeypatch):
+        from onecomp.post_process._global_ptq import core
+        from onecomp.post_process.global_ptq import GlobalPTQ
+
+        monkeypatch.setattr(
+            core,
+            "detect_quantization_method",
+            lambda _model: ("onebit", []),
+        )
+
+        model = _PlainPostProcessModel()
+        GlobalPTQ().run(model, object())
+
+        entry = model.config.quantization_config["onecomp_post_processes"][-1]
+        assert entry["executed"] is False
+        assert entry["reason"] == "unsupported_method_onebit"
+
+    def test_no_params_skip_records_reason(self, monkeypatch):
+        """A supported method with zero trainable params records ``no_params``."""
+        from onecomp.post_process._global_ptq import core
+        from onecomp.post_process.global_ptq import GlobalPTQ
+
+        # Reach the trainable-parameter check with a supported method but no
+        # differentiable parameters, without loading real calibration data or
+        # a teacher model.
+        monkeypatch.setattr(
+            core,
+            "detect_quantization_method",
+            lambda _model: ("gptq", []),
+        )
+        monkeypatch.setattr(core, "_prepare_dataloader", lambda *a, **k: [])
+        monkeypatch.setattr(
+            core,
+            "setup_gptq_differentiable",
+            lambda _modules, _dev: ({}, []),
+        )
+        # This build of torch is CUDA-enabled but the box may have no driver;
+        # the skip path's cache cleanup must not force CUDA initialization.
+        monkeypatch.setattr(torch.cuda, "empty_cache", lambda: None)
+        fake_model_config = SimpleNamespace(load_model=lambda **_k: nn.Linear(2, 2))
+
+        model = _PlainPostProcessModel()
+        GlobalPTQ().run(model, fake_model_config)
+
+        entry = model.config.quantization_config["onecomp_post_processes"][-1]
+        assert entry["class"] == "GlobalPTQ"
+        assert entry["executed"] is False
+        assert entry["reason"] == "no_params"

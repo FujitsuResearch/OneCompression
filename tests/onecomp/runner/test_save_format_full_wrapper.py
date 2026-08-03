@@ -35,6 +35,23 @@ def _make_runner_stub(*, load_config=None):
     return runner
 
 
+def _gptq_quant_config(*module_names):
+    """Minimal ``quantization_config`` carrying the keys the save path requires.
+
+    ``save_quantized_model()`` runs ``validate_quantized_model_config()`` on an
+    existing ``runner.quantized_model`` (see ``onecomp/utils/quant_config.py``),
+    which requires both ``quant_method`` and ``modules_in_block_to_quantize``.
+    Stand-in models used in the end-to-end tests below must therefore carry the
+    same keys a real quantized checkpoint does; the helper-level tests that call
+    the private remap methods directly bypass that validation and may use
+    sparser configs.
+    """
+    return {
+        "quant_method": "gptq",
+        "modules_in_block_to_quantize": list(module_names),
+    }
+
+
 def _fake_model(*, model_type, state_dict_keys, text_config=None, quantization_config=None):
     config = SimpleNamespace(
         model_type=model_type,
@@ -389,7 +406,11 @@ class _FakeFullWrapperModel:
 
     def save_pretrained(self, save_directory, state_dict=None):
         self.save_calls.append(
-            {"state_dict": state_dict, "config_model_type": self.config.model_type}
+            {
+                "state_dict": state_dict,
+                "config_model_type": self.config.model_type,
+                "config_quantization_config": getattr(self.config, "quantization_config", None),
+            }
         )
 
 
@@ -402,9 +423,7 @@ def test_save_quantized_model_full_wrapper_remaps_and_restores_config(tmp_path):
       _prepare_model_for_quantized_save)."""
     text_only_config = SimpleNamespace(
         model_type="qwen3_5_text",
-        quantization_config={
-            "modules_in_block_to_quantize": ["model.layers.0.mlp.down_proj"],
-        },
+        quantization_config=_gptq_quant_config("model.layers.0.mlp.down_proj"),
     )
     composite_config = SimpleNamespace(
         model_type="qwen3_5", text_config=SimpleNamespace(model_type="qwen3_5_text")
@@ -443,16 +462,30 @@ def test_save_quantized_model_full_wrapper_remaps_and_restores_config(tmp_path):
     }
     # save_pretrained() saw the remapped composite config...
     assert call["config_model_type"] == "qwen3_5"
+    # ...whose quantization_config was remapped to the same namespace while
+    # keeping the keys the save/load validation requires.
+    assert call["config_quantization_config"] == {
+        "quant_method": "gptq",
+        "modules_in_block_to_quantize": ["model.language_model.layers.0.mlp.down_proj"],
+    }
     # ...but it is restored to the original text-only object afterwards.
     assert model.config is text_only_config
     assert model.config.model_type == "qwen3_5_text"
+    assert model.config.quantization_config["modules_in_block_to_quantize"] == [
+        "model.layers.0.mlp.down_proj"
+    ]
 
 
 def test_save_quantized_model_full_wrapper_raises_for_non_qwen36_model(tmp_path):
     """A plain (non-Qwen3.6) model must fail save_format="full_wrapper"
     instead of silently writing a checkpoint vLLM won't be able to load."""
-    plain_config = SimpleNamespace(model_type="llama", quantization_config=None)
-    model = _FakeFullWrapperModel(plain_config, {"model.layers.0.weight": torch.zeros(1)})
+    plain_config = SimpleNamespace(
+        model_type="llama",
+        quantization_config=_gptq_quant_config("model.layers.0.mlp.down_proj"),
+    )
+    model = _FakeFullWrapperModel(
+        plain_config, {"model.layers.0.mlp.down_proj.qweight": torch.zeros(1)}
+    )
 
     runner = Runner.__new__(Runner)
     runner.logger = getLogger("test_save_format_full_wrapper")
@@ -480,8 +513,13 @@ def test_save_quantized_model_default_format_is_noop_for_non_qwen_model(tmp_path
     guarantee that adding save_format="full_wrapper" did not change the
     existing default behavior for every other model (Llama, plain Qwen3,
     Gemma-text, ...)."""
-    plain_config = SimpleNamespace(model_type="llama", quantization_config=None)
-    model = _FakeFullWrapperModel(plain_config, {"model.layers.0.weight": torch.zeros(1)})
+    plain_config = SimpleNamespace(
+        model_type="llama",
+        quantization_config=_gptq_quant_config("model.layers.0.mlp.down_proj"),
+    )
+    model = _FakeFullWrapperModel(
+        plain_config, {"model.layers.0.mlp.down_proj.qweight": torch.zeros(1)}
+    )
 
     runner = Runner.__new__(Runner)
     runner.logger = getLogger("test_save_format_full_wrapper")
@@ -504,6 +542,8 @@ def test_save_quantized_model_default_format_is_noop_for_non_qwen_model(tmp_path
     # _prepare_model_for_quantized_save's docstring) - i.e. no remap applied.
     assert call["state_dict"] is None
     assert call["config_model_type"] == "llama"
+    # The quantization_config reached save_pretrained() unremapped as well.
+    assert call["config_quantization_config"] is plain_config.quantization_config
     # Config object identity is preserved - it was never swapped, not even
     # temporarily inside the try/finally.
     assert model.config is plain_config
