@@ -1,5 +1,28 @@
 # Change log
 
+## [v1.3.0] 2026-07-27
+
+## Add CPU inference & GGUF export for OneComp quantized models (for Llama.cpp)
+- Introduce `onecomp.cpu`: Add a CPU-only deployment path that exports OneComp GPTQ
+checkpoints to GGUF and runs them with Llama.cpp (llama-cpp-python), plus the
+`llamacpp_plugins` mixed-precision exporter (the llama.cpp counterpart of
+vllm_plugins).
+
+- The way of GGUF Export (onecomp/cpu/export):
+* direct, lossless GPTQ -> GGUF packing (Q4_0/Q4_1/Q8_0) that reuses the exact
+* QEP/GPTQ integer codes with no re-quantization;
+* dequantize -> llama-quantize fallback for unsupported layouts;
+* shared skeleton/stitch plumbing reused by the mixed exporter.
+
+- Mixed precision (llamacpp_plugins/gptq): per-module routing that packs 4/8-bit
+layers losslessly and K-quantizes 2/3-bit (and act-order) layers via
+llama-quantize, yielding one GGUF with genuinely mixed per-layer precision.
+- Evaluation (onecomp/cpu/eval): GGUF inspector (per-tensor types / size /
+effective bits), CPU perplexity, HF-vs-GGUF parity, and prefill/decode
+benchmark. Inference wrapper gains streaming generation.
+CLI `onecomp-gguf` exposes export/run/inspect/ppl/bench. Adds the `gguf` and
+`llamacpp` uv extras, docs, examples and unit tests (16 passing).
+
 ## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step1] 2026-07-22
 
 ### MoE quantization exclusion
