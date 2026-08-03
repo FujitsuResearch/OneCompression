@@ -21,8 +21,10 @@ from onecomp.qep._qep_config import QEPConfig
 from onecomp.qep._quantize_with_qep_arch import run_quantize_with_qep_arch
 from onecomp.quantizer.gptq import GPTQ
 
-HIDDEN = 4
-INTERMEDIATE = 6
+# in_features of every expert Linear must be divisible by the 4-bit pack factor
+# (32 // 4 == 8): gate/up consume HIDDEN, down consumes INTERMEDIATE.
+HIDDEN = 8
+INTERMEDIATE = 8
 NUM_EXPERTS = 3
 SEQ_LEN = 3
 
