@@ -54,7 +54,7 @@ Other Hugging Face-compatible models may work but are currently untested.
 | 1 | Llama | TinyLlama, Llama-2, Llama-3 | ✅ Verified |
 | 2 | Qwen3 | Qwen3-0.6B ~ 32B | ✅ Verified |
 | 3 | Gemma | Gemma 2, Gemma 3, Gemma 4  | ✅ Verified |
-| 4 | Qwen3.6 | Qwen3.6-27B | ✅ Verified |
+| 4 | Qwen3.6 | Qwen3.6-27B, Qwen3.6-35B-A3B | ✅ Verified |
 
 
 > **Note:** Support for additional architectures is planned. Contributions and test reports are welcome.
@@ -310,8 +310,10 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_lora_sft_knowledge_jointq.py](./example/post_process/example_lora_sft_knowledge_jointq.py) | LoRA SFT knowledge injection on a JointQ-quantized model |
 | | [example_lora_gptq_vllm_inference.py](./example/post_process/example_lora_gptq_vllm_inference.py) | GPTQ + LoRA SFT, HF-compatible safetensors + PEFT sidecar, and vLLM inference |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
+| | [example_gptq_vllm_qwen36_inference.py](./example/vllm_inference/example_gptq_vllm_qwen36_inference.py) | GPTQ quantization and vLLM inference for Qwen3.6 (full-wrapper save) |
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
+| | [example_dbf_vllm_inference.py](./example/vllm_inference/example_dbf_vllm_inference.py) | DBF quantization and vLLM inference |
 
 ## 🔌 vLLM Inference
 

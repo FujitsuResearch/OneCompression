@@ -66,6 +66,7 @@ import torch
 
 from onecomp.quantizer.gptq.gptq_layer import (
     GPTQLinear,
+    _normalize_wbits,
     is_packable_wbits,
     pack_int_weights,
     pack_zeros,
@@ -470,8 +471,115 @@ def test_pack_in_place_noop_for_non_packable_wbits():
 
 
 def test_is_packable_wbits():
-    """The shared packable-width predicate must accept {2, 3, 4, 8} and reject
-    everything else (notably JointQ's 1-bit)."""
-    assert all(is_packable_wbits(w) for w in (2, 3, 4, 8))
+    """The shared predicate accepts supported integral values without rounding."""
+    assert all(is_packable_wbits(w) for w in (2, 3, 4, 8, 2.0, 3.0, 4.0, 8.0))
     assert not is_packable_wbits(1)
+    assert not is_packable_wbits(2.5)
     assert not is_packable_wbits(16)
+
+
+def test_normalize_wbits_accepts_integral_rejects_others():
+    """Integral values normalize to int; all other inputs are rejected."""
+
+    class IntSubclass(int):
+        pass
+
+    assert _normalize_wbits(2) == 2 and type(_normalize_wbits(2)) is int
+    normalized = _normalize_wbits(2.0)
+    assert normalized == 2 and type(normalized) is int
+    assert type(_normalize_wbits(IntSubclass(2))) is int
+    for bad in (2.5, True, False, "2", float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            _normalize_wbits(bad)
+
+
+def _minimal_gptq_kwargs(shape_wbits, device="cpu"):
+    """Constructor kwargs (minus ``wbits``) sized for an integral bit width."""
+    groupsize = 32
+    in_features = groupsize * 2
+    out_features = 32
+    num_groups = in_features // groupsize
+    vmax = (1 << shape_wbits) - 1
+    return {
+        "in_features": in_features,
+        "out_features": out_features,
+        "groupsize": groupsize,
+        "actorder": False,
+        "quantized_weight": torch.zeros(
+            out_features, in_features, dtype=torch.int32, device=device
+        ),
+        "scale": torch.ones(num_groups, out_features, dtype=torch.float32, device=device),
+        "zero": torch.full(
+            (num_groups, out_features), float(min(vmax, 5)), dtype=torch.float32, device=device
+        ),
+        "bias": None,
+        "device": device,
+        "pack_weights": True,
+        "use_gemlite": False,
+    }
+
+
+def test_gptqlinear_init_accepts_integral_float_wbits():
+    """``GPTQLinear(wbits=2.0)`` constructs and stores a builtin int width."""
+    layer = GPTQLinear(wbits=2.0, **_minimal_gptq_kwargs(2))
+    assert layer.wbits == 2
+    assert type(layer.wbits) is int
+
+
+def test_gptqlinear_init_rejects_non_integral_float_wbits():
+    """``GPTQLinear(wbits=2.5)`` raises before the ``1 << wbits`` bit-shift."""
+    with pytest.raises(ValueError):
+        GPTQLinear(wbits=2.5, **_minimal_gptq_kwargs(2))
+
+
+def _packed_state_dict(shape_wbits, device="cpu"):
+    """Build a v1-style packed state_dict for an integral bit width."""
+    groupsize = 32
+    in_features = groupsize * 2
+    out_features = 32
+    num_groups = in_features // groupsize
+    vmax = (1 << shape_wbits) - 1
+    qweight = torch.zeros(out_features, in_features, dtype=torch.int32, device=device)
+    zeros_raw = torch.full(
+        (num_groups, out_features), min(vmax, 5), dtype=torch.int32, device=device
+    )
+    state_dict = {
+        "qweight": pack_int_weights(qweight, shape_wbits),
+        "scales": torch.ones(num_groups, out_features, dtype=torch.float16, device=device),
+        "qzeros": pack_zeros(zeros_raw, shape_wbits),
+        "g_idx": torch.arange(in_features, device=device, dtype=torch.int32) // groupsize,
+    }
+    return state_dict, in_features, out_features, groupsize
+
+
+def test_from_saved_state_accepts_integral_float_wbits():
+    """``from_saved_state(wbits=2.0)`` normalizes to a builtin int width."""
+    state_dict, in_features, out_features, groupsize = _packed_state_dict(2)
+    layer = GPTQLinear.from_saved_state(
+        state_dict,
+        in_features=in_features,
+        out_features=out_features,
+        wbits=2.0,
+        groupsize=groupsize,
+        actorder=False,
+        empty=False,
+        checkpoint_format="gptq",
+    )
+    assert layer.wbits == 2
+    assert type(layer.wbits) is int
+
+
+def test_from_saved_state_rejects_non_integral_float_wbits():
+    """``from_saved_state(wbits=2.5)`` raises like the constructor."""
+    state_dict, in_features, out_features, groupsize = _packed_state_dict(2)
+    with pytest.raises(ValueError):
+        GPTQLinear.from_saved_state(
+            state_dict,
+            in_features=in_features,
+            out_features=out_features,
+            wbits=2.5,
+            groupsize=groupsize,
+            actorder=False,
+            empty=False,
+            checkpoint_format="gptq",
+        )

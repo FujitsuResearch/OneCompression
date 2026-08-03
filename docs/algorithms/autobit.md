@@ -41,6 +41,7 @@ as a fallback quantizer for the layers where GPTQ candidates would incur excessi
 | `enable_fused_groups`  | `bool`  | Enforce same quantizer for vLLM fused layers                       | `True`               |
 | `auto_dbf`             | `bool`  | Enable DBF fallback for ultra-low-bit targets                      | `True`               |
 | `dbf_threshold`        | `float` | Target bit-width threshold below which DBF is injected             | `2.0`                |
+| `bitpack_on_quantize`  | `bool`  | Quantize-time bitpacking for child GPTQ/DBF candidates and generated DBF (overrides their own setting) | `True`               |
 | `save_path`            | `str`   | Path to save assignment heatmap visualization                      | `None`               |
 
 ## Usage
@@ -85,6 +86,25 @@ autobit = AutoBitQuantizer(
     ],
 )
 ```
+
+## Quantize-time Bitpacking
+
+AutoBit does not bitpack tensors itself. It propagates
+`bitpack_on_quantize` to its GPTQ and DBF child candidates before validating
+them, and passes the same value to DBF fallback quantizers that it creates.
+This overwrites any `bitpack_on_quantize` value set explicitly on a child
+candidate. The selected child quantizer performs the actual packing.
+
+When AutoBit's `bitpack_on_quantize=True`, every resolved width used by a GPTQ
+candidate must be one of `{2, 3, 4, 8}`. Setting it to `False` removes this
+bitpacking restriction.
+
+Independently, the default `enable_fused_groups=True` requires every configured
+candidate to be GPTQ with a top-level `wbits` in `{2, 3, 4, 8}` for vLLM fused
+layers. Therefore, using another GPTQ width or explicitly including a DBF
+candidate requires `enable_fused_groups=False`, regardless of
+`bitpack_on_quantize`. DBF itself has no bitpacking width or shape restriction:
+its factors are binary, and arbitrary shapes are handled with padding.
 
 ## VRAM Estimation
 
