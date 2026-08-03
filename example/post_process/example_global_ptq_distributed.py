@@ -13,13 +13,13 @@ Usage:
     torchrun --nproc_per_node=4 example/post_process/example_global_ptq_distributed.py
 
     # 2-GPU without DeepSpeed (Trainer-only mode)
-    torchrun --nproc_per_node=2 example/post_process/example_global_ptq_distributed.py --no-deepspeed
+    torchrun --nproc_per_node=2 \
+        example/post_process/example_global_ptq_distributed.py --no-deepspeed
 """
 
 import argparse
 import os
 
-import torch
 import torch.distributed as dist
 
 from onecomp import (
@@ -73,6 +73,19 @@ def main():
         ),
         post_processes=[global_ptq],
     )
+    # NOTE: The calibration settings above are kept compact so the demo runs
+    # fast and may be insufficient for real quantization.  For higher quality,
+    # prefer the CalibrationConfig() defaults
+    # (max_length=2048, num_calibration_samples=512).
+    # For qep=False runs with large calibration data, also pass ``batch_size``
+    # as a CalibrationConfig argument, e.g.
+    #   CalibrationConfig(
+    #       max_length=2048,
+    #       num_calibration_samples=512,
+    #       batch_size=128,
+    #   )
+    # so that Runner.quantize_with_calibration_chunked runs instead of a
+    # single all-at-once forward pass.
     runner.run()
 
     if rank == 0:
@@ -83,8 +96,11 @@ def main():
         print(f"\nOriginal PPL:                          {original_ppl:.4f}")
         print(f"Quantized + GlobalPTQDistributed PPL:   {quantized_ppl:.4f}")
 
-        runner.save_quantized_model_pt("./tinyllama-gptq-globalptq-dist")
-        print("\nModel saved to ./tinyllama-gptq-globalptq-dist")
+        # GlobalPTQDistributed is structure-preserving (no custom modules), so
+        # the optimised model saves to HF-compatible safetensors with
+        # save_quantized_model().
+        runner.save_quantized_model("./tinyllama-gptq-globalptq-dist")
+        print("\nModel saved (safetensors) to ./tinyllama-gptq-globalptq-dist")
 
     if dist.is_initialized():
         dist.barrier()

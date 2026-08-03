@@ -1,11 +1,11 @@
 """
-Example: DBF quantization + Global PTQ
+Example: DBF quantization + Global PTQ (packed buffers)
 
 End-to-end demonstration of Global PTQ with DBF backend:
     1. Quantize TinyLlama with DBF
     2. Apply GlobalPTQ to optimise DBF scalings via KL distillation
     3. Evaluate PPL (original vs quantized+GlobalPTQ)
-    4. Save the optimised model
+    4. Save the optimised model to HF-compatible safetensors
 
 Copyright 2025-2026 Fujitsu Ltd.
 
@@ -18,13 +18,13 @@ Usage:
 import torch
 
 from onecomp import (
+    DBF,
     CalibrationConfig,
     GlobalPTQ,
     ModelConfig,
     Runner,
     setup_logger,
 )
-from onecomp.quantizer.dbf import DBF
 
 
 def main():
@@ -56,6 +56,19 @@ def main():
         ),
         post_processes=[global_ptq],
     )
+    # NOTE: The calibration settings above are kept compact so the demo runs
+    # fast and may be insufficient for real quantization.  For higher quality,
+    # prefer the CalibrationConfig() defaults
+    # (max_length=2048, num_calibration_samples=512).
+    # For qep=False runs with large calibration data, also pass ``batch_size``
+    # as a CalibrationConfig argument, e.g.
+    #   CalibrationConfig(
+    #       max_length=2048,
+    #       num_calibration_samples=512,
+    #       batch_size=128,
+    #   )
+    # so that Runner.quantize_with_calibration_chunked runs instead of a
+    # single all-at-once forward pass.
     runner.run()
 
     original_ppl, _, quantized_ppl = runner.calculate_perplexity(
@@ -65,8 +78,12 @@ def main():
     print(f"\nOriginal PPL:                  {original_ppl:.4f}")
     print(f"Quantized + Global PTQ PPL:    {quantized_ppl:.4f}")
 
-    runner.save_quantized_model_pt("./tinyllama-dbf-globalptq")
-    print("\nModel saved to ./tinyllama-dbf-globalptq")
+    # GlobalPTQ is structure-preserving (no custom modules), so the optimised
+    # model saves to HF-compatible safetensors with save_quantized_model().
+    save_dir = "./tinyllama-dbf-globalptq"
+
+    runner.save_quantized_model(save_dir)
+    print(f"\nModel saved (safetensors) to {save_dir}")
 
 
 if __name__ == "__main__":
