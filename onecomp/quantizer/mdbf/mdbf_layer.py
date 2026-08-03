@@ -417,6 +417,64 @@ class MultipathMDBFLinear(nn.Module):
         params_list = result.get_MDBF_params_list()
         return cls(params_list=params_list, bias=bias, device=device, use_gemlite=use_gemlite)
 
+    @staticmethod
+    def validate_saved_state(
+        layer_state_dict: dict,
+        *,
+        layer_name: str,
+        expected_paths: Optional[int],
+        expects_bias: bool,
+    ) -> None:
+        """Fail fast when a checkpoint's tensors for this layer are incomplete.
+
+        :meth:`from_saved_state` infers the layout from the keys it is handed:
+        P comes from the ``paths.{p}.*`` indices present, and a missing
+        ``bias`` key simply means "this layer has no bias".  A checkpoint that
+        lost a whole path, or the bias, therefore rebuilds as a
+        smaller-but-valid-looking layer that no post-load buffer check can
+        flag - the buffers it does have are all correctly populated.  Losing
+        an *individual* buffer needs no check here: :meth:`from_saved_state`
+        already raises ``KeyError`` for it.
+
+        Args:
+            layer_state_dict: Sub-state_dict for this layer, keyed the same
+                way :meth:`from_saved_state` expects.
+            layer_name: Checkpoint-side layer name, for the error message.
+            expected_paths: Path count recorded in quantization_config, or
+                None when it records none and P cannot be checked.
+            expects_bias: Whether the ``nn.Linear`` being replaced has a bias.
+
+        Raises:
+            ValueError: If a path is missing, or bias presence disagrees with
+                the model being loaded into.
+        """
+        path_indices = set()
+        for key in layer_state_dict:
+            parts = key.split(".")
+            if parts[0] == "paths" and len(parts) >= 2 and parts[1].isdigit():
+                path_indices.add(int(parts[1]))
+
+        # Compared without building range(expected_paths): a corrupt config can
+        # record an absurd P, and materializing it would exhaust memory before
+        # the mismatch is ever reported.  Indices are unique and non-negative,
+        # so "the count matches and nothing is out of range" is the same test.
+        if expected_paths is not None and (
+            len(path_indices) != expected_paths
+            or (path_indices and max(path_indices) >= expected_paths)
+        ):
+            raise ValueError(
+                f"Incomplete MDBF checkpoint for {layer_name}: config records "
+                f"P={expected_paths} but the checkpoint has path indices "
+                f"{sorted(path_indices)}."
+            )
+
+        if ("bias" in layer_state_dict) != expects_bias:
+            expected, found = ("a bias", "none") if expects_bias else ("no bias", "one")
+            raise ValueError(
+                f"MDBF checkpoint bias mismatch for {layer_name}: the model's "
+                f"nn.Linear expects {expected} but the checkpoint has {found}."
+            )
+
     @classmethod
     def from_saved_state(
         cls,
