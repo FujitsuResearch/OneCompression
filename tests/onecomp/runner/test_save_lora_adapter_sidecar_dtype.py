@@ -68,6 +68,9 @@ def _save_with_dtype(tmp_path: Path, dtype: str) -> dict:
         model_config=SimpleNamespace(dtype=dtype),
         logger=SimpleNamespace(info=lambda *a, **k: None),
         _collect_lora_gptq_modules=Runner._collect_lora_gptq_modules,
+        _remap_text_only_module_name_to_full_wrapper=(
+            Runner._remap_text_only_module_name_to_full_wrapper
+        ),
     )
 
     wrote = Runner._save_lora_adapter_sidecar(stub, str(tmp_path))
@@ -114,3 +117,29 @@ def test_sidecar_keys_follow_peft_convention(tmp_path):
     assert config["r"] == 4
     assert config["lora_alpha"] == 8
     assert config["target_modules"] == ["q_proj"]
+
+
+def test_sidecar_keys_remapped_for_full_wrapper(tmp_path):
+    """save_format='full_wrapper' remaps adapter keys to the composite
+    ``model.language_model.*`` namespace so vLLM's full-wrapper loader can
+    match the adapter tensors to the remapped base layers."""
+    stub = SimpleNamespace(
+        quantized_model=_make_quantized_model(),
+        model_config=SimpleNamespace(dtype="bfloat16"),
+        logger=SimpleNamespace(info=lambda *a, **k: None),
+        _collect_lora_gptq_modules=Runner._collect_lora_gptq_modules,
+        _remap_text_only_module_name_to_full_wrapper=(
+            Runner._remap_text_only_module_name_to_full_wrapper
+        ),
+    )
+
+    wrote = Runner._save_lora_adapter_sidecar(stub, str(tmp_path), save_format="full_wrapper")
+    assert wrote is True
+
+    adapter_path = tmp_path / LORA_ADAPTER_SUBDIR / "adapter_model.safetensors"
+    tensors = load_file(str(adapter_path))
+
+    assert set(tensors) == {
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_A.weight",
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_B.weight",
+    }
