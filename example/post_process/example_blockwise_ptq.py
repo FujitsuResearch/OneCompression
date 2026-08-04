@@ -1,11 +1,11 @@
 """
-Example: GPTQ quantization + Block-wise PTQ
+Example: quantization + Block-wise PTQ (packed buffers)
 
 Demonstrates the BlockWisePTQ post-process workflow:
-    1. Quantize TinyLlama with GPTQ 4-bit (groupsize=128)
-    2. Evaluate baseline PPL (original vs GPTQ-only)
-    3. Apply BlockWisePTQ directly (Phase 1 greedy + Phase 2 CBQ)
-    4. Evaluate improved PPL and compare
+    1. Quantize TinyLlama with the selected quantizer
+    2. Apply BlockWisePTQ through Runner.run()
+    3. Evaluate PPL (original vs quantized+BlockWisePTQ)
+    4. Save the packed post-processed checkpoint with save_quantized_model()
 
 Copyright 2025-2026 Fujitsu Ltd.
 
@@ -15,29 +15,65 @@ Usage:
     python example/post_process/example_blockwise_ptq.py
 """
 
-from onecomp import GPTQ, BlockWisePTQ, CalibrationConfig, ModelConfig, Runner, setup_logger
+import torch
+
+from onecomp import DBF  # noqa: F401
+from onecomp import RTN  # noqa: F401
+from onecomp import JointQ  # noqa: F401
+from onecomp import Onebit  # noqa: F401
+from onecomp import (
+    GPTQ,
+    BlockWisePTQ,
+    CalibrationConfig,
+    ModelConfig,
+    Runner,
+    setup_logger,
+)
 
 setup_logger()
 
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
+DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 # ================================================================
-# Step 1: Quantize with GPTQ
+# Step 1: Quantize + BlockWisePTQ via Runner
 # ================================================================
 print("=" * 70)
-print("Step 1: Quantize TinyLlama (GPTQ 4-bit)")
+print("Step 1: Quantize TinyLlama + BlockWisePTQ")
 print("=" * 70)
 
-model_config = ModelConfig(model_id=MODEL_ID, device="cuda:0")
-gptq = GPTQ(wbits=4, groupsize=128)
+model_config = ModelConfig(model_id=MODEL_ID, device=DEVICE)
+
+# BlockWisePTQ currently supports these quantized module families:
+#   GPTQLinear:         GPTQ, RTN, JointQ
+#   DoubleBinaryLinear: DBF
+#   OneBitLinear:       Onebit
+quantizer = GPTQ(wbits=4, groupsize=128)
+# quantizer = RTN(wbits=4, groupsize=128)
+# quantizer = JointQ(bits=4, group_size=128)
+# quantizer = DBF(target_bits=1.5)
+# quantizer = Onebit()
+quantizer_name = type(quantizer).__name__.lower()
+
+blockwise_ptq = BlockWisePTQ(
+    lr=1e-4,
+    epochs=10,
+    cbq_enable=True,
+    gptq_lr=1e-3,
+    calibration_config=CalibrationConfig(
+        num_calibration_samples=128,
+        max_length=2048,
+    ),
+)
 
 runner = Runner(
     model_config=model_config,
-    quantizer=gptq,
+    quantizer=quantizer,
     calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
+    post_processes=[blockwise_ptq],
 )
 # NOTE: The calibration settings above are kept compact so the demo runs
-# fast and may be insufficient for real quantisation.  For higher quality,
+# fast and may be insufficient for real quantization.  For higher quality,
 # prefer the CalibrationConfig() defaults
 # (max_length=2048, num_calibration_samples=512).
 # For qep=False runs with large calibration data, also pass ``batch_size``
@@ -52,55 +88,28 @@ runner = Runner(
 runner.run()
 
 # ================================================================
-# Step 2: Evaluate baseline PPL
+# Step 2: Evaluate PPL
 # ================================================================
 print("\n" + "=" * 70)
-print("Step 2: Evaluate baseline PPL (original vs GPTQ-only)")
+print("Step 2: Evaluate PPL after BlockWisePTQ")
 print("=" * 70)
 
-original_ppl, _, baseline_ppl = runner.calculate_perplexity(
+original_ppl, _, blockwise_ppl = runner.calculate_perplexity(
     original_model=True,
     quantized_model=True,
 )
 
-print(f"  Original model PPL:  {original_ppl:.4f}")
-print(f"  GPTQ baseline PPL:  {baseline_ppl:.4f}")
-
-# ================================================================
-# Step 3: Apply BlockWisePTQ directly
-# ================================================================
-print("\n" + "=" * 70)
-print("Step 3: Apply BlockWisePTQ (Phase 1 greedy + Phase 2 CBQ)")
-print("=" * 70)
-
-blockwise_ptq = BlockWisePTQ(
-    lr=1e-4,
-    epochs=10,
-    cbq_enable=True,
-    gptq_lr=1e-3,
-    calibration_config=CalibrationConfig(
-        num_calibration_samples=128,
-        max_length=2048,
-    ),
-)
-
-model, _ = runner.create_quantized_model(pack_weights=False, use_gemlite=False)
-blockwise_ptq.run(model, model_config)
-runner.quantized_model = model
-
-# ================================================================
-# Step 4: Evaluate improved PPL
-# ================================================================
-print("\n" + "=" * 70)
-print("Step 4: Evaluate PPL after BlockWisePTQ")
-print("=" * 70)
-
-_, _, blockwise_ppl = runner.calculate_perplexity(
-    quantized_model=True,
-)
-
 print(f"\n  Original model PPL:           {original_ppl:.4f}")
-print(f"  GPTQ baseline PPL:            {baseline_ppl:.4f}")
-print(f"  GPTQ + BlockWisePTQ PPL:      {blockwise_ppl:.4f}")
-print(f"  PPL improvement:              {baseline_ppl - blockwise_ppl:.4f}")
+print(f"  Quantized + BlockWisePTQ PPL: {blockwise_ppl:.4f}")
 print("=" * 70)
+
+# ================================================================
+# Step 3: Save packed post-processed checkpoint
+# ================================================================
+SAVE_DIR = f"./tinyllama-{quantizer_name}-blockwise-packed"
+print("\n" + "=" * 70)
+print(f"Step 3: Save packed checkpoint to {SAVE_DIR}")
+print("=" * 70)
+
+runner.save_quantized_model(SAVE_DIR)
+print(f"Packed BlockWisePTQ model saved to: {SAVE_DIR}")

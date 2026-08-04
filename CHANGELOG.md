@@ -11,6 +11,85 @@
 
 - Added direct unit tests for `normalize_scale_zero()` covering the three supported scale/zero layouts and the unvalidated pass-through of any other shape (`tests/onecomp/quantizer/gptq/test_gptq_layer_pack.py`)
 
+## [v1.3.0] 2026-07-27
+
+## Add CPU inference & GGUF export for OneComp quantized models (for Llama.cpp)
+- Introduce `onecomp.cpu`: Add a CPU-only deployment path that exports OneComp GPTQ
+checkpoints to GGUF and runs them with Llama.cpp (llama-cpp-python), plus the
+`llamacpp_plugins` mixed-precision exporter (the llama.cpp counterpart of
+vllm_plugins).
+
+- The way of GGUF Export (onecomp/cpu/export):
+* direct, lossless GPTQ -> GGUF packing (Q4_0/Q4_1/Q8_0) that reuses the exact
+* QEP/GPTQ integer codes with no re-quantization;
+* dequantize -> llama-quantize fallback for unsupported layouts;
+* shared skeleton/stitch plumbing reused by the mixed exporter.
+
+- Mixed precision (llamacpp_plugins/gptq): per-module routing that packs 4/8-bit
+layers losslessly and K-quantizes 2/3-bit (and act-order) layers via
+llama-quantize, yielding one GGUF with genuinely mixed per-layer precision.
+- Evaluation (onecomp/cpu/eval): GGUF inspector (per-tensor types / size /
+effective bits), CPU perplexity, HF-vs-GGUF parity, and prefill/decode
+benchmark. Inference wrapper gains streaming generation.
+CLI `onecomp-gguf` exposes export/run/inspect/ppl/bench. Adds the `gguf` and
+`llamacpp` uv extras, docs, examples and unit tests (16 passing).
+
+## [v1.3.0(WIP)+feature/blockwise_save_load] 2026-07-29
+
+### Breaking Changes
+
+- **`PostQuantizationProcess.run()` is now a base-class template method; post-process subclasses must implement `_run()` instead of overriding `run()`.** Previously all concrete in-tree post-process implementations defined their own public `run(quantized_model, model_config)`, which both drove the algorithm and served as the entry point. `run()` is now defined once on the base class — it validates the model, moves it to CPU, invokes the subclass body, restores `eval()`/`cpu()` in a `finally`, and appends audit metadata on success — and delegates the algorithm to the new abstract `_run()` method. **Breaking change**: any subclass of `PostQuantizationProcess` that overrode `run()` must rename its override to `_run()` (and may drop the device/validation boilerplate now handled by the base `run()`); a subclass that still defines only `run()` cannot be instantiated because the abstract `_run()` is left unimplemented. All in-tree post-processes were migrated (`BlockWisePTQ.run` → `_run`, `PostProcessLoraSFT.run` → `_run`, `GlobalPTQ.run` → `_run`, `GlobalPTQDistributed.run` → `_run`). The public `run(quantized_model, model_config)` entry point and call signature are unchanged; callers that only invoke built-in post-processes (e.g. `Runner.run_post_processes` and the integration tests) are unaffected (`onecomp/post_process/_base.py`, `onecomp/post_process/blockwise_ptq.py`, `onecomp/post_process/post_process_lora_sft.py`, `onecomp/post_process/global_ptq.py`, `onecomp/post_process/global_ptq_distributed.py`)
+
+### Load → Post-process → Re-save for Quantized Models
+
+- A previously saved quantized checkpoint can now be reloaded, refined with additional post-processes (e.g. `BlockWisePTQ`), and saved again, with an audit trail of which post-processes were applied across save/load cycles
+- **`Runner.run_post_processes()`** now uses `self.quantized_model` when one has already been assigned (e.g. a loaded checkpoint), otherwise builds one from `quantizer.results` as before; raises a clear error if neither is available. This makes `quantizer=None` valid when driving post-processes through a pre-assigned `runner.quantized_model` (`onecomp/runner.py`)
+- **`Runner.save_quantized_model()`** already saved `self.quantized_model` when one was set; it now additionally requires `model_config` (for the tokenizer) with an explicit error, validates the model's `quantization_config` via `validate_quantized_model_config()`, and carries any recorded `onecomp_post_processes` history through to `config.json`. Export behaviour is otherwise unchanged: the in-memory buffer layout is preserved, and packable unpacked GPTQ buffers are packed only in the exported `state_dict` according to `pack_weights`, without mutating `self.quantized_model`. When no existing model is set, the base quantized model is built from `quantizer.results` as before (`onecomp/runner.py`)
+- **`QuantizedModelLoader`**: reattaches `quantization_config` to `model.config` after loading (it is stripped before building the empty HF config), so a loaded model can be post-processed and re-saved without separately re-reading `config.json`; validates `config.json`'s `quantization_config` via the shared `validate_quant_config()` (same schema/exception type now enforced on the save path); and accepts `device_map=None`/`""` (typed `Optional[str]`, previously `str`) to leave the model on CPU, which post-processes assume (`onecomp/quantized_model_loader.py`)
+- **Buffer layout guidance**: `Runner.run_post_processes()` keeps the packed default it already used for its auto-created post-process model (`create_quantized_model(pack_weights=True, use_gemlite=False)`); this is now documented alongside the explicit unpacked route for cases `GPTQLinear` packing cannot represent (1-bit `JointQ`, or GPTQ/RTN bit widths outside `{2, 3, 4, 8}`) — build the model with `create_quantized_model(pack_weights=False, use_gemlite=False)` and call `post_process.run(...)` directly. The `BlockWisePTQ` / `GlobalPTQ` API docstrings describe both paths, replacing the separate unpacked example scripts (`onecomp/runner.py`, `onecomp/post_process/blockwise_ptq.py`, `onecomp/post_process/global_ptq.py`, `example/post_process/`)
+
+### Post-process Audit Metadata
+
+- `PostQuantizationProcess.run()` is now a metadata-recording template method shared by every post-process: it validates the model and moves it to CPU, calls the subclass body (`_run()`), restores `eval()`/`cpu()` even if the body raises, and on success appends an audit entry to `model.config.quantization_config["onecomp_post_processes"]`. The move to a base-class `run()` with an abstract `_run()` is a breaking change for subclass authors — see **Breaking Changes** above (`onecomp/post_process/_base.py`)
+- Added `PostQuantizationProcess.build_metadata()`: produces a JSON-serializable `{name, class, config}` entry per process (via `asdict()` with a `json.dumps(..., default=str)` safety net) so users can inspect which post-processes and hyper-parameters were applied to a saved checkpoint
+- Audit entries now also record execution state: every entry carries `executed` (`true` for post-processes whose `_run()` returns no result dict), and skipped runs record `executed: false` with a `reason` (e.g. `not_quantized`, `unsupported_method_<method>`, `no_params` for `GlobalPTQ` / `GlobalPTQDistributed`). The base `run()` mirrors `executed` / `global_executed` and `reason` from an optional `_run()` result dict via `PostQuantizationProcess.build_execution_metadata()` (`onecomp/post_process/_base.py`, `onecomp/post_process/global_ptq.py`, `onecomp/post_process/global_ptq_distributed.py`)
+- Metadata **accumulates** rather than overwrites, preserving the full post-process history across repeated load → post-process → re-save cycles; direct process execution and `Runner` execution share the same history path (`onecomp/post_process/_runtime.py`)
+- Migrated `GlobalPTQ` and `GlobalPTQDistributed` onto the shared `_run()` template (`run` → `_run`) so they too get the base entry validation and audit-metadata recording, including their skip paths (no quantized layers / unsupported method / zero trainable params). Their existing process-specific cleanup is kept as-is in `_run()` (`use_cache`/`requires_grad` handling, differentiable-forward restoration, teacher release, and `gc.collect()`/`torch.cuda.empty_cache()`; plus DeepSpeed / gradient-checkpointing hook removal for `GlobalPTQDistributed`); device/mode normalization (`cpu()`/`eval()`) is additionally guaranteed by the base `run()`'s `finally`. The public `run()` entry point is unchanged, so existing callers (`Runner.run_post_processes` and the integration tests) are unaffected (`onecomp/post_process/global_ptq.py`, `onecomp/post_process/global_ptq_distributed.py`)
+
+### Refactoring
+
+- Generalized the `quantization_config` schema validation that previously lived only in the load path into shared helpers in `onecomp/utils/quant_config.py`, and applied them to the save and post-process paths as well:
+  - `validate_quant_config()`: dict-level check requiring `quant_method` and `modules_in_block_to_quantize`, raising `ValueError` with a caller-context label
+  - `validate_quantized_model_config()`: model-level wrapper that pulls `quantization_config` off `model.config` and delegates to the dict-level check
+  - The load path (`QuantizedModelLoader`), the save path (`Runner.save_quantized_model`), and the post-process entry point (`PostQuantizationProcess.run`) now enforce identical required keys and raise the same exception type
+- Added `onecomp/post_process/_runtime.py` with shared runtime helpers: `prepare_quantized_model_for_post_process()` (validate + move to CPU), `validate_rotated_checkpoint_consistency()` (reject a rotated/non-rotated mismatch — including `fp32_had` — between checkpoint and `model_config`), `append_post_process_metadata()`, and the `POST_PROCESS_HISTORY_KEY` constant
+
+### Examples
+
+- Added `example/post_process/example_reload_post_process_resave.py`: end-to-end load -> post-process -> re-save flow using `load_quantized_model(..., device_map=None)`, `Runner(quantizer=None)`, `runner.quantized_model = model`, `run_post_processes()`, and `save_quantized_model()` with accumulated post-process metadata
+- Added `example/post_process/example_blockwise_global_ptq.py`: chains `BlockWisePTQ` then `GlobalPTQ` in a single Runner via `post_processes=[BlockWisePTQ, GlobalPTQ]`, then `save_quantized_model()` / `load_quantized_model()` and inference (both post-processes are structure-preserving, so the result is HF-compatible safetensors with no adapter sidecar)
+- Added `example/post_process/example_blockwise_global_ptq_staged.py`: runs the same `BlockWisePTQ` -> `GlobalPTQ` chain stage by stage with a save/load boundary between each step — quantize (`Runner.run()`, quantizer only) -> save/load -> `BlockWisePTQ` (`run_post_processes()`) -> save/load -> `GlobalPTQ` (`run_post_processes()`) -> save/load -> inference; each boundary behaves like a fresh process holding only the on-disk checkpoint, exercising the structure-preserving safetensors round-trip and showing the `onecomp_post_processes` metadata accumulate (`BlockWisePTQ` -> `GlobalPTQ`) across cycles
+- Updated post-process examples to rely on the Runner-managed packed default instead of building unpacked models explicitly (the explicit `pack_weights=False` path is now documented in the `BlockWisePTQ` / `GlobalPTQ` API docstrings in place of separate unpacked example scripts), and to save structure-preserving outputs with `save_quantized_model()` (`example_blockwise_ptq.py` now uses the Runner-managed packed path, adds commented `RTN`, `JointQ`, `DBF(target_bits=1.5)`, and `Onebit` quantizer options, and saves a packed checkpoint; `example_blockwise_global_ptq.py` and `example_blockwise_global_ptq_staged.py` use lighter BlockWisePTQ settings for sample runtime; `example_global_ptq.py`, `example_global_ptq_dbf.py`, and `example_global_ptq_distributed.py` now save safetensors outputs only; `example_global_ptq.py` adds commented `RTN`, `JointQ`, and `DBF(target_bits=1.5)` quantizer options with `dbf_lr`; `example_lora_sft_knowledge.py` builds with the packed default + `use_gemlite=False` and supports CPU fallback)
+
+### Documentation
+
+- Updated `README.md` and `docs/user-guide/examples.md` to list the new reload/post-process/re-save example
+- Updated `docs/user-guide/post-process.md` with a load -> post-process -> re-save snippet and save/load guidance for structure-preserving post-processes
+- Updated `docs/api/quantized_model_loader.md` to document safetensors loading for `BlockWisePTQ` / `GlobalPTQ` outputs and CPU loading with `device_map=None`; the `load_quantized_model()` API docstring now documents the required `quant_method` / `modules_in_block_to_quantize` keys enforced by the shared `validate_quant_config()`
+- Updated `README.md`, `docs/user-guide/examples.md`, `docs/user-guide/post-process.md`, `docs/api/quantized_model_loader.md`, and `Runner.save_quantized_model_pt()` docs to make safetensors + `lora_adapter/` the standard LoRA save/load path, mark whole-object `.pt` save/load as legacy/explicit opt-in, and point users at `example_lora_gptq_vllm_inference.py`
+- Updated `docs/api/post_process.md` to remove stale subclass `members: - run` filters after the public implementation moved to the inherited `PostQuantizationProcess.run()` template method
+- Updated `docs/api/runner.md` to list `run_post_processes` in the Runner API reference (now a primary entry point for the load -> post-process -> re-save flow)
+- Clarified in `docs/user-guide/post-process.md` that all built-in post-process outputs, including the LoRA variants, use the standard safetensors save/load path, with vLLM compatibility depending on the saved `quant_method`; `.pt` remains a legacy whole-object research/development format
+- Fixed a stale `Runner.create_quantized_model()` docstring that pointed LoRA post-processed models at `save_quantized_model_pt`; it now uses `save_quantized_model()` and shows the `runner.quantized_model = model` assignment the manual flow requires. Also corrected `Runner.save_quantized_model()` to say the adapter sidecar is written under `lora_adapter/` rather than "into the same directory" (`onecomp/runner.py`)
+
+### Tests
+
+- Added `tests/onecomp/utils/test_quant_config.py` for `validate_quant_config()` / `validate_quantized_model_config()` (with `tests/onecomp/fixtures/quant_config.py`)
+- Added `tests/onecomp/post_process/test_base_metadata.py` and `test_base_run.py` for `build_metadata()` and the `run()` template method (validate/CPU/eval restore, metadata-on-success behavior), plus `test_runtime.py` for the `_runtime.py` helpers, backed by `tests/onecomp/post_process/_doubles.py`
+- Added `tests/onecomp/post_process/test_post_process_unpacked.py` with lightweight CPU-only coverage for `BlockWisePTQ.run()` and `GlobalPTQ.run()` on unpacked GPTQLinear inputs from GPTQ 5-bit, RTN 5-bit, and JointQ 1-bit
+- Added CPU-only regression tests for skip-path audit metadata (`executed` / `reason`): base-class mirroring in `test_base_run.py`, plus `GlobalPTQ` (`test_global_ptq_core.py`) and `GlobalPTQDistributed` (`test_global_ptq_distributed.py`) early-return paths (`not_quantized`, `unsupported_method_<method>`, `no_params`)
+- Aligned the three end-to-end `save_quantized_model()` fixtures in `tests/onecomp/runner/test_save_format_full_wrapper.py` with the `validate_quantized_model_config()` guard added on the save path: their stand-in models now carry a realistic `quantization_config` (`quant_method` + `modules_in_block_to_quantize`, via the new `_gptq_quant_config()` helper) instead of a partial config or none at all, since `runner.quantized_model` is by definition an already-quantized model. The helper-level tests that call the private remap methods directly are unchanged (they bypass that validation). Also tightened the assertions to check the `quantization_config` seen by `save_pretrained()` — remapped to the composite namespace with `quant_method` preserved for `save_format="full_wrapper"`, and passed through by identity for the default format (`tests/onecomp/runner/test_save_format_full_wrapper.py`)
+
 ## [v1.3.0(WIP)+feature/qwen36_35b_a3b_step3] 2026-07-22
 
 ### Qwen3.6-A3B MoE vLLM inference support
