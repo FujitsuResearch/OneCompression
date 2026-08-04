@@ -396,6 +396,36 @@ def _make_mdbf_params(n, m, r, l, device, dtype=torch.float16):
     )
 
 
+def test_mdbf_layers_expose_nn_linear_feature_attributes() -> None:
+    """MDBF layers must expose ``in_features``/``out_features`` like any Linear.
+
+    MDBF names these ``m``/``n`` internally, but generic consumers of quantized
+    layers address them by the ``nn.Linear`` names -- the rotation path's online
+    Hadamard hook sizes ``get_hadK`` from ``module.in_features`` and raised
+    ``AttributeError`` on MDBF ``down_proj`` layers before these aliases
+    existed.  Both construction paths are covered: ``__init__`` (quantize) and
+    ``from_saved_state`` (checkpoint load).
+    """
+    n, m, r, l, P = 6, 10, 4, 1, 2
+    device = torch.device("cpu")
+    params_list = [_make_mdbf_params(n, m, r, l, device) for _ in range(P)]
+
+    path = MDBFLinear(params_list[0], use_gemlite=False)
+    assert (path.in_features, path.out_features) == (m, n)
+
+    layer = MultipathMDBFLinear(params_list, use_gemlite=False)
+    assert (layer.in_features, layer.out_features) == (m, n)
+    # Every nested path must agree with its wrapper, or a hook attached to the
+    # wrapper would transform to a width the paths do not expect.
+    assert all((p.in_features, p.out_features) == (m, n) for p in layer.paths)
+
+    reloaded = MultipathMDBFLinear.from_saved_state(
+        layer.state_dict(), in_features=m, out_features=n
+    )
+    assert (reloaded.in_features, reloaded.out_features) == (m, n)
+    assert all((p.in_features, p.out_features) == (m, n) for p in reloaded.paths)
+
+
 def _assert_gemlite_output_matches_dense(y_dense, y_gemlite):
     diff = (y_dense.float() - y_gemlite.float()).abs()
     rel = (torch.norm(y_dense.float() - y_gemlite.float()) / torch.norm(y_dense.float())).item()

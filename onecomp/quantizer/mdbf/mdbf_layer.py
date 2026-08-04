@@ -154,6 +154,19 @@ class MDBFLinear(nn.Module):
         self.use_gemlite = False
         self._build_gemlite(params.A_sign, params.B_sign, device, use_gemlite)
 
+    # nn.Linear-compatible aliases for the factorization's own ``m``/``n``:
+    # generic consumers of quantized layers address widths by the Linear names
+    # (e.g. the online Hadamard hook sizes its transform from ``in_features``).
+    @property
+    def in_features(self) -> int:
+        """Input feature size (``m``)."""
+        return self.m
+
+    @property
+    def out_features(self) -> int:
+        """Output feature size (``n``)."""
+        return self.n
+
     def _build_gemlite(
         self,
         A_sign: torch.Tensor,
@@ -366,6 +379,17 @@ class MultipathMDBFLinear(nn.Module):
 
         if device is not None:
             self.to(device)
+
+    # nn.Linear-compatible aliases for ``m``/``n`` (see MDBFLinear).
+    @property
+    def in_features(self) -> int:
+        """Input feature size (``m``)."""
+        return self.m
+
+    @property
+    def out_features(self) -> int:
+        """Output feature size (``n``)."""
+        return self.n
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         y = self.paths[0](x)

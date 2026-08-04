@@ -32,10 +32,14 @@ def cleanup_memory():
 def find_linear_layers(module, layers=None, name=""):
     """Recursively find all layers whose type is in *layers*.
 
+    Matching is on *exact* type, and the search stops descending at the first
+    match: a matched module's own submodules are never visited.
+
     Args:
         module: Root module to search.
-        layers: List of target layer classes.  Defaults to ``[nn.Linear]``,
-            which also matches ``QuantLinear`` (a subclass of ``nn.Linear``).
+        layers: List of target layer classes.  Defaults to ``[nn.Linear]``.
+            Subclasses are not matched implicitly and must be listed
+            explicitly, e.g. ``[nn.Linear, QuantLinear]``.
         name: Name prefix (used for recursion).
 
     Returns:
@@ -627,32 +631,70 @@ def rotate_model(
     cleanup_memory()
 
 
-def collect_down_proj_types(model):
-    """Return distinct types of the model's ``down_proj`` layers.
+def _collect_hadamard_target_types(model: nn.Module, *, exclude_linear: bool) -> list[type]:
+    """Return distinct module types of the model's online-Hadamard targets.
 
-    Use this to derive ``layers_cls`` for :func:`register_online_hadamard_hooks`
-    from an already-quantized model (e.g. loaded from disk), where the
-    ``down_proj`` layers are quantized modules regardless of the recorded
-    ``quant_method``.
-    """
-    return list({type(module) for name, module in model.named_modules() if "down_proj" in name})
+    The name filter is :func:`is_online_hadamard_target`, deliberately the same
+    predicate :func:`register_online_hadamard_hooks` applies.  A looser match
+    (e.g. ``"down_proj" in name``) also matches a target's *descendants*, and a
+    quantized layer built from submodules then leaks its children's types into
+    ``layers_cls`` -- where they can misfire, since :func:`find_linear_layers`
+    stops at the first type match: a container type aborts the search before
+    any ``down_proj`` is reached.
 
+    ``exclude_linear`` tests the exact type, mirroring
+    :func:`find_linear_layers`, so an ``nn.Linear`` subclass -- which the
+    initial hook pass never matched -- is not dropped here as if it had been.
 
-def collect_quantized_down_proj_types(model):
-    """Return distinct non-``nn.Linear`` types of the model's ``down_proj`` layers.
+    Args:
+        model: Model to scan.
+        exclude_linear: Drop plain ``nn.Linear`` targets from the result.
 
-    Like :func:`collect_down_proj_types` but excludes plain ``nn.Linear`` so that
-    unquantized ``down_proj`` layers do not receive hooks (which would otherwise
-    fire on every ``nn.Linear``).  Use after ``apply_results_to_model`` has
-    replaced ``nn.Linear`` with quantized modules; empty when none are quantized.
+    Returns:
+        list[type]: Distinct module types, suitable as ``layers_cls``.
     """
     return list(
         {
             type(module)
             for name, module in model.named_modules()
-            if "down_proj" in name and not isinstance(module, nn.Linear)
+            if is_online_hadamard_target(name)
+            and not (exclude_linear and type(module) is nn.Linear)
         }
     )
+
+
+def collect_down_proj_types(model: nn.Module) -> list[type]:
+    """Return distinct types of the model's ``down_proj`` layers, ``nn.Linear`` included.
+
+    Use this to derive ``layers_cls`` for :func:`register_online_hadamard_hooks`
+    from an already-quantized model (e.g. loaded from disk), where the
+    ``down_proj`` layers are quantized modules regardless of the recorded
+    ``quant_method``.
+
+    Unlike :func:`collect_quantized_down_proj_types` this keeps ``nn.Linear``:
+    the model comes fresh from ``from_config`` and carries no hooks yet, so
+    every ``down_proj`` needs one -- rotation baked the input-side Hadamard
+    into *all* of them, quantized or not.
+    """
+    return _collect_hadamard_target_types(model, exclude_linear=False)
+
+
+def collect_quantized_down_proj_types(model: nn.Module) -> list[type]:
+    """Return distinct non-``nn.Linear`` types of the model's ``down_proj`` layers.
+
+    Use after ``apply_results_to_model`` has replaced ``nn.Linear`` with
+    quantized modules; empty when none are quantized.
+
+    Plain ``nn.Linear`` is excluded here -- unlike in
+    :func:`collect_down_proj_types` -- because on this path the model was
+    loaded by ``RotatedModelConfig.load_model()``, which already hooked every
+    plain ``nn.Linear`` ``down_proj``.  Replacing a layer drops its hook, so
+    only the replaced (quantized) types need re-registering; including
+    ``nn.Linear`` would add a *second* hook to the untouched ones and apply the
+    Hadamard transform twice.  Subclasses of ``nn.Linear`` are *not* excluded;
+    see :func:`_collect_hadamard_target_types`.
+    """
+    return _collect_hadamard_target_types(model, exclude_linear=True)
 
 
 def register_online_hadamard_hooks(model, fp32_had: bool = False, layers_cls=None):

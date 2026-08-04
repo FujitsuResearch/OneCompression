@@ -24,6 +24,7 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
+from onecomp.pre_process.hadamard_utils import get_hadK, matmul_hadU_cuda
 from onecomp.quantized_model_loader import QuantizedModelLoader
 from onecomp.quantizer.mdbf.config import resolve_mdbf_paths
 from onecomp.quantizer.mdbf.initialize import MDBFParams
@@ -130,6 +131,7 @@ def _write_save_dir(
     quantized_names: list[str],
     *,
     record_paths: bool = True,
+    rotated: bool = False,
 ) -> None:
     """Persist an MDBF checkpoint the loader can consume.
 
@@ -140,6 +142,8 @@ def _write_save_dir(
         quantized_names: Layers recorded as MDBF-quantized.
         record_paths: Whether to record ``P`` the way the quantizer does.
             Set False to emulate a hand-written or partial config that omits it.
+        rotated: Mark the checkpoint as rotation-preprocessed, which makes the
+            loader register online Hadamard hooks on ``down_proj``.
     """
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -150,6 +154,7 @@ def _write_save_dir(
         "bits": 2.0,
         "l": 1,
         "modules_in_block_to_quantize": quantized_names,
+        "rotated": rotated,
     }
     if record_paths:
         cfg_dict["quantization_config"]["P"] = MDBF_PATHS
@@ -215,6 +220,47 @@ def test_mdbf_checkpoint_round_trips_through_loader(tmp_path: Path, with_bias: b
     with torch.no_grad():
         actual_logits = model(input_ids).logits.float()
     torch.testing.assert_close(actual_logits, expected_logits, rtol=0.0, atol=1e-3)
+
+
+def test_rotated_mdbf_checkpoint_loads_with_working_hadamard_hooks(tmp_path: Path) -> None:
+    """A rotated MDBF checkpoint reloads with one *working* hook per down_proj.
+
+    This is the combined path both halves of the hook bug lived on, and the
+    only test that exercises it end to end: the loader derives ``layers_cls``
+    from the reloaded model — whose ``down_proj`` is a nested
+    ``MultipathMDBFLinear`` — and the hook then sizes ``get_hadK`` from
+    ``module.in_features``.  Before the fix the collector leaked
+    ``nn.ModuleList`` into ``layers_cls`` and *zero* hooks were registered,
+    with no error, so only an assertion on the live model catches it.
+    """
+    reference, config, quantized_names = _build_mdbf_model(with_bias=False)
+    save_dir = tmp_path / "rotated_mdbf_model"
+    _write_save_dir(save_dir, config, reference.state_dict(), quantized_names, rotated=True)
+
+    model, _ = _load(save_dir)
+    loaded_modules = dict(model.named_modules())
+
+    down_projs = [mod for name, mod in loaded_modules.items() if name.endswith(".mlp.down_proj")]
+    assert len(down_projs) == config.num_hidden_layers
+    for module in down_projs:
+        assert isinstance(module, MultipathMDBFLinear)
+        assert len(module._forward_pre_hooks) == 1, "down_proj must carry exactly one hook"
+
+    # Quantized layers that are not Hadamard targets must stay unhooked.
+    assert not loaded_modules["model.layers.0.self_attn.q_proj"]._forward_pre_hooks
+
+    # Attached is not enough: the hook must apply the Hadamard transform the
+    # rotated weights were built against.  ``forward`` is called unbound to
+    # bypass the hook and obtain the untransformed reference.
+    down_proj = down_projs[0]
+    x = torch.randn(2, config.intermediate_size)
+    had_K, K = get_hadK(down_proj.in_features)
+    y_hooked = down_proj(x)
+    assert not torch.allclose(y_hooked, MultipathMDBFLinear.forward(down_proj, x))
+    torch.testing.assert_close(
+        y_hooked,
+        MultipathMDBFLinear.forward(down_proj, matmul_hadU_cuda(x, had_K, K)),
+    )
 
 
 def test_load_rejects_checkpoint_missing_a_whole_path(tmp_path: Path) -> None:
