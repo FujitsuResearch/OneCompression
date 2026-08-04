@@ -5,3 +5,4 @@ TinyLlama*/
 quantized_model_saveload/
 rotated_model_*
 results
+cpu_inference/_run_out/

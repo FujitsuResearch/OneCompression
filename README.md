@@ -42,6 +42,7 @@ Full documentation is available at **[https://FujitsuResearch.github.io/OneCompr
 - **LoRA SFT Post-Process**: Fine-tune quantized models with LoRA adapters for accuracy recovery or domain-specific knowledge injection. Supports SFT loss, teacher distillation, and intermediate block alignment.
 - **Rotation Preprocessing**: SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Rotation/scaling matrices are absorbed into model weights, with online Hadamard hooks automatically registered at load time. Supports Llama and Qwen3 architectures.
 - **Web Dashboard (HPC)**: A browser-based dashboard for launching quantization jobs, deploying models, and validating chat-based inference in HPC environments. See [dashboard/README.md](dashboard/README.md) for details.
+- **GGUF Export & Hugging Face Hub Integration**: Convert models to the GGUF v3 format (F16) for llama.cpp/Ollama with a dependency-free built-in writer, generate model cards with quantization recipes and evaluation results, and push save directories to the Hugging Face Hub. Supports Llama (SentencePiece or Llama-3-style BPE) and Qwen2 (BPE) architectures, including multi-EOS stop-token mapping. See the [GGUF Export guide](https://FujitsuResearch.github.io/OneCompression/user-guide/gguf-export/).
 - (TBD)
 
 ## 🤖 Supported Models
@@ -54,7 +55,7 @@ Other Hugging Face-compatible models may work but are currently untested.
 | 1 | Llama | TinyLlama, Llama-2, Llama-3 | ✅ Verified |
 | 2 | Qwen3 | Qwen3-0.6B ~ 32B | ✅ Verified |
 | 3 | Gemma | Gemma 2, Gemma 3, Gemma 4  | ✅ Verified |
-| 4 | Qwen3.6 | Qwen3.6-27B | ✅ Verified |
+| 4 | Qwen3.6 | Qwen3.6-27B, Qwen3.6-35B-A3B | ✅ Verified |
 
 
 > **Note:** Support for additional architectures is planned. Contributions and test reports are welcome.
@@ -296,16 +297,19 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_auto_run.py](./example/example_auto_run.py) | AutoBit with automatic VRAM estimation |
 | Calibration | [example_custom_calibration.py](./example/example_custom_calibration.py) | Custom calibration dataset with CalibrationConfig |
 | Save / Load | [example_save_load.py](./example/example_save_load.py) | Save and load quantized models |
+| | [example_reload_post_process_resave.py](./example/post_process/example_reload_post_process_resave.py) | Reload, post-process, and re-save a quantized checkpoint |
 | Rotation Preprocessing | [example_llama_preprocess_rtn.py](./example/pre_process/example_llama_preprocess_rtn.py) | Rotation preprocessing + RTN (TinyLlama) |
 | | [example_preprocess_save_load.py](./example/pre_process/example_preprocess_save_load.py) | Save and load rotation-preprocessed quantized models |
-| Post-Process | [example_blockwise_ptq.py](./example/post_process/example_blockwise_ptq.py) | Block-wise PTQ (GPTQ + Phase 1 & CBQ) |
-| | [example_global_ptq.py](./example/post_process/example_global_ptq.py) | Global PTQ post-process with GPTQ backend |
-| | [example_global_ptq_dbf.py](./example/post_process/example_global_ptq_dbf.py) | Global PTQ post-process with DBF backend |
-| | [example_global_ptq_distributed.py](./example/post_process/example_global_ptq_distributed.py) | Multi-GPU Global PTQ with DeepSpeed / torchrun |
+| Post-Process | [example_blockwise_ptq.py](./example/post_process/example_blockwise_ptq.py) | Block-wise PTQ via `Runner.run()` with packed buffers by default |
+| | [example_blockwise_global_ptq.py](./example/post_process/example_blockwise_global_ptq.py) | BlockWisePTQ → GlobalPTQ in a single Runner, followed by safetensors save/load |
+| | [example_blockwise_global_ptq_staged.py](./example/post_process/example_blockwise_global_ptq_staged.py) | Staged BlockWisePTQ → GlobalPTQ across save/load boundaries with accumulated post-process metadata |
+| | [example_global_ptq.py](./example/post_process/example_global_ptq.py) | Global PTQ with packed buffers by default and HF-compatible safetensors output |
+| | [example_global_ptq_dbf.py](./example/post_process/example_global_ptq_dbf.py) | Global PTQ with the DBF backend and HF-compatible safetensors output |
+| | [example_global_ptq_distributed.py](./example/post_process/example_global_ptq_distributed.py) | Multi-GPU Global PTQ with DeepSpeed / torchrun and safetensors output |
 | | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
 | | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
 | | [example_lora_sft_knowledge_jointq.py](./example/post_process/example_lora_sft_knowledge_jointq.py) | LoRA SFT knowledge injection on a JointQ-quantized model |
-| | [example_lora_gptq_vllm_inference.py](./example/post_process/example_lora_gptq_vllm_inference.py) | GPTQ + LoRA SFT quantization and vLLM inference |
+| | [example_lora_gptq_vllm_inference.py](./example/post_process/example_lora_gptq_vllm_inference.py) | GPTQ + LoRA SFT, HF-compatible safetensors + PEFT sidecar, and vLLM inference |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
 | | [example_gptq_vllm_qwen36_inference.py](./example/vllm_inference/example_gptq_vllm_qwen36_inference.py) | GPTQ quantization and vLLM inference for Qwen3.6 (full-wrapper save) |
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |

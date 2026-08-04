@@ -49,6 +49,7 @@ For full control over each step, see the [step-by-step workflow](user-guide/basi
 - **LoRA SFT Post-Process** -- Fine-tune quantized models with LoRA adapters for accuracy recovery or domain-specific knowledge injection. Supports SFT loss, teacher distillation, and intermediate block alignment.
 - **Rotation Preprocessing** -- SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Rotation/scaling matrices are absorbed into model weights, with online Hadamard hooks automatically registered at load time. Supports Llama and Qwen3 architectures.
 - **Web Dashboard (HPC)** -- A browser-based dashboard for launching quantization jobs, deploying models, and validating chat-based inference in HPC environments. See the [dashboard README](../dashboard/README.md).
+- **GGUF Export & Hugging Face Hub Integration**: Convert models to the GGUF v3 format (F16) for llama.cpp/Ollama with a dependency-free built-in writer, generate model cards with quantization recipes and evaluation results, and push save directories to the Hugging Face Hub. Supports Llama (SentencePiece or Llama-3-style BPE) and Qwen2 (BPE) architectures, including multi-EOS stop-token mapping. See the [GGUF Export guide](user-guide/gguf-export.md).
 
 ## Supported Models
 
@@ -60,7 +61,7 @@ Other Hugging Face-compatible models may work but are currently untested.
 | 1 | Llama | TinyLlama, Llama-2, Llama-3 | :white_check_mark: Verified |
 | 2 | Qwen3 | Qwen3-0.6B ~ 32B | :white_check_mark: Verified |
 | 3 | Gemma | Gemma 2, Gemma 3, Gemma 4 | :white_check_mark: Verified |
-| 4 | Qwen3.6 | Qwen3.6-27B | :white_check_mark: Verified |
+| 4 | Qwen3.6 | Qwen3.6-27B, Qwen3.6-35B-A3B | :white_check_mark: Verified |
 
 !!! note
     Support for additional architectures is planned. Contributions and test reports are welcome.

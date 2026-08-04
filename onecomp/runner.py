@@ -34,6 +34,7 @@ from .utils import calculate_perplexity as calc_perplexity
 from .utils import empty_cache
 from .utils.device import is_mps_device
 from .utils.lora import LORA_ADAPTER_SUBDIR
+from .utils.quant_config import get_quant_param, validate_quantized_model_config
 from .utils.quantization_progress import QuantizationProgressTracker
 
 
@@ -101,7 +102,10 @@ class Runner:
                 Model configuration.  Required.
             quantizer (Quantizer):
                 The quantizer to use. Specify either ``quantizer`` or
-                ``quantizers``, not both.  At least one must be given.
+                ``quantizers``, not both.  At least one must be given for
+                ``run()``. ``None`` is only supported when assigning
+                ``runner.quantized_model`` directly and calling
+                ``run_post_processes()``.
             quantizers (list[Quantizer]):
                 Specify multiple quantizers. When used with
                 ``calibration_config.batch_size``, the X^T X accumulation
@@ -258,6 +262,11 @@ class Runner:
 
         Note:
             ``multi_gpu=True`` requires a quantizer with ``flag_calibration=True``.
+
+            This method is intended to be called from the ``run()`` flow only.
+            It is *not* designed to be used in the
+            ``load_quantized_model() -> Runner.run_post_processes()`` flow, and
+            the checks here do not cover that use case.
 
         Raises:
             TypeError: Invalid type for ``model_config``, ``quantizer``, or ``quantizers``
@@ -902,35 +911,61 @@ class Runner:
     def run_post_processes(self):
         """Execute post-quantization processes.
 
-        Builds a packed quantized model on CPU from ``quantizer.results``
-        and passes it to each :class:`PostQuantizationProcess` in order. Each
-        process preserves the incoming pack state (packed-in -> packed-out), so
+        Uses ``self.quantized_model`` when one has already been assigned;
+        otherwise builds a packed quantized model on CPU from
+        ``quantizer.results`` with
+        ``create_quantized_model(pack_weights=True, use_gemlite=False)`` by
+        default.  The model is passed to each
+        :class:`PostQuantizationProcess` in order, and each process preserves
+        the incoming pack state (packed-in -> packed-out), so
         ``self.quantized_model`` stays packed for memory-efficient eval reuse.
         Processes that train (e.g. :class:`PostProcessLoraSFT`) unpack the base
         weights internally for the duration of training and re-pack on exit.
 
+        ``use_gemlite=False`` is used because GemLite relies on fp16-only Triton
+        kernels that break when LoRA SFT runs with bfloat16 autocast; plain
+        buffers (qweight/scales) let training call ``base_layer.forward()``
+        without dtype mismatch.
+
+        If an unpacked layout is required, explicitly build the model before
+        calling this method and assign it to ``runner.quantized_model``::
+
+            runner.quantized_model, _ = runner.create_quantized_model(
+                pack_weights=False, use_gemlite=False)
+
+        Direct ``post_process.run(model, runner.model_config)`` execution can
+        use the same explicitly built model.
+
+        Each process records its own metadata in
+        ``model.config.quantization_config["onecomp_post_processes"]`` when it
+        finishes successfully, so direct process execution and Runner execution
+        share the same history path.
+
         Raises:
-            ValueError: If ``self.quantizer`` is ``None``
-                (``quantizers`` mode is not yet supported).
+            ValueError: If neither ``self.quantized_model`` nor
+                ``self.quantizer`` is available (``quantizers`` mode is not
+                yet supported for building post-process inputs).
         """
         logger = self.logger
 
-        if self.quantizer is None:
-            raise ValueError(
-                "post_processes requires a single 'quantizer'. "
-                "'quantizers' (multiple) is not yet supported with post_processes."
+        if self.quantized_model is not None:
+            logger.info("Using existing quantized model for post-quantization processes")
+            quantized_model = self.quantized_model
+        elif self.quantizer is not None:
+            logger.info("Building quantized model for post-quantization processes...")
+            # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
+            # LoRA SFT runs with bfloat16 autocast. Keep plain PyTorch inference
+            # layers while preserving the default packed quantized-buffer layout.
+            quantized_model, _ = self.create_quantized_model(
+                pack_weights=True,
+                use_gemlite=False,
             )
-
-        logger.info("Building quantized model for post-quantization processes...")
-        # Pass a packed model to post-processes; each one keeps the incoming
-        # pack state (packed-in -> packed-out) so the result stays packed.
-        # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
-        # LoRA SFT runs with bfloat16 autocast.  Plain buffers (qweight/scales) are
-        # needed so training can call base_layer.forward() without dtype mismatch.
-        quantized_model, _ = self.create_quantized_model(
-            pack_weights=True,
-            use_gemlite=False,
-        )
+        else:
+            raise ValueError(
+                "post_processes requires either 'runner.quantized_model' or a single "
+                "'quantizer'. 'quantizers' (multiple) is not yet supported with "
+                "post_processes."
+            )
 
         for process in self.post_processes:
             logger.info("Start post-quantization process: %s", process.name)
@@ -1677,7 +1712,21 @@ class Runner:
             >>> runner.run()
             >>> model, tokenizer = runner.create_quantized_model()
 
-            With post-process:
+            With post-process (manual single-process run; ``run_post_processes()``
+            builds the model with ``pack_weights=True`` by default).  The same
+            packed model can be passed directly to post-processes that preserve
+            quantized layer structure, such as ``BlockWisePTQ`` or ``GlobalPTQ``:
+
+            >>> model, tokenizer = runner.create_quantized_model()
+            >>> post_process = BlockWisePTQ()
+            >>> post_process.run(model, runner.model_config)
+            >>> post_process = GlobalPTQ()
+            >>> post_process.run(model, runner.model_config)
+
+            LoRA SFT also accepts the model directly.  It introduces custom
+            wrapper modules (``LoRAGPTQLinear``), which ``save_quantized_model``
+            handles by writing the base weights as safetensors plus a
+            PEFT-compatible adapter sidecar under ``lora_adapter/``:
 
             >>> model, tokenizer = runner.create_quantized_model(
             ...     pack_weights=True,
@@ -1685,10 +1734,20 @@ class Runner:
             ... )
             >>> post_process = PostProcessLoraSFT(data_files="train.jsonl")
             >>> post_process.run(model, runner.model_config)
+            >>> runner.quantized_model = model  # so the LoRA model is the one saved
+            >>> runner.save_quantized_model("./quantized_model_lora")
 
-            Post-processes preserve the incoming pack state.  Use
-            ``pack_weights=False`` only when intentionally debugging an
-            unpacked-buffer path.
+            Post-processes preserve the incoming pack state.  If a workflow
+            requires unpacked quantized buffers (e.g. when intentionally
+            debugging an unpacked-buffer path), build the model explicitly with
+            ``pack_weights=False`` before direct execution:
+
+            >>> model, tokenizer = runner.create_quantized_model(
+            ...     pack_weights=False,
+            ...     use_gemlite=False,
+            ... )
+            >>> post_process = BlockWisePTQ()
+            >>> post_process.run(model, runner.model_config)
         """
         if quantizer is None:
             quantizer = self.quantizer
@@ -2191,27 +2250,35 @@ class Runner:
     ):
         """Save the quantized model to the specified directory
 
-        If ``self.quantized_model`` is available, that in-place updated model
-        is saved. Otherwise, the base quantized model is built from
-        ``quantizer.results`` via :meth:`create_quantized_model`. The result
-        is saved in HuggingFace-compatible safetensors format.
+        If ``self.quantized_model`` is already set (e.g. after
+        ``run_post_processes()``, or after loading a checkpoint and assigning it
+        for a load -> post-process -> re-save flow), that in-place updated model
+        is saved as-is so post-process results are preserved: its
+        ``quantization_config`` is validated, any recorded
+        ``onecomp_post_processes`` history is persisted to ``config.json``, and
+        ``model_config`` is required (for the tokenizer).  Otherwise the base
+        quantized model is built from ``quantizer.results`` via
+        :meth:`create_quantized_model`.  The result is saved in
+        HuggingFace-compatible safetensors format.
 
         If the selected model contains ``LoRAGPTQLinear`` wrappers, this method
         saves base weights with LoRA tensors excluded and additionally writes a
         PEFT-compatible LoRA adapter sidecar
-        (``adapter_model.safetensors`` + ``adapter_config.json``) into the same
-        directory. The resulting directory can then be loaded back with
-        :func:`onecomp.load_quantized_model` (which auto-detects the sidecar
-        and re-wraps the layers) or served by vLLM via ``enable_lora=True``.
+        (``lora_adapter/adapter_model.safetensors`` +
+        ``lora_adapter/adapter_config.json``).  The resulting directory can then
+        be loaded back with
+        :func:`onecomp.load_quantized_model` (which auto-detects the sidecar and
+        re-wraps the layers) or served by vLLM via ``enable_lora=True``.
 
         Args:
             save_directory (str):
                 The path to save the quantized model.
             pack_weights (bool):
-                Whether to pack quantized weights when ``self.quantized_model``
-                is not set and a model is built from ``quantizer.results``.
-                When saving an existing ``self.quantized_model``, packable
-                unpacked GPTQ buffers are packed only in the export
+                Whether to pack quantized weights for a more
+                memory/storage-efficient representation.  When building from
+                ``quantizer.results`` this controls the layout of the built
+                model.  When saving an existing ``self.quantized_model``,
+                packable unpacked GPTQ buffers are packed only in the export
                 ``state_dict`` without mutating the in-memory model.
             save_format (str):
                 One of ``"auto"``, ``"native"``, or ``"full_wrapper"``.
@@ -2246,11 +2313,16 @@ class Runner:
         logger.info("Saving quantized model to %s", save_directory)
 
         if self.quantized_model is not None:
-            logger.info(
-                "Saving in-memory quantized model from self.quantized_model; "
-                "quantization results will not be used to rebuild it"
-            )
+            logger.info("Using existing quantized model (post-process results preserved)")
+            if self.model_config is None:
+                raise RuntimeError(
+                    "save_quantized_model with runner.quantized_model requires model_config."
+                )
             model = self.quantized_model
+            validate_quantized_model_config(
+                model,
+                "save_quantized_model",
+            )
             tokenizer = self.model_config.load_tokenizer()
         else:
             # Disable GemLite when saving to avoid extra params in safetensors.
@@ -2345,14 +2417,16 @@ class Runner:
     def save_quantized_model_pt(self, save_directory: str):
         """Save the quantized model as a PyTorch .pt file.
 
-        Use this method to save models that include post-processing
-        modifications (e.g. LoRA adapters from ``PostProcessLoraSFT``).
-        The entire model object is serialized with ``torch.save``,
-        preserving custom module types such as ``LoRAGPTQLinear``.
-
-        For models without post-processing, prefer
-        ``save_quantized_model`` which uses the HF-compatible
-        safetensors format.
+        This serializes the entire model object with ``torch.save``,
+        preserving custom module types such as ``LoRAGPTQLinear``.  It is a
+        legacy/alternative to :meth:`save_quantized_model`, which is preferred
+        for all cases -- including LoRA post-processes, whose adapter is saved
+        as a PEFT-compatible safetensors sidecar and is loadable by
+        :func:`onecomp.load_quantized_model` and servable by vLLM.  Use this
+        ``.pt`` method only when you specifically need a single serialized
+        model object; note that loading it requires
+        ``allow_unsafe_deserialization=True`` (see
+        :func:`onecomp.load_quantized_model_pt`).
 
         The saved directory contains:
         - ``model.pt``: The model (``torch.save``)
@@ -2805,6 +2879,7 @@ class Runner:
         # Remap tensors to match the full-wrapper config.
         source_state_dict = state_dict if state_dict is not None else model.state_dict()
         full_state_dict = self._remap_text_only_state_dict_to_full_wrapper(source_state_dict)
+        full_state_dict = self._strip_moe_expert_g_idx_for_vllm(full_state_dict, full_quant_config)
 
         self.logger.info(
             "Prepared full-wrapper quantized save: model_type=%s, first_quantized=%s",
@@ -2865,3 +2940,37 @@ class Runner:
             remapped[new_key] = tensor
 
         return remapped
+
+    def _strip_moe_expert_g_idx_for_vllm(self, state_dict: dict, quant_config: dict) -> dict:
+        """Drop per-expert GPTQ ``g_idx`` buffers from a vLLM-facing export.
+
+        vLLM's GPTQ MoE kernel (MoeWNA16) has no ``g_idx`` parameter, so an
+        unmapped ``g_idx`` key crashes weight loading. Safe to drop only
+        when ``desc_act``/``actorder`` is disabled, since ``g_idx`` is then
+        just the trivial ``arange(in_features) // group_size`` grouping the
+        kernel already assumes; raises otherwise.
+        """
+        from vllm_plugins.utils.module import is_moe_expert_g_idx_key
+
+        moe_g_idx_keys = [key for key in state_dict if is_moe_expert_g_idx_key(key)]
+        if not moe_g_idx_keys:
+            return state_dict
+
+        desc_act = get_quant_param(quant_config, "desc_act", "actorder", default=False)
+        if desc_act:
+            raise RuntimeError(
+                "Cannot export an actorder/desc_act GPTQ MoE checkpoint for "
+                "vLLM: vLLM's GPTQ FusedMoE kernel (MoeWNA16Method) has no "
+                "g_idx support, so activation-order MoE quantization is not "
+                "servable by vLLM yet."
+            )
+
+        state_dict = dict(state_dict)
+        for key in moe_g_idx_keys:
+            del state_dict[key]
+        self.logger.info(
+            "Dropped %d trivial MoE expert g_idx buffer(s) unsupported by "
+            "vLLM's GPTQ FusedMoE kernel",
+            len(moe_g_idx_keys),
+        )
+        return state_dict

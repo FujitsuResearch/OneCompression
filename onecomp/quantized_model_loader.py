@@ -28,7 +28,7 @@ from .quantizer.onebit.onebit_layer import OneBitLinear
 from .utils.device import get_default_device
 from .utils.dtype import needs_bfloat16
 from .utils.lora import LORA_ADAPTER_SUBDIR
-from .utils.quant_config import get_quant_param
+from .utils.quant_config import get_quant_param, validate_quant_config
 from .utils.unfuse_moe import unfuse_moe_experts
 
 logger = getLogger(__name__)
@@ -43,7 +43,7 @@ class QuantizedModelLoader:
         save_directory: str,
         *,
         torch_dtype: Optional[torch.dtype] = None,
-        device_map: str = "auto",
+        device_map: Optional[str] = "auto",
         trust_remote_code: bool = True,
         local_files_only: bool = True,
     ) -> Tuple[Any, Any]:
@@ -72,11 +72,22 @@ class QuantizedModelLoader:
             save_directory: Path to the saved model directory.
             torch_dtype: Model dtype (default: torch.float16).
             device_map: Device placement (default: "auto").
+                Set to ``None`` or ``""`` to leave the model on CPU.
             trust_remote_code: Passed to from_pretrained.
             local_files_only: Passed to from_pretrained.
 
         Returns:
             (model, tokenizer)
+
+        Raises:
+            FileNotFoundError: If ``save_directory`` or its ``config.json``
+                is missing.
+            ValueError: If ``quantization_config`` is missing or not a dict, or
+                lacks the required ``quant_method`` /
+                ``modules_in_block_to_quantize`` keys.  Validated by the same
+                :func:`onecomp.utils.quant_config.validate_quant_config` used by
+                the save path, so saving and loading enforce identical required
+                keys and raise the same exception type.
 
         Example:
             >>> model, tokenizer = QuantizedModelLoader.load_quantized_model("./tinyllama_gptq3")
@@ -191,6 +202,11 @@ class QuantizedModelLoader:
             local_files_only=local_files_only,
         )
 
+        # _build_empty_model_from_config removes quantization_config before
+        # constructing the HF config.  Reattach it so callers can refine and
+        # re-save a loaded quantized model without separately reading config.json.
+        model.config.quantization_config = quant_config
+
         return model, tokenizer
 
     @classmethod
@@ -198,7 +214,7 @@ class QuantizedModelLoader:
         cls,
         save_directory: str,
         *,
-        device_map: str = "auto",
+        device_map: Optional[str] = "auto",
         local_files_only: bool = True,
         allow_unsafe_deserialization: bool = False,
     ) -> Tuple[Any, Any]:
@@ -325,6 +341,11 @@ class QuantizedModelLoader:
     def _load_config_and_quant_config(save_directory: str) -> Tuple[Dict, Dict]:
         """Load config.json and return (config_dict, quant_config) with validation.
 
+        The quantization_config schema is validated by the same
+        :func:`onecomp.utils.quant_config.validate_quant_config` used by the
+        save path, so saving and loading enforce identical required keys and
+        raise the same exception type.
+
         Raises:
             FileNotFoundError: If config.json is missing.
             ValueError: If quantization_config, quant_method, or
@@ -338,12 +359,7 @@ class QuantizedModelLoader:
             config_dict = json.load(f)
 
         quant_config = config_dict.get("quantization_config")
-        if quant_config is None:
-            raise ValueError(
-                "No quantization config found in config.json. " "Expected 'quantization_config'."
-            )
-        if quant_config.get("quant_method") is None:
-            raise ValueError("quant_method not found in quantization config.")
+        validate_quant_config(quant_config, "config.json")
 
         return config_dict, quant_config
 

@@ -9,6 +9,7 @@ The `Runner` class is the main entry point for executing quantization pipelines 
         - __init__
         - auto_run
         - run
+        - run_post_processes
         - check
         - calculate_perplexity
         - benchmark_perplexity

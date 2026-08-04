@@ -11,7 +11,7 @@ uv venv --python 3.12 "$VENV"
 source "$VENV/bin/activate"
 uv pip install --python "$VENV/bin/python" \
     -e . -e envs/vllm/v0_24_0_rocm \
-    vllm==0.24.0+rocm723 --extra-index-url https://wheels.vllm.ai/rocm/
+    vllm==0.24.0+rocm723 --extra-index-url https://wheels.vllm.ai/rocm/0.24.0/rocm723
 # vLLM pulls torchaudio==2.9.0+eaa9e4e, which is ABI-incompatible with
 # torch==2.11.0+gitd0c8b1f and breaks transformers import.  Remove it;
 # GPTQ inference does not need audio.
