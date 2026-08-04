@@ -2038,7 +2038,9 @@ class Runner:
             )
         return export_state_dict
 
-    def _save_lora_adapter_sidecar(self, save_directory: str, model=None) -> bool:
+    def _save_lora_adapter_sidecar(
+        self, save_directory: str, model=None, save_format: str = "auto"
+    ) -> bool:
         """Write a PEFT-compatible LoRA adapter sidecar if *model*
         contains ``LoRAGPTQLinear`` modules (typically produced by
         ``PostProcessLoraSFT``).
@@ -2063,6 +2065,16 @@ class Runner:
 
         will load and apply the adapter without any OneComp-specific changes
         to the vLLM plugin.
+
+        Args:
+            save_directory: Directory the model is being saved to.
+            model: Model to collect LoRA modules from; defaults to
+                ``self.quantized_model``.
+            save_format: Must match the ``save_format`` used for the base
+                weights. When ``"full_wrapper"``, adapter module paths are
+                remapped from the text-only ``model.layers.*`` namespace to
+                the composite ``model.language_model.*`` namespace so the
+                sidecar keys line up with the remapped base layers.
 
         Returns:
             bool: True iff an adapter was written. False if there is no
@@ -2091,13 +2103,23 @@ class Runner:
         save_dtype = getattr(torch, self.model_config.dtype)
 
         # PEFT convention: keys are prefixed with "base_model.model." and the
-        # module path matches what we will see on the loaded HF model.
+        # module path matches what we will see on the loaded HF model. When
+        # save_format='full_wrapper', the base weights and quantization_config
+        # are remapped to the composite ``model.language_model.*`` namespace
+        # (see _prepare_full_wrapper_quantized_save), so the adapter module
+        # paths must be remapped the same way; otherwise the sidecar keeps the
+        # text-only ``model.layers.*`` names and vLLM's full-wrapper loader
+        # cannot match the adapter tensors to the base layers.
+        remap = save_format == "full_wrapper"
         state_dict = {}
         for name, mod in lora_modules:
-            state_dict[f"base_model.model.{name}.lora_A.weight"] = (
+            adapter_name = (
+                self._remap_text_only_module_name_to_full_wrapper(name) if remap else name
+            )
+            state_dict[f"base_model.model.{adapter_name}.lora_A.weight"] = (
                 mod.lora_A.weight.detach().to("cpu", save_dtype).contiguous()
             )
-            state_dict[f"base_model.model.{name}.lora_B.weight"] = (
+            state_dict[f"base_model.model.{adapter_name}.lora_B.weight"] = (
                 mod.lora_B.weight.detach().to("cpu", save_dtype).contiguous()
             )
 
@@ -2388,7 +2410,9 @@ class Runner:
             logger.warning("Source model dir not resolvable; skipping auxiliary file copy.")
 
         # LoRA sidecar: only written if selected model contains LoRAGPTQLinear.
-        wrote_adapter = self._save_lora_adapter_sidecar(save_directory, model=model)
+        wrote_adapter = self._save_lora_adapter_sidecar(
+            save_directory, model=model, save_format=save_format
+        )
         if not wrote_adapter:
             # Remove any stale sidecar from a previous run so the directory is
             # self-consistent and load_quantized_model does not pick up an
@@ -2910,6 +2934,24 @@ class Runner:
         return quant_config
 
     @staticmethod
+    def _remap_text_only_module_name_to_full_wrapper(name: str) -> str:
+        """Remap a single text-only module/tensor path to the composite
+        ``model.language_model.*`` namespace used by the full-wrapper save.
+
+        Example:
+          model.layers.0...      -> model.language_model.layers.0...
+          model.embed_tokens...  -> model.language_model.embed_tokens...
+          model.norm...          -> model.language_model.norm...
+
+        Top-level ``lm_head.*`` is left unchanged.
+        """
+        if name.startswith("lm_head."):
+            return name
+        if name.startswith("model.") and not name.startswith("model.language_model."):
+            return "model.language_model." + name[len("model.") :]
+        return name
+
+    @staticmethod
     def _remap_text_only_state_dict_to_full_wrapper(state_dict: dict) -> dict:
         """Remap text-only CausalLM state_dict to composite language_model prefix.
 
@@ -2923,14 +2965,7 @@ class Runner:
         remapped = {}
 
         for key, tensor in state_dict.items():
-            new_key = key
-
-            if key.startswith("model.") and not key.startswith("model.language_model."):
-                new_key = "model.language_model." + key[len("model.") :]
-
-            # lm_head usually stays top-level.
-            if key.startswith("lm_head."):
-                new_key = key
+            new_key = Runner._remap_text_only_module_name_to_full_wrapper(key)
 
             if new_key in remapped:
                 raise RuntimeError(

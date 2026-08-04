@@ -1,5 +1,15 @@
 # Change log
 
+## [v1.3.0(WIP)+feature/qwen_lora] 2026-08-04
+
+### Fixed
+
+- Fixed `save_format="full_wrapper"` (Qwen3.6) silently dropping the LoRA adapter under vLLM: the base weights were remapped to the composite `model.language_model.*` namespace, but the LoRA sidecar kept the text-only `model.layers.*` keys, so vLLM couldn't match them. `_save_lora_adapter_sidecar()` now applies the same remap (via the shared helper `Runner._remap_text_only_module_name_to_full_wrapper()`, also reused by the state_dict/quant-config remaps) (`onecomp/runner.py`)
+
+### Tests
+
+- Added `test_sidecar_keys_remapped_for_full_wrapper` for the remapped sidecar keys (`tests/onecomp/runner/test_save_lora_adapter_sidecar_dtype.py`)
+
 ## [v1.3.0] 2026-07-27
 
 ## Add CPU inference & GGUF export for OneComp quantized models (for Llama.cpp)
