@@ -96,12 +96,8 @@ def test_gpt_oss_experts_roundtrip_if_available():
     fused.gate_up_proj_bias = nn.Parameter(
         torch.randn(num_experts, 2 * inter, dtype=torch.float32)
     )
-    fused.down_proj = nn.Parameter(
-        torch.randn(num_experts, inter, hidden, dtype=torch.float32)
-    )
-    fused.down_proj_bias = nn.Parameter(
-        torch.randn(num_experts, hidden, dtype=torch.float32)
-    )
+    fused.down_proj = nn.Parameter(torch.randn(num_experts, inter, hidden, dtype=torch.float32))
+    fused.down_proj_bias = nn.Parameter(torch.randn(num_experts, hidden, dtype=torch.float32))
     fused.alpha = 1.702
     fused.limit = 7.0
 
@@ -120,6 +116,7 @@ def test_gpt_oss_experts_roundtrip_if_available():
         assert torch.allclose(getattr(refuzed, key).data, ref[key], atol=1e-5, rtol=1e-4)
     assert refuzed.alpha == ref["alpha"]
     assert refuzed.limit == ref["limit"]
+
 
 _dequantized_weight_bias = _unfuse_mod._dequantized_weight_bias
 _gpt_oss_combine_gate_up = _unfuse_mod._gpt_oss_combine_gate_up
@@ -244,9 +241,7 @@ def test_gptq_linear_expert_fuse_uses_dequantized_weights():
         gate_gptq = _linear_to_gptq(gate_lin, inp)
         up_gptq = _linear_to_gptq(up_lin, inp)
         down_gptq = _linear_to_gptq(down_lin, torch.randn(8, inter))
-        expert_modules.append(
-            _ExpertMLP(gate_gptq, up_gptq, down_gptq, act_fn=None)
-        )
+        expert_modules.append(_ExpertMLP(gate_gptq, up_gptq, down_gptq, act_fn=None))
 
     unfused = _UnfusedExperts(
         num_experts,
@@ -262,9 +257,8 @@ def test_gptq_linear_expert_fuse_uses_dequantized_weights():
     assert torch.allclose(fused.down_proj.data, exp_down, atol=1e-4, rtol=1e-3)
     assert torch.allclose(fused.down_proj_bias.data, exp_down_b, atol=1e-4, rtol=1e-3)
 
-    assert not torch.allclose(
-        fused.gate_up_proj.data, dense_gate_up_3d, atol=1e-3, rtol=0
-    )
+    assert not torch.allclose(fused.gate_up_proj.data, dense_gate_up_3d, atol=1e-3, rtol=0)
+
 
 def test_fused_moe_state_dict_has_per_layer_weights():
     gpt_oss_cls = _gpt_oss_experts_type()
@@ -305,6 +299,7 @@ def test_fused_moe_state_dict_has_per_layer_weights():
     ptr1 = model.layers[1].mlp.experts.gate_up_proj.data.untyped_storage().data_ptr()
     assert ptr0 != ptr1
 
+
 def test_ensure_unique_fused_moe_parameters():
     gpt_oss_cls = _gpt_oss_experts_type()
     if gpt_oss_cls is None:
@@ -328,6 +323,7 @@ def test_ensure_unique_fused_moe_parameters():
     ptr1 = model.layers[1].mlp.experts.gate_up_proj.untyped_storage().data_ptr()
     assert ptr0 != ptr1
     _unfuse_mod.validate_fused_moe_state_dict(model)
+
 
 def test_fused_state_dict_has_per_layer_moe_keys():
     gpt_oss_cls = _gpt_oss_experts_type()
@@ -360,4 +356,3 @@ def test_fused_state_dict_has_per_layer_moe_keys():
     assert "layers.0.mlp.experts.gate_up_proj" in sd
     assert "layers.1.mlp.experts.gate_up_proj" in sd
     _unfuse_mod.validate_fused_moe_state_dict(model)
-
