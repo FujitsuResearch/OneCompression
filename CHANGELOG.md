@@ -77,6 +77,51 @@
 - Added regression coverage for nested quantized `down_proj` layers, mixed flat siblings, hook-count invariance across re-registration, and `nn.Linear` subclasses, using realistic decoder names and an `nn.ModuleList` layer container (`tests/onecomp/runner/test_hadamard_hook_type_collection.py`)
 - Added a rotated-MDBF save/load end-to-end test for hook targeting and behavior, plus `in_features` / `out_features` contract coverage for normal and saved-state MDBF construction (`tests/onecomp/runner/test_mdbf_save_load_roundtrip.py`, `tests/onecomp/quantizer/mdbf/test_mdbf.py`)
 
+## [v1.3.0(WIP)+gptoss] 2026-08-03
+
+### New Feature: GPT-OSS 4-bit MoE experts for vLLM (mixed_gptq)
+
+- Added end-to-end 4-bit serving of GPT-OSS (`openai/gpt-oss-20b`, `openai/gpt-oss-120b`) MoE experts through the `mixed_gptq` vLLM plugin. Passing `Runner(..., moe_quant_experts=True)` keeps the router experts as per-expert GPTQ INT4 tensors (`...mlp.experts.{i}.{gate,up,down}_proj.{qweight,qzeros,scales,g_idx}`) rather than dequantizing them to dense bf16, so the experts stay compressed on disk and are served 4-bit (`onecomp/runner.py`, `onecomp/utils/unfuse_moe.py`).
+- GPT-OSS `hidden_size` (2880) is not divisible by 128, so the experts must be quantized with `group_size=64`; the fused-MoE experts are then routed through vLLM's WNA16 (`MoeWNA16Method`) path instead of Marlin.
+- Added `GptOssWNA16MoEMethod` (`vllm_plugins/gptq/gptoss_wna16_moe.py`), a `MoeWNA16Method` subclass that registers per-expert `w13_bias` / `w2_bias`, permutes the fused `w13` gate/up block layout into the interleaved order expected by the `swigluoai` activation (`process_weights_after_loading`), and forwards the layer's real activation to `fused_experts` (dropping the stock SiLU-only assertion).
+- Added asymmetric-quantization serving for GPT-OSS MoE experts: `_get_moe_quant_method` builds the WNA16 config directly (via `_wna16_full_config` / `MoeWNA16Config.from_config`) instead of through `GPTQMarlinConfig`, which rejects `bits=4, sym=False`, and `process_weights_after_loading` reorders the packed `w13_qzeros` into the interleaved gate/up order (`_reorder_packed_qzeros`) so zero points stay aligned with the weights/scales (symmetric checkpoints keep the empty-placeholder fast path).
+
+### vLLM runtime patches
+
+- Added `python -m vllm_plugins.patches.apply_all`, which applies two idempotent, marker-guarded source patches to the installed vLLM before serving GPT-OSS `mixed_gptq` checkpoints:
+  - `gpt_oss_gptq_moe`: injects a `_load_weights_gptq_moe` per-expert GPTQ weight-loading path into `GptOssModel.load_weights` (`vllm_plugins/patches/gpt_oss_gptq_moe.py`).
+  - `gpt_oss_wna16_bias`: adds per-expert bias to the WNA16 fused-MoE Triton kernel (`fused_moe_kernel_gptq_awq`) and forces the Triton path when a bias tensor is present (`vllm_plugins/patches/gpt_oss_wna16_bias.py`).
+
+### Plugin
+
+- Made GPT-OSS routing self-contained: the `mixed_gptq` plugin exposes a generic MoE-method adapter registry (`register_moe_method_adapter`, adapters called as `(quant_method, layer)`), and the GPT-OSS-specific decision to wrap `MoeWNA16Method` in `GptOssWNA16MoEMethod` lives in `vllm_plugins/gptq/gptoss_wna16_moe.py` (`wrap_moe_method`), wired in `register_vllm_plugin` (`vllm_plugins/gptq/vllm_plugin.py`).
+- `wrap_moe_method` is gated on `layer.activation == SWIGLUOAI`, so only GPT-OSS-style MoE layers are wrapped; other WNA16 MoE models (e.g. Qwen3.6-A3B, SiLU) keep the stock `MoeWNA16Method` and are not subjected to the `swigluoai` `w13` interleave. `_get_moe_quant_method` builds the WNA16 base directly (via `MoeWNA16Config`) so both architectures share one dispatch path (`vllm_plugins/gptq/vllm_plugin.py`).
+
+### Documentation
+
+- Added the GPT-OSS vLLM guide (`docs/user-guide/gptoss.md`) covering quantization (`group_size=64`, `moe_quant_experts=True`), HF save/load, `apply_all` patches, and serving/verification, and updated the README and `docs/user-guide/vllm-inference.md` GPT-OSS sections accordingly.
+
+## [v1.3.0(WIP)+feature/qwen_lora] 2026-08-04
+
+### Fixed
+
+- Fixed `save_format="full_wrapper"` (Qwen3.6) silently dropping the LoRA adapter under vLLM: the base weights were remapped to the composite `model.language_model.*` namespace, but the LoRA sidecar kept the text-only `model.layers.*` keys, so vLLM couldn't match them. `_save_lora_adapter_sidecar()` now applies the same remap (via the shared helper `Runner._remap_text_only_module_name_to_full_wrapper()`, also reused by the state_dict/quant-config remaps) (`onecomp/runner.py`)
+
+### Tests
+
+- Added `test_sidecar_keys_remapped_for_full_wrapper` for the remapped sidecar keys (`tests/onecomp/runner/test_save_lora_adapter_sidecar_dtype.py`)
+
+## [v1.3.0(WIP)+refactor/gptq-normalize-scale-zero] 2026-07-31
+
+### Refactor
+
+- Moved the scale/zero layout normalization out of `GPTQLinear` into the module-level `normalize_scale_zero()` helper, so the quantize-time bitpack path no longer calls a private static method of `GPTQLinear` from outside the class. The normalization logic itself is unchanged (`onecomp/quantizer/gptq/gptq_layer.py`, `onecomp/quantizer/gptq/_gptq.py`)
+- Documented that `normalize_scale_zero()` returns shapes outside the three supported scale/zero layouts as-is, without validation (`onecomp/quantizer/gptq/gptq_layer.py`)
+
+### Tests
+
+- Added direct unit tests for `normalize_scale_zero()` covering the three supported scale/zero layouts and the unvalidated pass-through of any other shape (`tests/onecomp/quantizer/gptq/test_gptq_layer_pack.py`)
+
 ## [v1.3.0] 2026-07-27
 
 ## Add CPU inference & GGUF export for OneComp quantized models (for Llama.cpp)

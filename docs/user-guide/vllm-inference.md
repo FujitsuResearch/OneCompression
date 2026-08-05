@@ -360,6 +360,15 @@ python your_vllm_script.py
 
 Both variables are read directly by vLLM; OneComp does not interpret them.
 
+
+## GPT-OSS (mixed_gptq)
+
+GPT-OSS (openai/gpt-oss-20b, openai/gpt-oss-120b) uses the mixed_gptq plugin but
+requires **additional vLLM runtime patches** and 4-bit MoE experts quantized with
+**`group_size=64`** (GPT-OSS `hidden_size` 2880 is not divisible by 128).
+
+See the full guide: **[GPT-OSS](gptoss.md)** — covers quantization, HF save/load,
+`apply_all` patches, and verification scripts.
 ## ROCm support (AMD GPUs)
 
 GPTQ models can be served on AMD GPUs via ROCm using a dedicated opt-in venv and

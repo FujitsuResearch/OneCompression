@@ -73,7 +73,8 @@ hydra = [
     "hydra-core",
 ]
 # vllm v0.22.0 removes Exllama legacy gptq
-vllm = ["vllm>=0.10,<0.22"]
+# conch-triton-kernels: GPTQ Marlin kernel on Blackwell (sm100); required for GPT-OSS mixed_gptq vLLM
+vllm = ["vllm>=0.10,<0.22", "conch-triton-kernels"]
 # GGUF export + llama.cpp CPU inference.
 # `gguf` is pure-python (GGUF read/write, no build step).
 # `llama-cpp-python` ships prebuilt CPU wheels (no cmake needed for inference).

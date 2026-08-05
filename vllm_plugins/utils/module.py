@@ -36,6 +36,17 @@ _FUSED_TO_CONSTITUENTS = {
     "gate_up_proj": ["gate_proj", "up_proj"],
 }
 
+# vLLM model code may use different submodule names than HF checkpoints.
+# GPT-OSS vLLM uses `attn.*` while quantization_bits keys use `self_attn.*`.
+_VLLM_SUFFIX_ALIASES = (("attn.", "self_attn."),)
+
+
+def _normalize_module_suffix(module_suffix: str) -> str:
+    for src, dst in _VLLM_SUFFIX_ALIASES:
+        if module_suffix.startswith(src):
+            return dst + module_suffix[len(src) :]
+    return module_suffix
+
 
 def _parse_layer_and_module(prefix: str) -> tuple[int | None, str | None]:
     if any(p in prefix for p in _NON_TEXT_PREFIXES):
@@ -66,6 +77,7 @@ def _lookup_module_config(
     if layer_idx >= len(quantization_bits):
         return None
     layer_cfg = quantization_bits[layer_idx]
+    module_suffix = _normalize_module_suffix(module_suffix)
     for name, cfg in layer_cfg.items():
         if module_suffix.startswith(name):
             return cfg
@@ -130,6 +142,7 @@ def _validate_quant_config_within_shard(
     if layer_idx >= len(quantization_bits):
         return False
     layer_cfg = quantization_bits[layer_idx]
+    module_suffix = _normalize_module_suffix(module_suffix)
 
     for fused_name, constituents in _FUSED_TO_CONSTITUENTS.items():
         # If fused_name is found in module_suffix, verify that all configs in the shard are identical.

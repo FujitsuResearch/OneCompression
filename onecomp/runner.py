@@ -38,6 +38,25 @@ from .utils.quant_config import get_quant_param, validate_quantized_model_config
 from .utils.quantization_progress import QuantizationProgressTracker
 
 
+def _get_num_experts(config):
+    """Return the number of MoE experts declared in a model config.
+
+    Different architectures use different attribute names:
+    ``num_experts`` (Qwen-MoE, Gemma4) or ``num_local_experts``
+    (GPT-OSS, Mixtral).  VLMs nest them under ``text_config``.
+    Returns 0 for non-MoE models.
+    """
+    candidates = [config, getattr(config, "text_config", None)]
+    for cfg in candidates:
+        if cfg is None:
+            continue
+        for attr in ("num_experts", "num_local_experts"):
+            value = getattr(cfg, attr, None)
+            if value:
+                return value
+    return 0
+
+
 class Runner:
     """Runner class for model quantization
 
@@ -94,6 +113,7 @@ class Runner:
         gpu_ids=None,
         post_processes=None,
         report_progress=True,
+        moe_quant_experts=False,
     ):
         """__init__ method
 
@@ -149,6 +169,15 @@ class Runner:
                 completed steps, elapsed time, and a linear ETA estimate
                 during long quantization (calibration, chunked, multi-GPU,
                 QEP).  Set to ``False`` for quiet runs (e.g. CI).
+            moe_quant_experts (bool):
+                When ``True``, MoE experts are kept as per-expert GPTQ INT4
+                tensors (``...experts.{i}.{gate,up,down}_proj.{qweight,...}``)
+                and left in the quantization config so a 4-bit MoE vLLM path
+                (e.g. the mixed_gptq plugin's gpt-oss WNA16 method) can serve
+                them.  When ``False`` (default), experts are dequantized and
+                fused into dense tensors for ``UnquantizedFusedMoEMethod``.
+                Only enable this for architectures that have a quantized MoE
+                serving path in vLLM (currently gpt-oss).
 
         Note:
             For zero-config quantization (VRAM auto-estimation +
@@ -227,6 +256,7 @@ class Runner:
         self.multi_gpu = multi_gpu
         self.gpu_ids = gpu_ids
         self.post_processes = post_processes or []
+        self.moe_quant_experts = moe_quant_experts
         self.quantized_model = None
         self.qep_config = None
         if qep:
@@ -378,11 +408,7 @@ class Runner:
         the same way, so it is excluded alongside the router.
         """
         config = self.model_config.load_config()
-        num_experts = (
-            getattr(config, "num_experts", 0)
-            or getattr(getattr(config, "text_config", None), "num_experts", 0)
-            or 0
-        )
+        num_experts = _get_num_experts(config)
         if num_experts == 0:
             return
 
@@ -1216,6 +1242,12 @@ class Runner:
             logger.info("Evaluating dequantized model (%s)...", eval_name)
             model = self.model_config.load_model()
             tokenizer = self.model_config.load_tokenizer()
+            # Unfuse MoE expert tensors so per-expert quantization results
+            # (e.g. "...experts.4.gate_proj") can be matched by module name.
+            from .utils.unfuse_moe import unfuse_moe_experts
+
+            if unfuse_moe_experts(model, logger):
+                logger.info("Unfused MoE expert tensors for dequantized evaluation")
             self.update_model_weights(model, quantizer=quantizer)
             dequantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
             del model, tokenizer
@@ -1759,9 +1791,13 @@ class Runner:
         model = self.model_config.load_model(device_map="cpu")
         tokenizer = self.model_config.load_tokenizer()
 
-        # Unfuse MoE experts so per-expert result keys can be resolved
-        from .utils.unfuse_moe import unfuse_moe_experts
+        from .utils.unfuse_moe import (
+            fuse_moe_experts,
+            strip_moe_experts_from_quant_config,
+            unfuse_moe_experts,
+        )
 
+        # Unfuse MoE experts so per-expert result keys can be resolved
         if unfuse_moe_experts(model, self.logger):
             self.logger.info("Unfused MoE expert tensors for quantized model save")
 
@@ -1823,11 +1859,7 @@ class Runner:
         # GPTQ-quantized.  "mixed_gptq" returns None
         # and passes the weights to UnquantizedFusedMoEMethod.
         # cf) https://docs.vllm.ai/en/stable/features/quantization/#implementing-a-quantized-moe-method
-        num_experts = (
-            getattr(model.config, "num_experts", None)
-            or getattr(getattr(model.config, "text_config", None), "num_experts", None)
-            or 0
-        )
+        num_experts = _get_num_experts(model.config)
         if quant_config.get("quant_method") == "gptq" and num_experts > 0:
             quant_config["quant_method"] = "mixed_gptq"
             self.logger.info(
@@ -1835,6 +1867,21 @@ class Runner:
                 "switching quant_method to mixed_gptq for vLLM compatibility",
                 num_experts,
             )
+
+        if num_experts > 0:
+            if self.moe_quant_experts:
+                # Keep experts as per-expert GPTQLinear tensors (4-bit) and leave
+                # them in the quant config so the mixed_gptq vLLM plugin serves
+                # them via GPTQMarlinMoEMethod.  No fuse/dequantize/strip.
+                self.logger.info(
+                    "MoE quant-experts mode: keeping %d-expert layers GPTQ-quantized "
+                    "(no fuse/strip)",
+                    num_experts,
+                )
+            else:
+                strip_moe_experts_from_quant_config(quant_config)
+                if fuse_moe_experts(model, self.logger):
+                    self.logger.info("Fused MoE expert tensors for vLLM-compatible save")
 
         # Patch weights and quant config for architectures with shared
         # K/V projections (e.g. Gemma4 attention_k_eq_v) so that vLLM's
@@ -2038,7 +2085,9 @@ class Runner:
             )
         return export_state_dict
 
-    def _save_lora_adapter_sidecar(self, save_directory: str, model=None) -> bool:
+    def _save_lora_adapter_sidecar(
+        self, save_directory: str, model=None, save_format: str = "auto"
+    ) -> bool:
         """Write a PEFT-compatible LoRA adapter sidecar if *model*
         contains ``LoRAGPTQLinear`` modules (typically produced by
         ``PostProcessLoraSFT``).
@@ -2063,6 +2112,16 @@ class Runner:
 
         will load and apply the adapter without any OneComp-specific changes
         to the vLLM plugin.
+
+        Args:
+            save_directory: Directory the model is being saved to.
+            model: Model to collect LoRA modules from; defaults to
+                ``self.quantized_model``.
+            save_format: Must match the ``save_format`` used for the base
+                weights. When ``"full_wrapper"``, adapter module paths are
+                remapped from the text-only ``model.layers.*`` namespace to
+                the composite ``model.language_model.*`` namespace so the
+                sidecar keys line up with the remapped base layers.
 
         Returns:
             bool: True iff an adapter was written. False if there is no
@@ -2091,13 +2150,23 @@ class Runner:
         save_dtype = getattr(torch, self.model_config.dtype)
 
         # PEFT convention: keys are prefixed with "base_model.model." and the
-        # module path matches what we will see on the loaded HF model.
+        # module path matches what we will see on the loaded HF model. When
+        # save_format='full_wrapper', the base weights and quantization_config
+        # are remapped to the composite ``model.language_model.*`` namespace
+        # (see _prepare_full_wrapper_quantized_save), so the adapter module
+        # paths must be remapped the same way; otherwise the sidecar keeps the
+        # text-only ``model.layers.*`` names and vLLM's full-wrapper loader
+        # cannot match the adapter tensors to the base layers.
+        remap = save_format == "full_wrapper"
         state_dict = {}
         for name, mod in lora_modules:
-            state_dict[f"base_model.model.{name}.lora_A.weight"] = (
+            adapter_name = (
+                self._remap_text_only_module_name_to_full_wrapper(name) if remap else name
+            )
+            state_dict[f"base_model.model.{adapter_name}.lora_A.weight"] = (
                 mod.lora_A.weight.detach().to("cpu", save_dtype).contiguous()
             )
-            state_dict[f"base_model.model.{name}.lora_B.weight"] = (
+            state_dict[f"base_model.model.{adapter_name}.lora_B.weight"] = (
                 mod.lora_B.weight.detach().to("cpu", save_dtype).contiguous()
             )
 
@@ -2346,6 +2415,14 @@ class Runner:
                 model, lora_modules, pack_weights=pack_weights
             )
 
+        # MoE models write fused expert tensors per-layer.  save_original_format=True
+        # would run revert_weight_conversion (grouped_gemm) and collapse them into
+        # shared gate_up_proj$/down_proj$ keys, so force it off for MoE checkpoints.
+        # (fuse/strip of the experts themselves happens in
+        # _prepare_model_for_quantized_save so save_format remapping stays consistent.)
+        num_experts = _get_num_experts(model.config)
+        extra_save_kwargs = {"save_original_format": False} if num_experts > 0 else {}
+
         orig_model_config_for_restore = model.config
 
         try:
@@ -2355,11 +2432,31 @@ class Runner:
                 state_dict=export_state_dict,
             )
             if save_state_dict is not None:
-                model.save_pretrained(save_directory, state_dict=save_state_dict)
+                model.save_pretrained(
+                    save_directory, state_dict=save_state_dict, **extra_save_kwargs
+                )
             else:
-                model.save_pretrained(save_directory)
+                model.save_pretrained(save_directory, **extra_save_kwargs)
         finally:
             model.config = orig_model_config_for_restore
+
+        if num_experts > 0:
+            if self.moe_quant_experts:
+                from .utils.unfuse_moe import verify_saved_moe_quant_checkpoint
+
+                n_experts = verify_saved_moe_quant_checkpoint(save_directory)
+                logger.info(
+                    "Saved checkpoint MoE (quant-experts): per-expert GPTQ layers=%d",
+                    n_experts,
+                )
+            else:
+                from .utils.unfuse_moe import verify_saved_moe_checkpoint
+
+                n_layers = verify_saved_moe_checkpoint(save_directory)
+                logger.info(
+                    "Saved checkpoint MoE: per-layer gate_up_proj=%d, bad$ keys=[]",
+                    n_layers,
+                )
 
         tokenizer.save_pretrained(save_directory)
         if save_format == "full_wrapper":
@@ -2388,7 +2485,9 @@ class Runner:
             logger.warning("Source model dir not resolvable; skipping auxiliary file copy.")
 
         # LoRA sidecar: only written if selected model contains LoRAGPTQLinear.
-        wrote_adapter = self._save_lora_adapter_sidecar(save_directory, model=model)
+        wrote_adapter = self._save_lora_adapter_sidecar(
+            save_directory, model=model, save_format=save_format
+        )
         if not wrote_adapter:
             # Remove any stale sidecar from a previous run so the directory is
             # self-consistent and load_quantized_model does not pick up an
@@ -2806,6 +2905,24 @@ class Runner:
                 "Expected one of: auto, native, full_wrapper."
             )
 
+        # MoE models: fuse per-expert (dequantized) tensors back to the fused 3D
+        # layout vLLM expects, and drop per-expert entries from quant_config so the
+        # namespace assertions below (and the full_wrapper remap) do not flag the
+        # now-absent per-expert modules.  Idempotent: a no-op when the model is
+        # already fused/stripped (create_quantized_model handles this on the normal
+        # path); this is the safety net for the self.quantized_model path.
+        if _get_num_experts(model.config) > 0 and not self.moe_quant_experts:
+            from .utils.unfuse_moe import (
+                fuse_moe_experts,
+                strip_moe_experts_from_quant_config,
+            )
+
+            if fuse_moe_experts(model, self.logger):
+                self.logger.info("Fused MoE expert tensors before save")
+            qcfg = getattr(model.config, "quantization_config", None)
+            if isinstance(qcfg, dict):
+                strip_moe_experts_from_quant_config(qcfg)
+
         if save_format in {"auto", "native"}:
             self._restore_original_composite_config_if_needed(model)
             self._assert_config_state_dict_namespace_consistent(model)
@@ -2910,6 +3027,24 @@ class Runner:
         return quant_config
 
     @staticmethod
+    def _remap_text_only_module_name_to_full_wrapper(name: str) -> str:
+        """Remap a single text-only module/tensor path to the composite
+        ``model.language_model.*`` namespace used by the full-wrapper save.
+
+        Example:
+          model.layers.0...      -> model.language_model.layers.0...
+          model.embed_tokens...  -> model.language_model.embed_tokens...
+          model.norm...          -> model.language_model.norm...
+
+        Top-level ``lm_head.*`` is left unchanged.
+        """
+        if name.startswith("lm_head."):
+            return name
+        if name.startswith("model.") and not name.startswith("model.language_model."):
+            return "model.language_model." + name[len("model.") :]
+        return name
+
+    @staticmethod
     def _remap_text_only_state_dict_to_full_wrapper(state_dict: dict) -> dict:
         """Remap text-only CausalLM state_dict to composite language_model prefix.
 
@@ -2923,14 +3058,7 @@ class Runner:
         remapped = {}
 
         for key, tensor in state_dict.items():
-            new_key = key
-
-            if key.startswith("model.") and not key.startswith("model.language_model."):
-                new_key = "model.language_model." + key[len("model.") :]
-
-            # lm_head usually stays top-level.
-            if key.startswith("lm_head."):
-                new_key = key
+            new_key = Runner._remap_text_only_module_name_to_full_wrapper(key)
 
             if new_key in remapped:
                 raise RuntimeError(
