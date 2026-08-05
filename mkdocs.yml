@@ -91,6 +91,7 @@ nav:
       - Pre-Process (Rotation): user-guide/pre-process.md
       - Post-Process (Global PTQ / Block-wise PTQ / LoRA SFT): user-guide/post-process.md
       - vLLM Inference: user-guide/vllm-inference.md
+      - GPT-OSS: user-guide/gptoss.md
       - CPU Inference (llama.cpp / GGUF): user-guide/cpu-inference.md
       - GGUF Export: user-guide/gguf-export.md
       - Evaluation: user-guide/evaluation.md
