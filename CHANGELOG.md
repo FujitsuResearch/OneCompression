@@ -23,6 +23,7 @@
 ### Documentation
 
 - Added the GPT-OSS vLLM guide (`docs/user-guide/gptoss.md`) covering quantization (`group_size=64`, `moe_quant_experts=True`), HF save/load, `apply_all` patches, and serving/verification, and updated the README and `docs/user-guide/vllm-inference.md` GPT-OSS sections accordingly.
+
 ## [v1.3.0(WIP)+feature/qwen_lora] 2026-08-04
 
 ### Fixed
@@ -32,6 +33,17 @@
 ### Tests
 
 - Added `test_sidecar_keys_remapped_for_full_wrapper` for the remapped sidecar keys (`tests/onecomp/runner/test_save_lora_adapter_sidecar_dtype.py`)
+
+## [v1.3.0(WIP)+refactor/gptq-normalize-scale-zero] 2026-07-31
+
+### Refactor
+
+- Moved the scale/zero layout normalization out of `GPTQLinear` into the module-level `normalize_scale_zero()` helper, so the quantize-time bitpack path no longer calls a private static method of `GPTQLinear` from outside the class. The normalization logic itself is unchanged (`onecomp/quantizer/gptq/gptq_layer.py`, `onecomp/quantizer/gptq/_gptq.py`)
+- Documented that `normalize_scale_zero()` returns shapes outside the three supported scale/zero layouts as-is, without validation (`onecomp/quantizer/gptq/gptq_layer.py`)
+
+### Tests
+
+- Added direct unit tests for `normalize_scale_zero()` covering the three supported scale/zero layouts and the unvalidated pass-through of any other shape (`tests/onecomp/quantizer/gptq/test_gptq_layer_pack.py`)
 
 ## [v1.3.0] 2026-07-27
 
