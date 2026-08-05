@@ -172,7 +172,7 @@ def _get_gptq_classes():
 def _linear_to_gptq(linear: nn.Linear, inp: torch.Tensor) -> nn.Module:
     GPTQ, GPTQLinear = _get_gptq_classes()
     quantizer = GPTQ(wbits=4, bitpack_on_quantize=True)
-    hessian = quantizer.calculate_hessian(linear, inp)
+    hessian, _ = quantizer.calculate_hessian(linear, inp)
     result = quantizer.quantize_layer(linear, inp, hessian=hessian)
     return GPTQLinear.from_quantization_result(
         result,
