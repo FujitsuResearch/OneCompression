@@ -55,7 +55,8 @@ Other Hugging Face-compatible models may work but are currently untested.
 | 1 | Llama | TinyLlama, Llama-2, Llama-3 | ✅ Verified |
 | 2 | Qwen3 | Qwen3-0.6B ~ 32B | ✅ Verified |
 | 3 | Gemma | Gemma 2, Gemma 3, Gemma 4  | ✅ Verified |
-| 4 | Qwen3.6 | Qwen3.6-27B, Qwen3.6-35B-A3B | ✅ Verified |
+| 4 | [GPT-OSS](docs/user-guide/gptoss.md) | openai/gpt-oss-20b, gpt-oss-120b | ✅ Verified |
+| 5 | Qwen3.6 | Qwen3.6-27B, Qwen3.6-35B-A3B | ✅ Verified |
 
 
 > **Note:** Support for additional architectures is planned. Contributions and test reports are welcome.
@@ -312,6 +313,7 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_lora_gptq_vllm_inference.py](./example/post_process/example_lora_gptq_vllm_inference.py) | GPTQ + LoRA SFT, HF-compatible safetensors + PEFT sidecar, and vLLM inference |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
 | | [example_gptq_vllm_qwen36_inference.py](./example/vllm_inference/example_gptq_vllm_qwen36_inference.py) | GPTQ quantization and vLLM inference for Qwen3.6 (full-wrapper save) |
+| | [example_gptq_vllm_gptoss_inference.py](./example/vllm_inference/example_gptq_vllm_gptoss_inference.py) | GPTQ quantization and vLLM inference for gpt-oss |
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
 | | [example_dbf_vllm_inference.py](./example/vllm_inference/example_dbf_vllm_inference.py) | DBF quantization and vLLM inference |
@@ -330,6 +332,22 @@ pip install vllm
 ```
 
 See the [vLLM Inference guide](https://FujitsuResearch.github.io/OneCompression/user-guide/vllm-inference/) for details, including Open WebUI setup instructions.
+
+### GPT-OSS (mixed_gptq)
+
+[GPT-OSS models](docs/user-guide/gptoss.md) (`openai/gpt-oss-20b`, `openai/gpt-oss-120b`) need extra steps beyond the
+standard vLLM plugin flow:
+
+1. Quantize with **`GPTQ(wbits=4)`** and keep the MoE experts 4-bit via `Runner(..., moe_quant_experts=True)` with `groupsize=64`. GPT-OSS `hidden_size` (2880) is not divisible by 128, so the experts must use **`group_size=64`** for vLLM's WNA16 MoE kernel.
+2. Before `LLM(...)`, apply vLLM runtime patches: `python -m vllm_plugins.patches.apply_all`
+3. Set `export VLLM_USE_DEEP_GEMM=0`
+
+The `--extra vllm` dependency set includes **`conch-triton-kernels`**. On NVIDIA Blackwell (B200, sm100),
+vLLM 0.20 needs Conch for `mixed_gptq` linear layers when the Marlin kernel cannot handle GPT-OSS weight shapes.
+If you install vLLM manually with `pip install vllm`, also run `pip install conch-triton-kernels`.
+
+See the [GPT-OSS guide](docs/user-guide/gptoss.md) for HF save/load, patch details, and verification scripts.
+
 
 
 ## 📬 Contact Us

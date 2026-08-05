@@ -115,6 +115,19 @@ class QuantizedModelLoader:
         # ForCausalLM wrapper) while from_config exposes
         # model.language_model.layers.* directly.
         state_dict = cls._remap_state_dict_keys(state_dict, model)
+        from .utils.unfuse_moe import (
+            _checkpoint_uses_fused_moe,
+            _expand_deduped_moe_keys,
+        )
+
+        if _checkpoint_uses_fused_moe(state_dict):
+            if any(k.endswith("$") for k in state_dict):
+                state_dict = _expand_deduped_moe_keys(state_dict, model)
+                logger.info("Expanded legacy deduped MoE keys for load")
+            else:
+                logger.info("Loading fused MoE expert tensors (skipping unfuse)")
+        elif unfuse_moe_experts(model, logger):
+            logger.info("Unfused MoE expert tensors for quantized model load")
 
         # Replace quantized layers with empty modules and align quantized
         # tensor keys with the actual module names in the model built from
@@ -158,6 +171,10 @@ class QuantizedModelLoader:
         cls._assert_quantized_modules_loaded(model)
 
         cls._load_generation_config(model, save_directory)
+        from .utils.unfuse_moe import _cast_fused_moe_parameters, _purge_orphan_parameters
+
+        _purge_orphan_parameters(model)
+        _cast_fused_moe_parameters(model, target_dtype)
 
         # Register Hadamard hooks for rotation-preprocessed models
         if quant_config.get("rotated", False):
