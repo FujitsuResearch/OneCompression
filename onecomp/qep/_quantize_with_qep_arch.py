@@ -313,47 +313,6 @@ def _rtn_fallback_result(module: nn.Module, quantizer: Quantizer, name: str) -> 
     )
 
 
-def _resolve_gptq_for_rtn_fallback(quantizer: Quantizer, module: nn.Module) -> Optional[GPTQ]:
-    """Return the GPTQ instance to use for the no-tokens RTN fallback, if any.
-
-    Plain ``GPTQ`` quantizers fall back directly. ``AutoBitQuantizer`` falls
-    back too, but only when every child it assigned is a ``GPTQ`` (so the
-    module's own resolved bits/groupsize/sym can be looked up), since
-    ``AutoBitQuantizer`` itself has no such attributes.
-    """
-    if isinstance(quantizer, GPTQ):
-        return quantizer
-    if isinstance(quantizer, AutoBitQuantizer) and quantizer._all_children_gptq():
-        return quantizer._module_to_quantizer.get(module)
-    return None
-
-
-def _rtn_fallback_result(module: nn.Module, quantizer: Quantizer, name: str) -> GPTQResult:
-    """RTN-quantize a module with no calibration data, as a GPTQResult.
-
-    Returning a GPTQResult (not RTNResult) lets the module flow through the
-    same create_inference_layer / export path as calibrated GPTQ experts.
-    """
-    wbits = GPTQ.resolve_bits(name, quantizer.wbits, quantizer.mlp_wbits, quantizer.module_wbits)
-    groupsize = GPTQ.resolve_groupsize(name, quantizer.groupsize, quantizer.mlp_groupsize)
-
-    result_dict = run_rtn(module, wbits=wbits, groupsize=groupsize, sym=quantizer.sym)
-
-    # RTN's raw scale/zero are (out_features, num_groups); GPTQResult
-    # expects (num_groups, out_features).
-    return GPTQResult(
-        dequantized_weight=result_dict["dequantized_weight"],
-        wbits=wbits,
-        groupsize=groupsize,
-        actorder=False,
-        sym=quantizer.sym,
-        qweight=result_dict["quantized_weight"],
-        scales=result_dict["scale"].T,
-        qzeros=result_dict["zero"].T,
-        perm=None,
-    )
-
-
 @torch.no_grad()
 def run_quantize_with_qep_arch(
     model_config: ModelConfig,
@@ -593,8 +552,8 @@ def run_quantize_with_qep_arch(
             )
             for module_q in expert_modules_q:
                 name = quantizer.module_to_name[module_q]
-                H = expert_hessians[module_q]
-                if H is None:
+                entry = expert_hessians[module_q]
+                if entry is None:
                     fallback_quantizer = _resolve_gptq_for_rtn_fallback(quantizer, module_q)
                     if fallback_quantizer is not None:
                         logger.warning(
@@ -616,6 +575,7 @@ def run_quantize_with_qep_arch(
                             progress.step_complete(f"{name}, skipped: no tokens")
                         continue
                 else:
+                    H, nsamples_expert = entry
                     logger.debug(
                         "Processing layer: %s (no weight correction) =================================================",
                         name,
@@ -628,6 +588,7 @@ def run_quantize_with_qep_arch(
                         perccorr=qep_config.perccorr,
                         hessian=H,
                         delta_hatX=None,
+                        nsamples=nsamples_expert if quantizer.flag_nsamples else None,
                     )
                 try:
                     dtype = module_q.weight.data.dtype
