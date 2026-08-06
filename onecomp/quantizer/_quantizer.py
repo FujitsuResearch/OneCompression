@@ -304,7 +304,7 @@ class Quantizer(metaclass=ABCMeta):
             )
             empty_cache(module.weight.device)
 
-        self.logger.info("Quantizing layer: %s", name)
+        self.logger.debug("Quantizing layer: %s", name)
         extra_kwargs = {}
         if self.flag_nsamples:
             extra_kwargs["nsamples"] = nsamples
