@@ -71,6 +71,13 @@
 - Text-only `generate()` on multimodal models (e.g. Gemma-4 12B) could emit modality delimiter tokens and degrade output after quantize→reload, because `load_quantized_model()` did not restore `generation_config.json` (including `suppress_tokens`). Now loads it from the save directory when present (`quantized_model_loader.py`).
 - Fixed Hadamard online-hook registration for rotation + partially-quantized models: hook target layer types are now derived from the actual model instead of the recorded `quant_method`, so mixed quantized / unquantized `down_proj` layers no longer miss quantized layers or fire on plain `nn.Linear`.
 
+### New Contributors
+- @k-arima-3150 and @S4Y-K made their first contribution in #21
+- @cm-ysmz made their first contribution in #25
+- @fujisawa-yoshihiko made their first contribution in #28
+- @KoOhira-BP made their first contribution in #30
+- @dogwood-flo made their first contribution in #34
+
 ## [v1.2.2] 2026-07-10
 
 ### Bug Fix
