@@ -45,6 +45,7 @@ For full control over each step, see the [step-by-step workflow](user-guide/basi
 - **Evaluation harness (`onecomp-eval`)** -- After quantization, benchmark served models with MT-Bench (default: English) and optional throughput metrics via a single vLLM server. See [Evaluation](user-guide/evaluation.md).
 - **AutoBit** -- Mixed-precision quantization with ILP-based bitwidth assignment. Automatically estimates the target bitwidth from available VRAM and assigns per-layer bitwidths to minimize quantization error under the memory budget.
 - **JointQ** -- Joint quantization method that optimizes weight assignments and scale parameters simultaneously for improved quantization accuracy. Supports group-wise quantization (e.g., 4-bit, groupsize=128).
+- **MDBF (Multi-Envelope Double Binary Factorization)** -- A binary factorization quantizer that approximates each weight matrix as a sum of multi-path sign matrices with multi-scale FP16 envelopes, generalizing DBF and LittleBit for aggressive low-bit (sub-1-bit) compression. Supports ADMM/gradient refinement, activation-aware initialization, and a GemLite-accelerated 1-bit inference path. See the [MDBF guide](algorithms/mdbf.md) for details.
 - **Block-wise PTQ** -- Post-quantization block-wise distillation that minimises intermediate-representation MSE against an FP16 teacher model at Transformer-block granularity. Includes greedy per-block optimisation (Phase 1) and cross-block sliding-window optimisation (Phase 2 CBQ). Supports GPTQ, DBF, and OneBit quantizers.
 - **LoRA SFT Post-Process** -- Fine-tune quantized models with LoRA adapters for accuracy recovery or domain-specific knowledge injection. Supports SFT loss, teacher distillation, and intermediate block alignment.
 - **Rotation Preprocessing** -- SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Rotation/scaling matrices are absorbed into model weights, with online Hadamard hooks automatically registered at load time. Supports Llama and Qwen3 architectures.
@@ -164,6 +165,20 @@ LPCD (Layer-Projected Coordinate Descent):
   journal={arXiv preprint arXiv:2512.01546},
   year={2025},
   url={https://arxiv.org/abs/2512.01546}
+}
+```
+
+MDBF (Multi-Envelope Double Binary Factorization):
+
+```bibtex
+@misc{ichikawa2025bitsmultienvelopedoublebinary,
+      title={More Than Bits: Multi-Envelope Double Binary Factorization for Extreme Quantization}, 
+      author={Yuma Ichikawa and Yoshihiko Fujisawa and Yudai Fujimoto and Akira Sakai and Katsuki Fujisawa},
+      year={2025},
+      eprint={2512.24545},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2512.24545}, 
 }
 ```
 
