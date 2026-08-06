@@ -5,6 +5,9 @@ paths and rich, multi-scale amplitude *envelopes* around the binary factors. It 
 roughly 1--2 bit quantization, with the achieved bit-width tuned continuously through the
 `target_bits` parameter.
 
+The differences among OneBit, DBF, LittleBit, and MDBF are illustrated below:
+![Differences among OneBit, DBF, LittleBit, and MDBF](../assets/onebit_formats.png)
+
 ## Algorithm
 
 MDBF approximates each weight matrix \(W \in \mathbb{R}^{n \times m}\) as a sum of \(P\)
