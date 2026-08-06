@@ -1,4 +1,8 @@
-"""Resolve installed vLLM package paths for in-place patches."""
+"""
+Resolve installed vLLM package paths for in-place patches.
+
+Copyright 2025-2026 Fujitsu Ltd.
+"""
 
 from __future__ import annotations
 

@@ -139,7 +139,9 @@ def _get_gptq_classes():
         "onecomp.quantizer.gptq",
     ):
         if pkg not in sys.modules:
-            sys.modules[pkg] = ModuleType(pkg)
+            mod = ModuleType(pkg)
+            mod.__path__ = [str(_REPO_ROOT / Path(*pkg.split(".")))]
+            sys.modules[pkg] = mod
 
     gemlite_stub = ModuleType("onecomp.quantizer.gemlite")
     gemlite_stub.create_gemlite_linear = lambda *args, **kwargs: None
