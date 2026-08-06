@@ -102,6 +102,7 @@ nav:
       - LPCD (Layer-Projected Coordinate Descent): algorithms/lpcd.md
       - GPTQ: algorithms/gptq.md
       - DBF (Double Binary Factorization): algorithms/dbf.md
+      - MDBF (Multi-Envelope Double Binary Factorization): algorithms/mdbf.md
       - RTN (Round-To-Nearest): algorithms/rtn.md
       - AutoBit (Mixed-Precision ILP): algorithms/autobit.md
       - JointQ (Joint Optimization): algorithms/jointq.md
@@ -117,6 +118,7 @@ nav:
           - AutoBit: api/quantizers/autobit.md
           - GPTQ: api/quantizers/gptq.md
           - DBF: api/quantizers/dbf.md
+          - MDBF: api/quantizers/mdbf.md
           - RTN: api/quantizers/rtn.md
           - JointQ: api/quantizers/jointq.md
           - OneBit: api/quantizers/onebit.md

@@ -126,7 +126,7 @@ def compute_hessian_and_crossterm(
     kwargs: dict[str, torch.Tensor],
     batch_size: int,
     device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, int]:
     """
 
     Args:
@@ -141,7 +141,8 @@ def compute_hessian_and_crossterm(
         device (torch.device): The device to use for computation.
 
     Returns:
-        tuple[torch.Tensor, torch.Tensor]: The Hessian matrix and the cross-term matrix.
+        tuple[torch.Tensor, torch.Tensor, int]: The Hessian matrix, the
+        cross-term matrix, and the total nsamples used to compute them.
     """
 
     # set input hook
@@ -197,7 +198,7 @@ def compute_hessian_and_crossterm(
     for handler in handlers:
         handler.remove()
 
-    return (H, C)
+    return (H, C, nsamples)
 
 
 @torch.no_grad()
@@ -208,13 +209,18 @@ def _compute_per_module_hessians(
     kwargs: dict[str, torch.Tensor],
     batch_size: int,
     device: torch.device,
-) -> dict[nn.Module, torch.Tensor | None]:
+) -> dict[nn.Module, tuple[torch.Tensor, int] | None]:
     """Compute independent Hessians for each module via shared forward passes.
 
     Used for MoE expert layers where the standard cross-term computation
     is invalid (the router in quantized vs full-precision blocks may route
     different tokens to the same expert).  Each module gets its own Hessian
     built solely from the quantized block's activations.
+
+    Returns:
+        Mapping from module to ``(hessian, nsamples)`` where ``nsamples`` is
+        the number of tokens routed to that module, or ``None`` if the module
+        received no tokens during calibration.
     """
     dest: dict[int, torch.Tensor] = {}
 
@@ -260,7 +266,10 @@ def _compute_per_module_hessians(
     for h in handlers:
         h.remove()
 
-    return {modules[i]: (hessians[i] if nsamples[i] > 0 else None) for i in range(len(modules))}
+    return {
+        modules[i]: ((hessians[i], nsamples[i]) if nsamples[i] > 0 else None)
+        for i in range(len(modules))
+    }
 
 
 def _resolve_gptq_for_rtn_fallback(quantizer: Quantizer, module: nn.Module) -> Optional[GPTQ]:
@@ -462,7 +471,7 @@ def run_quantize_with_qep_arch(
             )
 
             # 3-1. compute hessian and cross-term matrix
-            H, delta_hatX = compute_hessian_and_crossterm(
+            H, delta_hatX, nsamples_arch = compute_hessian_and_crossterm(
                 block_q,
                 block_f,
                 group_q[0],
@@ -507,6 +516,7 @@ def run_quantize_with_qep_arch(
                     perccorr=qep_config.perccorr,
                     hessian=H.clone(),
                     delta_hatX=layer_delta,
+                    nsamples=nsamples_arch if quantizer.flag_nsamples else None,
                 )
 
                 # Update the weights of the target layer
@@ -542,8 +552,8 @@ def run_quantize_with_qep_arch(
             )
             for module_q in expert_modules_q:
                 name = quantizer.module_to_name[module_q]
-                H = expert_hessians[module_q]
-                if H is None:
+                entry = expert_hessians[module_q]
+                if entry is None:
                     fallback_quantizer = _resolve_gptq_for_rtn_fallback(quantizer, module_q)
                     if fallback_quantizer is not None:
                         logger.warning(
@@ -565,6 +575,7 @@ def run_quantize_with_qep_arch(
                             progress.step_complete(f"{name}, skipped: no tokens")
                         continue
                 else:
+                    H, nsamples_expert = entry
                     logger.debug(
                         "Processing layer: %s (no weight correction) =================================================",
                         name,
@@ -577,6 +588,7 @@ def run_quantize_with_qep_arch(
                         perccorr=qep_config.perccorr,
                         hessian=H,
                         delta_hatX=None,
+                        nsamples=nsamples_expert if quantizer.flag_nsamples else None,
                     )
                 try:
                     dtype = module_q.weight.data.dtype

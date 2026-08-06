@@ -139,6 +139,13 @@ class Quantizer(metaclass=ABCMeta):
     - Must implement the following method: quantize_layer
     - Set flag_calibration to True if calibration data is needed
     - Set flag_hessian to True if the Hessian matrix is needed
+    - Set flag_nsamples to True if the sample count used to build the
+      Hessian is needed; quantize_layer then also receives ``nsamples``
+    - Set flag_xtx to True if X^T X is needed instead of the Hessian;
+      quantizers that implement it directly (e.g. JointQ) accept
+      precomputed ``matrix_XX`` / ``dim_n``, which only the chunked
+      quantization path supplies, while the other paths pass input
+      activations for quantize_layer to build X^T X itself
 
     Examples:
         # Example 1: Exclude lm_head (default behavior)
@@ -190,6 +197,7 @@ class Quantizer(metaclass=ABCMeta):
     flag_calibration: bool = False
     flag_hessian: bool = False
     flag_xtx: bool = False  # Whether X^T X is needed (e.g., JointQ)
+    flag_nsamples: bool = False  # Whether nsamples (used in Hessian) is needed (e.g., MDBF)
     flag_qep_supported: bool = True
 
     def __post_init__(self):
@@ -209,7 +217,7 @@ class Quantizer(metaclass=ABCMeta):
         pass
 
     def quantize(
-        self, module, input, output, hessian=None
+        self, module, input, output, hessian=None, nsamples=None
     ):  # pylint: disable=redefined-builtin, unused-argument
         """Quantize the layer
 
@@ -225,9 +233,13 @@ class Quantizer(metaclass=ABCMeta):
         self.logger.debug("Quantizing layer: %s", name)
         start_time = time.time()
         if hessian is None and self.flag_hessian:
-            hessian = self.calculate_hessian(module, input)
-
-        result = self.quantize_layer(module, input, hessian=hessian)
+            hessian, nsamples = self.calculate_hessian(module, input)
+        elif hessian is None:
+            hessian, nsamples = None, None
+        extra_kwargs = {}
+        if self.flag_nsamples:
+            extra_kwargs["nsamples"] = nsamples
+        result = self.quantize_layer(module, input, hessian=hessian, **extra_kwargs)
         end_time = time.time()
         if hessian is not None:
             del hessian
@@ -253,6 +265,7 @@ class Quantizer(metaclass=ABCMeta):
         perccorr=0.5,
         hessian=None,
         delta_hatX=None,
+        nsamples=None,
     ):  # pylint: disable=too-many-arguments, too-many-positional-arguments
         """Quantize the layer with QEP
 
@@ -260,8 +273,13 @@ class Quantizer(metaclass=ABCMeta):
             module (torch.nn.Module): The layer module
             quant_input_activation (torch.Tensor): The input activations of the quantized layer
             original_input_activation (torch.Tensor): The input activations of the original layer
-            hessian (torch.Tensor): The Hessian matrix
+            hessian (torch.Tensor): The Hessian matrix. When provided by the
+                caller (e.g. QEP-arch), ``nsamples`` must also be supplied.
             delta_hatX (torch.Tensor): The cross-term matrix
+            nsamples (int, optional): Number of samples used to compute
+                ``hessian``. Required when the caller passes a precomputed
+                ``hessian`` and the quantizer has ``flag_nsamples=True``.
+                Otherwise inferred from ``calculate_hessian()``.
         """
 
         name = self.module_to_name[module]
@@ -270,7 +288,7 @@ class Quantizer(metaclass=ABCMeta):
 
         # Calculate the Hessian matrix
         if hessian is None and self.flag_hessian:
-            hessian = self.calculate_hessian(module, quant_input_activation)
+            hessian, nsamples = self.calculate_hessian(module, quant_input_activation)
 
         # Adjust the weights to be quantized
         if delta_hatX is not None or original_input_activation is not None:
@@ -287,7 +305,12 @@ class Quantizer(metaclass=ABCMeta):
             empty_cache(module.weight.device)
 
         self.logger.debug("Quantizing layer: %s", name)
-        result = self.quantize_layer(module, quant_input_activation, hessian=hessian)
+        extra_kwargs = {}
+        if self.flag_nsamples:
+            extra_kwargs["nsamples"] = nsamples
+        result = self.quantize_layer(
+            module, quant_input_activation, hessian=hessian, **extra_kwargs
+        )
         end_time = time.time()
         if hessian is not None:
             del hessian
@@ -357,8 +380,9 @@ class Quantizer(metaclass=ABCMeta):
         weight = weight.float()
 
         # Get the Hessian matrix
+        # adjust_weight does not need nsamples; discard it for ``flag_nsamples``-aware quantizers.
         if original_hessian is None:
-            hessian = self.calculate_hessian(module, quant_input_activation)
+            hessian, _ = self.calculate_hessian(module, quant_input_activation)
         else:
             hessian = original_hessian.clone()
 
@@ -397,6 +421,15 @@ class Quantizer(metaclass=ABCMeta):
             module (torch.nn.Module): The layer module
             input (tuple or torch.Tensor): The input to the layer
             hessian (torch.Tensor): The Hessian matrix
+
+        Subclasses that set ``flag_nsamples=True`` (e.g. MDBF) must also
+        accept an ``nsamples`` keyword argument; ``quantize()`` /
+        ``quantize_with_qep()`` pass the sample count returned by
+        ``calculate_hessian()`` (or supplied by the caller) only for those
+        quantizers. Quantizers that implement ``flag_xtx=True`` directly
+        (e.g. JointQ) additionally accept ``matrix_XX`` / ``dim_n``, which only
+        the chunked quantization path supplies; the other paths pass input
+        activations instead, leaving quantize_layer to build X^T X itself.
 
         Returns:
             Union[torch.Tensor, QuantizationResult]:
@@ -722,6 +755,12 @@ class Quantizer(metaclass=ABCMeta):
         Args:
             module (torch.nn.Module): The layer module
             input (tuple): The input to the layer
+
+        Returns:
+            tuple[torch.Tensor, int]: ``(hessian, nsamples)``. ``nsamples`` is
+            the total number of (batch * seq_len) rows folded into the Hessian.
+            Quantizers with ``flag_nsamples=True`` (e.g. MDBF) consume
+            this; others ignore it.
         """
 
         device = module.weight.device
@@ -770,7 +809,7 @@ class Quantizer(metaclass=ABCMeta):
             inp_scaled = math.sqrt(2 / nsamples) * inp.float()
             hessian += inp_scaled.matmul(inp_scaled.t())
 
-        return hessian
+        return hessian, nsamples
 
     def calculate_delta_hatX(
         self, module, quant_input_activation, original_input_activation

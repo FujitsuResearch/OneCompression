@@ -13,6 +13,7 @@ from .cq import CQ
 from .dbf import DBF
 from .gptq import GPTQ
 from .jointq import JointQ
+from .mdbf import MDBF
 from .onebit import Onebit
 from .qbb import QBB
 from .quip import QUIP

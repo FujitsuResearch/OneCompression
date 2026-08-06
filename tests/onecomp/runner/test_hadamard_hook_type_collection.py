@@ -1,12 +1,15 @@
 """Regression tests for Hadamard hook target-type collection on this branch.
 
-Three bugs are pinned:
+Four bugs are pinned:
   Bug 1 (runner.py): old ``next(...)`` sampled only the first ``down_proj``;
     now collect all distinct non-``nn.Linear`` types.
   Bug 2 (runner.py): a leading ``nn.Linear`` down_proj caused duplicate hooks on
     every ``nn.Linear`` and no hooks on ``GPTQLinear``; the filter prevents this.
   Bug 3 (quantized_model_loader.py): an unknown ``quant_method`` string yielded
     ``layers_cls=None`` (hooks silently disabled); now types come from the model.
+  Bug 4 (rotation_utils.py): the ``"down_proj" in name`` filter also matched a
+    quantized layer's *descendants*, so MDBF's ``nn.ModuleList`` of paths landed
+    in ``layers_cls`` and aborted the search -- zero hooks, no error.
 
 Test layering:
   - The collection logic lives in the pure helpers
@@ -31,6 +34,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 import json
 import logging
 import types
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import torch
@@ -40,64 +44,109 @@ from safetensors.torch import save_file
 from onecomp.pre_process.rotation_utils import (
     collect_down_proj_types,
     collect_quantized_down_proj_types,
+    register_online_hadamard_hooks,
 )
 
 # ── stub quantized layer types ─────────────────────────────────────
 
 
 class _FakeQuantLinear(nn.Module):
-    """Stub non-nn.Linear quantized layer (e.g. GPTQLinear stand-in)."""
+    """Stub non-nn.Linear quantized layer (e.g. GPTQLinear stand-in).
 
-    def __init__(self):
+    ``in_features`` is exposed like every real inference layer, since the
+    Hadamard hook sizes ``get_hadK`` from it.
+    """
+
+    def __init__(self) -> None:
         super().__init__()
+        self.in_features = 4
         self.weight = nn.Parameter(torch.zeros(4, 4))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x
 
 
 class _AnotherQuantLinear(nn.Module):
     """Second distinct stub quantized layer (e.g. DoubleBinaryLinear stand-in)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.weight = nn.Parameter(torch.zeros(4, 4))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x
+
+
+class _NestedQuantLinear(nn.Module):
+    """Stub quantized layer assembled from submodules (MultipathMDBFLinear stand-in).
+
+    The children are held in an ``nn.ModuleList`` and are themselves quantized
+    stubs, so ``named_modules()`` exposes two extra types underneath the
+    ``down_proj`` name — exactly the shape that used to poison ``layers_cls``.
+    """
+
+    def __init__(self, in_features: int = 4, paths: int = 2) -> None:
+        super().__init__()
+        self.in_features = in_features
+        self.paths = nn.ModuleList(_FakeQuantLinear() for _ in range(paths))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x
+
+
+class _LinearSubclassQuantLinear(nn.Linear):
+    """Stub quantized layer that subclasses ``nn.Linear`` (e.g. ``QuantLinear``).
+
+    ``find_linear_layers`` matches on exact type, so such a layer is invisible
+    to the default ``[nn.Linear]`` search — it never receives a hook from
+    ``RotatedModelConfig.load_model()`` and must not be filtered out of the
+    re-registration pass either.
+    """
 
 
 # ── helpers ────────────────────────────────────────────────────────
 
 
-def _build_model_with_down_proj(*layers):
-    """Return a tiny nn.Module with realistic ``...mlp.down_proj`` module paths.
+def _build_model_with_down_proj(*layers: nn.Module) -> nn.Module:
+    """Return a tiny nn.Module mirroring an HF decoder's module paths.
 
-    Each layer is nested as ``block.layers_<i>.mlp.down_proj`` so that
-    ``named_modules()`` yields paths ending in ``.down_proj`` (mirroring real
-    transformer naming like ``model.layers.0.mlp.down_proj``), exercising the
-    same substring match used in production.
+    Each layer becomes ``model.layers.<i>.mlp.down_proj``, matching real
+    transformer naming and therefore the exact predicate production hooks on
+    (``is_online_hadamard_target``).
+
+    ``layers`` is a genuine ``nn.ModuleList``, which the collection logic
+    depends on: ``find_linear_layers`` stops descending at the first type
+    match, so an ``nn.ModuleList`` leaking into ``layers_cls`` matches this
+    container itself and aborts the search before any ``down_proj`` is
+    reached.  A plain ``nn.Module`` holder would hide that failure mode.
     """
 
     class _Mlp(nn.Module):
-        def __init__(self, layer):
+        def __init__(self, layer: nn.Module) -> None:
             super().__init__()
             self.add_module("down_proj", layer)
 
-        def forward(self, x):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
             return x
 
-    class _Block(nn.Module):
-        def __init__(self, children):
+    class _Layer(nn.Module):
+        def __init__(self, layer: nn.Module) -> None:
             super().__init__()
-            for i, layer in enumerate(children):
-                self.add_module(f"layers_{i}", _Mlp(layer))
+            self.mlp = _Mlp(layer)
 
-        def forward(self, x):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x
+
+    class _Inner(nn.Module):
+        def __init__(self, children: tuple[nn.Module, ...]) -> None:
+            super().__init__()
+            self.layers = nn.ModuleList(_Layer(layer) for layer in children)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
             return x
 
     root = nn.Module()
-    root.add_module("block", _Block(layers))
+    root.add_module("model", _Inner(layers))
     return root
 
 
@@ -107,14 +156,14 @@ def _build_model_with_down_proj(*layers):
 class TestCollectQuantizedDownProjTypes:
     """Pins Bug 1 and Bug 2 by calling the runner helper directly."""
 
-    def test_includes_quantized_excludes_linear(self):
+    def test_includes_quantized_excludes_linear(self) -> None:
         """Bug 1: quantized types are collected; a co-located nn.Linear is excluded."""
         model = _build_model_with_down_proj(_FakeQuantLinear(), nn.Linear(4, 4))
         result = collect_quantized_down_proj_types(model)
         assert _FakeQuantLinear in result
         assert nn.Linear not in result
 
-    def test_collects_all_distinct_types(self):
+    def test_collects_all_distinct_types(self) -> None:
         """Bug 2: all distinct quantized types are collected (not just the first).
 
         The old ``next()``-based code returned only the first down_proj type;
@@ -128,7 +177,7 @@ class TestCollectQuantizedDownProjTypes:
         result = collect_quantized_down_proj_types(model)
         assert set(result) == {_FakeQuantLinear, _AnotherQuantLinear}
 
-    def test_first_down_proj_linear_does_not_suppress_quantized(self):
+    def test_first_down_proj_linear_does_not_suppress_quantized(self) -> None:
         """Bug 2 (direct reproduction): a leading nn.Linear does not suppress quantized types.
 
         The old next()-based code would have taken the first (nn.Linear) type as
@@ -140,17 +189,57 @@ class TestCollectQuantizedDownProjTypes:
         assert _FakeQuantLinear in result
         assert nn.Linear not in result
 
-    def test_no_quantized_down_proj_returns_empty(self):
+    def test_no_quantized_down_proj_returns_empty(self) -> None:
         """All-nn.Linear down_proj layers yield an empty list (hooks then skipped)."""
         model = _build_model_with_down_proj(nn.Linear(4, 4), nn.Linear(4, 4))
         assert collect_quantized_down_proj_types(model) == []
 
-    def test_non_down_proj_names_excluded(self):
+    def test_non_down_proj_names_excluded(self) -> None:
         """Name-filter isolation: modules without 'down_proj' in the name are excluded."""
         model = nn.Module()
         model.add_module("up_proj", _FakeQuantLinear())
         model.add_module("gate_proj", _FakeQuantLinear())
         assert collect_quantized_down_proj_types(model) == []
+
+    def test_reregistration_leaves_exactly_one_hook_per_down_proj(self) -> None:
+        """Pins *why* this helper drops nn.Linear while the loader helper keeps it.
+
+        On the runner path the model came from ``RotatedModelConfig.load_model()``,
+        which already hooked every ``nn.Linear`` ``down_proj``;
+        ``apply_results_to_model`` only drops the hooks of the layers it
+        replaced.  Including ``nn.Linear`` here would add a *second* hook to the
+        untouched ones and Hadamard-transform their input twice.
+        """
+        # layers.0 stays nn.Linear (unquantized); layers.1 stands for a layer
+        # already replaced by apply_results_to_model (so it carries no hook).
+        model = _build_model_with_down_proj(nn.Linear(4, 4), _FakeQuantLinear())
+
+        register_online_hadamard_hooks(model)  # RotatedModelConfig.load_model()
+        register_online_hadamard_hooks(  # runner re-registration
+            model, layers_cls=collect_quantized_down_proj_types(model)
+        )
+
+        for layer in model.model.layers:
+            assert len(layer.mlp.down_proj._forward_pre_hooks) == 1
+
+    def test_nn_linear_subclass_is_not_treated_as_already_hooked(self) -> None:
+        """Only *plain* nn.Linear is excluded; subclasses still need their hook.
+
+        The exclusion exists to skip layers ``load_model()`` already hooked, and
+        that pass matches on exact type — so an ``nn.Linear`` subclass was never
+        hooked.  An ``isinstance`` filter would drop it here too and leave it
+        with no hook at all, the very failure this helper was written to prevent.
+        """
+        model = _build_model_with_down_proj(_LinearSubclassQuantLinear(4, 4))
+        down_proj = model.model.layers[0].mlp.down_proj
+
+        register_online_hadamard_hooks(model)  # RotatedModelConfig.load_model()
+        assert not down_proj._forward_pre_hooks, "exact-type search must skip the subclass"
+
+        layers_cls = collect_quantized_down_proj_types(model)
+        assert _LinearSubclassQuantLinear in layers_cls
+        register_online_hadamard_hooks(model, layers_cls=layers_cls)
+        assert len(down_proj._forward_pre_hooks) == 1
 
 
 # ── quantized_model_loader.py: collect_down_proj_types unit tests ──
@@ -159,12 +248,12 @@ class TestCollectQuantizedDownProjTypes:
 class TestCollectDownProjTypes:
     """Pins the loader helper, including its intentional difference from runner."""
 
-    def test_collects_down_proj_types(self):
+    def test_collects_down_proj_types(self) -> None:
         """down_proj types are derived from the module tree."""
         model = _build_model_with_down_proj(_FakeQuantLinear(), _FakeQuantLinear())
         assert _FakeQuantLinear in collect_down_proj_types(model)
 
-    def test_does_not_filter_nn_linear(self):
+    def test_does_not_filter_nn_linear(self) -> None:
         """Unlike the runner helper, nn.Linear is NOT filtered out.
 
         The loader receives an already-quantized model, so this difference is
@@ -174,10 +263,60 @@ class TestCollectDownProjTypes:
         assert nn.Linear in collect_down_proj_types(model)
 
 
+# ── nested quantized layers (MDBF) ─────────────────────────────────
+
+
+class TestNestedQuantizedDownProj:
+    """Pins Bug 4: quantized ``down_proj`` layers built from submodules.
+
+    ``MultipathMDBFLinear`` wraps an ``nn.ModuleList`` of per-pass
+    ``MDBFLinear``, so the old filter put ``nn.ModuleList`` into ``layers_cls``.
+    ``find_linear_layers`` then matched ``model.layers`` (itself an
+    ``nn.ModuleList``) and returned before reaching any ``down_proj`` — zero
+    hooks for *every* layer, silently.  The real-MDBF end-to-end case lives in
+    ``test_mdbf_save_load_roundtrip.py``.
+    """
+
+    def test_quantized_collector_excludes_container_and_child_types(self) -> None:
+        """Only the wrapper type is collected; its ModuleList and paths are not."""
+        model = _build_model_with_down_proj(_NestedQuantLinear())
+        result = collect_quantized_down_proj_types(model)
+        assert result == [_NestedQuantLinear]
+
+    def test_loader_collector_excludes_container_and_child_types(self) -> None:
+        """The loader helper (no nn.Linear filter) must exclude descendants too."""
+        model = _build_model_with_down_proj(_NestedQuantLinear())
+        result = collect_down_proj_types(model)
+        assert result == [_NestedQuantLinear]
+
+    def test_hooks_registered_on_every_nested_down_proj(self) -> None:
+        """Direct reproduction: a real ``nn.ModuleList`` of layers still gets hooks.
+
+        This is the assertion the old code failed with ``0 == 2``.
+        """
+        model = _build_model_with_down_proj(_NestedQuantLinear(), _NestedQuantLinear())
+        layers_cls = collect_quantized_down_proj_types(model)
+        hooks = register_online_hadamard_hooks(model, layers_cls=layers_cls)
+        assert len(hooks) == 2
+
+    def test_nested_layer_does_not_suppress_hooks_on_flat_siblings(self) -> None:
+        """A nested layer must not disable hooks on unrelated flat down_proj layers.
+
+        The container leak was model-wide: one MDBF ``down_proj`` was enough to
+        strip the hooks off every other layer as well.
+        """
+        model = _build_model_with_down_proj(_NestedQuantLinear(), _FakeQuantLinear())
+        layers_cls = collect_quantized_down_proj_types(model)
+        hooks = register_online_hadamard_hooks(model, layers_cls=layers_cls)
+        assert len(hooks) == 2
+
+
 # ── runner.py: create_quantized_model wiring (integration) ─────────
 
 
-def _run_create_quantized_model(stub_model, *, has_additional_data=True):
+def _run_create_quantized_model(
+    stub_model: nn.Module, *, has_additional_data: bool = True
+) -> dict:
     """Drive the real ``Runner.create_quantized_model`` over a stub model.
 
     Everything except the hook-collection block is mocked, so the real call site
@@ -207,7 +346,7 @@ def _run_create_quantized_model(stub_model, *, has_additional_data=True):
 
     captured = {"called": False, "layers_cls": None}
 
-    def _fake_register(model, layers_cls, fp32_had):
+    def _fake_register(model: nn.Module, layers_cls: list, fp32_had: bool) -> list:
         captured["called"] = True
         captured["layers_cls"] = layers_cls
         return []
@@ -233,7 +372,7 @@ class TestRunnerCreateQuantizedModelWiring:
     fail here).
     """
 
-    def test_collected_types_reach_register_hooks(self):
+    def test_collected_types_reach_register_hooks(self) -> None:
         """The non-nn.Linear collected types are passed to register_online_hadamard_hooks."""
         model = _build_model_with_down_proj(nn.Linear(4, 4), _FakeQuantLinear())
         captured = _run_create_quantized_model(model)
@@ -241,13 +380,13 @@ class TestRunnerCreateQuantizedModelWiring:
         assert _FakeQuantLinear in captured["layers_cls"]
         assert nn.Linear not in captured["layers_cls"]
 
-    def test_no_quantized_down_proj_skips_registration(self):
+    def test_no_quantized_down_proj_skips_registration(self) -> None:
         """Empty collected types → register_online_hadamard_hooks is not called."""
         model = _build_model_with_down_proj(nn.Linear(4, 4))
         captured = _run_create_quantized_model(model)
         assert captured["called"] is False
 
-    def test_not_rotated_skips_registration(self):
+    def test_not_rotated_skips_registration(self) -> None:
         """Guard: no re-registration for non-rotation-preprocessed models."""
         model = _build_model_with_down_proj(_FakeQuantLinear())
         captured = _run_create_quantized_model(model, has_additional_data=False)
@@ -266,7 +405,7 @@ class TestLoaderLoadQuantizedModelWiring:
     loader can confirm the call site now derives types from the model.
     """
 
-    def test_passes_model_derived_types_for_unknown_quant_method(self, tmp_path):
+    def test_passes_model_derived_types_for_unknown_quant_method(self, tmp_path: Path) -> None:
         """Unknown quant_method still passes a non-None, model-derived type list.
 
         ``modules_in_block_to_quantize`` is empty, so no layer is replaced and
@@ -307,7 +446,7 @@ class TestLoaderLoadQuantizedModelWiring:
 
         captured = {}
 
-        def _fake_register(model, layers_cls, fp32_had):
+        def _fake_register(model: nn.Module, layers_cls: list, fp32_had: bool) -> list:
             captured["layers_cls"] = layers_cls
             return []
 

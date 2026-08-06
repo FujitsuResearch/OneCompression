@@ -152,6 +152,15 @@ class BaseQuantizeSpec:
         """Instantiate the quantizer with the supplied parameters."""
         return self.quantizer_cls(**params)
 
+    @staticmethod
+    def _quantize_with_calculated_hessian(quantizer, layer, inp):
+        """Calculate Hessian/nsamples and forward both to quantize_layer when needed."""
+        hessian, nsamples = quantizer.calculate_hessian(layer, inp)
+        extra_kwargs = {}
+        if getattr(quantizer, "flag_nsamples", False):
+            extra_kwargs["nsamples"] = nsamples
+        return quantizer.quantize_layer(layer, inp, hessian=hessian, **extra_kwargs)
+
     def check_quantize_layer(
         self,
         result,
@@ -170,8 +179,7 @@ class BaseQuantizeSpec:
 
     def apply_quantization(self, quantizer, layer, inp):
         """Quantize a layer using a Hessian derived from the input."""
-        hessian = quantizer.calculate_hessian(layer, inp)
-        return quantizer.quantize_layer(layer, hessian=hessian)
+        return self._quantize_with_calculated_hessian(quantizer, layer, inp)
 
     def apply_quantized_weights(self, module, result, device):
         """Apply quantized weights to a module."""
@@ -199,9 +207,7 @@ class BaseQuantizeSpec:
         inp = helper.make_input(device=device, dtype=torch.float32)
 
         q = self.make_quantizer(**self.default_parameter_for_test)
-        hessian = q.calculate_hessian(layer, inp)
-
-        result = q.quantize_layer(layer, inp, hessian=hessian)
+        result = self._quantize_with_calculated_hessian(q, layer, inp)
 
         self.check_quantize_layer(
             result,
@@ -224,13 +230,10 @@ class BaseQuantizeSpec:
         inp = helper.make_input(device=device, dtype=torch.float32)
 
         q = self.make_quantizer(**self.default_parameter_for_test)
-        h1 = q.calculate_hessian(layer1, inp)
-        h2 = q.calculate_hessian(layer2, inp)
-
         helper.seed_everything(123)
-        r1 = q.quantize_layer(layer1, inp, hessian=h1)
+        r1 = self._quantize_with_calculated_hessian(q, layer1, inp)
         helper.seed_everything(123)
-        r2 = q.quantize_layer(layer2, inp, hessian=h2)
+        r2 = self._quantize_with_calculated_hessian(q, layer2, inp)
 
         self.check_equal_results(r1, r2)
 
@@ -244,9 +247,7 @@ class BaseQuantizeSpec:
         inp = helper.make_input(batch=1, seq=1, hidden=4, device="cpu", dtype=torch.float32)
 
         q = self.make_quantizer(**params)
-        hessian = q.calculate_hessian(layer, inp)
-
-        result = q.quantize_layer(layer, inp, hessian=hessian)
+        result = self._quantize_with_calculated_hessian(q, layer, inp)
 
         self.check_quantize_layer(
             result,
@@ -281,14 +282,11 @@ class BaseQuantizeSpec:
         gpu_inp = cpu_inp.to("cuda")
 
         q = self.make_quantizer(**self.default_parameter_for_test)
-        cpu_hessian = q.calculate_hessian(cpu_layer, cpu_inp)
-        gpu_hessian = q.calculate_hessian(gpu_layer, gpu_inp)
-
-        cpu_out = q.quantize_layer(
-            cpu_layer, cpu_inp, hessian=cpu_hessian
+        cpu_out = self._quantize_with_calculated_hessian(
+            q, cpu_layer, cpu_inp
         ).compute_dequantized_weight()
         gpu_out = (
-            q.quantize_layer(gpu_layer, gpu_inp, hessian=gpu_hessian)
+            self._quantize_with_calculated_hessian(q, gpu_layer, gpu_inp)
             .compute_dequantized_weight()
             .cpu()
         )
@@ -331,8 +329,9 @@ class BaseQuantizeSpec:
                             device=device,
                             dtype=torch.float32,
                         )
-                        H = quantizer.calculate_hessian(module, module_inp)
-                        dbf_result = quantizer.quantize_layer(module, module_inp, H)
+                        dbf_result = self._quantize_with_calculated_hessian(
+                            quantizer, module, module_inp
+                        )
                         self.apply_quantized_weights(module, dbf_result, device)
 
         model = model.to(device)
@@ -363,8 +362,7 @@ class BaseQuantizeSpec:
 
         # Quantize the layer
         q = self.make_quantizer(**self.default_parameter_for_test)
-        hessian = q.calculate_hessian(layer, inp)
-        result = q.quantize_layer(layer, inp, hessian=hessian)
+        result = self._quantize_with_calculated_hessian(q, layer, inp)
 
         dequantized_layer = helper.make_linear(n, n, device=device, dtype=torch.float32)
         dequantized_layer.weight.data.copy_(result.compute_dequantized_weight().to(device))

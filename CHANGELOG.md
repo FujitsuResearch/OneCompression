@@ -1,5 +1,87 @@
 # Change log
 
+## [v1.1.1+feature/mdbf] 2026-06-18
+
+### New Feature: GemLite 1-bit inference for MDBF
+
+- Added a GemLite-accelerated inference path to `MDBFLinear` / `MultipathMDBFLinear` for the ±1 sign matrices (`A_sign`, `B_sign`), mirroring the DBF layer design; when GemLite is available the sign matmuls are delegated to GemLite 1-bit Triton kernels, and the layer transparently falls back to the dense path otherwise (`onecomp/quantizer/mdbf/mdbf_layer.py`)
+- In auto mode (`use_gemlite=None`) GemLite is enabled only for `l == 1`; for `l > 1` the outer rank-`l` amplitude makes the GemLite path slower than dense, so it is skipped unless `use_gemlite=True` forces it
+- Freed the redundant GPU packed-sign buffers for any sign matrix served by GemLite, roughly halving the in-memory weight footprint
+- Propagated `use_gemlite` through `MDBF.create_inference_layer()` (`onecomp/quantizer/mdbf/_mdbf.py`)
+
+### Bug Fixes
+
+- Fixed the Hessian definition in `lowrank_osvd()` (OSVD initialization): the whitening term now applies the full `H^{1/2} = Q diag(sqrt(λ)) Q^T`. The trailing `@ Q^T` was missing, so the previous `W @ Q diag(sqrt(λ))` computed `W @ H^{1/2} @ Q` and did not minimize the intended Hessian-weighted output error (`onecomp/quantizer/mdbf/initialize.py`)
+- Fixed `rank_from_bpw()` which effectively hard-coded `scale_bits=0`: `scale_bits` is now an argument defaulting to 16, so the FP16 envelope parameters are counted in the BPW budget, consistent with the paper formula `b = P * [r(n+m) + 16*l*(n+m+2r)] / (nm)`; target and actual BPW now agree (`onecomp/quantizer/mdbf/utils.py`)
+- Made the ADMM random seed reachable at runtime: `svd_abs_rank_l()` / `_tsvd_block_power()` accepted a `seed` argument, but no caller ever passed one, so the randomized SVD initialization always fell back to the global RNG and could not be fixed. `seed` is now threaded through the whole ADMM call chain (`optimize_MDBF_admm()` / `optimize_MDBF_admm_hessian()` → `_admm_refine_single_path()` → `_admm_optimize_one_side()` → `_admm_fixed_rho_loop()` → `svd_abs_rank_l()`), including the `eigh` block-power fallback in the Hessian path, and exposed as the new `MDBF(admm_seed=...)` parameter (`None`, or a non-negative `int` up to `2**64 - 1`, which is `torch.Generator.manual_seed()`'s upper limit; validated in `validate_params()` so an out-of-range seed fails in `setup()` instead of overflowing mid-ADMM) plumbed through `run_mdbf()`. `None` keeps the previous global-RNG behavior; an integer makes the ADMM phase reproducible regardless of the ambient RNG state (`onecomp/quantizer/mdbf/admm.py`, `onecomp/quantizer/mdbf/mdbf_impl.py`, `onecomp/quantizer/mdbf/_mdbf.py`)
+
+### Tests
+
+- Added GemLite inference tests to `tests/onecomp/quantizer/mdbf/test_mdbf.py`: `MDBFLinear` / `MultipathMDBFLinear` GemLite output matches the dense path at `l == 1`, `create_inference_layer` GemLite output matches the dequantized weight, dense fallback when GemLite is unavailable, `rank_from_bpw()` consistency with the paper BPW formula (`scale_bits=16`), and a `lowrank_osvd` regression test asserting the OSVD Hessian-weighted error is no worse than plain rank-`r` SVD
+- Added `tests/onecomp/quantizer/mdbf/test_osvd_hessian_bug.py`: a numerical proof-of-concept that the previous `H^{1/2}` formulation inflated the Hessian-weighted reconstruction error for non-diagonal Hessians
+- Added `admm_seed` tests to `tests/onecomp/quantizer/mdbf/test_mdbf.py`: `MDBF(admm_seed=...)` reaches `svd_abs_rank_l()` through the public quantizer API on both the plain and the Hessian-based (activation-aware) ADMM path, a fixed seed pins the ADMM result across different global RNG states, and `admm_seed` boundary / abnormal validation cases (including `MAX_SEED + 1`, which torch would otherwise reject mid-ADMM)
+
+## [v1.3.0(WIP)+feature/mdbf] 2026-07-30
+
+### New Feature: MDBF (Multi-Envelope Double Binary Factorization) Quantizer
+
+- Added `onecomp/quantizer/mdbf/` sub-package implementing the MDBF quantizer that approximates weight matrices as a sum of multi-path double binary factorizations: W ≈ Σ_{p=1}^{P} F^(p) @ G^(p) where each path decomposes into sign matrices and multi-scale amplitude factors
+  - `_mdbf.py`: `MDBF` quantizer dataclass with configurable `target_bits`, `l` (multi-scale rank, default `2`), `P` (number of passes, 1 or 2, default `1`), `svd_mode`, `act_init`, ADMM options (`use_admm`, `admm_outer_iters`, `admm_inner_iters`, `admm_reg`), gradient refinement options, and activation-aware mode; `MDBFResult` dataclass with per-path tensor storage and `compute_dequantized_weight()` reconstruction
+  - `mdbf_impl.py`: `run_mdbf()` orchestrating initialization, ADMM, and gradient refinement
+  - `initialize.py`: SVD-based initialization (`svd`, `svd_llm` modes) with `MDBFParams` dataclass; `init_single_path()` takes `l` as a required argument so a path is never silently built single-envelope
+  - `admm.py`: ADMM optimization loop for binary sign and amplitude matrices
+  - `gradient_refine.py`: Optional gradient-based refinement of amplitude parameters
+  - `mdbf_layer.py`: `MDBFLinear` (single-path) and `MultipathMDBFLinear` (multi-path) inference layers with bit-packed sign matrices and `forward()` implementation
+  - `utils.py`: `reconstruct_weight()` helper for weight reconstruction from MDBF parameters, the `rank_from_bpw()` / `bpw_from_rank()` rank-BPW conversion, and the shared `DEFAULT_L` / `DEFAULT_P` / `DEFAULT_SCALE_BITS` defaults
+  - `config.py`: `resolve_mdbf_layer_bits()` for per-layer bit-width resolution from `quantization_config` (priority: `quantization_bits` table > `module_target_bits` > `mlp_target_bits` > default)
+- Defaults to `(l, P) = (2, 1)`, the smallest genuinely multi-envelope setting: `(1, 1)` reproduces DBF and `(1, 2)` reproduces LittleBit, the baselines the MDBF paper (arXiv:2512.24545) compares against. The paper evaluates `l` in {2, 8, 16} with `P=1` rather than prescribing a single default, so larger `l` remains worth sweeping. `DEFAULT_L` / `DEFAULT_P` are the single source of these values, used by the `MDBF` dataclass, `run_mdbf()`, `initialize_MDBF()`, `rank_from_bpw()` / `bpw_from_rank()`, and the `MDBF._build_quantization_bits()` fallbacks (which only apply to a partial config, since `get_quant_config()` always writes `l`/`P` on the save path)
+  - At the same `target_bits`, `P=1` uses roughly twice the rank of `P=2`, so the binary sign-matrix footprint stays roughly unchanged while ADMM optimizes one path at a larger rank. Since `rank_from_bpw()` clamps `r` to `min(n, m)`, reducing `P` from 2 to 1 halves the reachable BPW ceiling at fixed `l` and matrix shape; a `target_bits` above the ceiling is clamped with a warning and lands below the requested budget (see the BPW note in `docs/algorithms/mdbf.md`)
+  - With `l=2`, the GemLite 1-bit inference path is not auto-enabled (auto mode is `l == 1` only); pass `use_gemlite=True` to force it, or quantize with `l=1` to keep it
+- Supports per-layer and per-MLP bit-width overrides via `mlp_target_bits` and `module_target_bits` parameters
+- Supports activation-aware quantization mode (`activation_aware=True`, P=1 only) that uses Hessian information for initialization
+- Registered `MDBF` in `onecomp/quantizer/__init__.py`
+- Added the shared `cleanup_memory()` helper (`gc.collect()` + `empty_cache()`) to `onecomp/utils/device.py` and exported it from `onecomp.utils`; MDBF calls it at the coarse boundaries of initialization, ADMM, and gradient refinement, where a bare `empty_cache()` cannot release blocks still held by reference cycles (`onecomp/utils/device.py`, `onecomp/utils/__init__.py`)
+
+### Save/Load Support for MDBF
+
+- Added `MultipathMDBFLinear.from_saved_state()` to reconstruct an MDBF inference layer from a saved state_dict (`onecomp/quantizer/mdbf/mdbf_layer.py`)
+- Wired MDBF into `QuantizedModelLoader`: layer-class detection (`MultipathMDBFLinear`) and `from_saved_state` loading path, aligned with the existing DBF/GPTQ branches (`onecomp/quantized_model_loader.py`)
+- `QuantizedModelLoader._build_state_dict_prefix_map()` now registers every ancestor prefix of a checkpoint key, not just its immediate parent, so a quantizer whose per-layer tensors live in nested submodules stays discoverable under the layer prefix: MDBF stores one `paths.{p}` submodule per pass, two levels below the replaced `nn.Linear`. `_find_layer_state()` keeps the dotted remainder of those keys so `from_saved_state()` receives the layout it expects; the flat GPTQ/DBF/OneBit layouts never query the added prefixes (`onecomp/quantized_model_loader.py`)
+- Added `MultipathMDBFLinear.validate_saved_state()` and `resolve_mdbf_paths()`, called from the loader's `mdbf` branch before layer construction: `from_saved_state()` infers `P` from the `paths.{p}.*` keys present and reads a missing `bias` as "no bias", so a checkpoint that dropped a whole path or its bias would otherwise rebuild as a smaller-but-valid-looking layer that no post-load buffer check can catch (`onecomp/quantizer/mdbf/mdbf_layer.py`, `onecomp/quantizer/mdbf/config.py`, `onecomp/quantized_model_loader.py`)
+- Extended the loader's post-load checks to MDBF: `_check_load_state_dict_result()` now counts the MDBF sign/amplitude buffers among the critical key patterns, and `_assert_quantized_modules_loaded()` gained an `MDBFLinear` branch keyed on the per-path child where those buffers live, probing the amplitudes rather than the signs for nonzero values (an all-`-1` sign matrix packs to all-zero bits, so the packed signs cannot separate "not loaded" from a valid degenerate matrix) (`onecomp/quantized_model_loader.py`)
+- `QuantizedModelLoader._cast_fp16_to_target_dtype()` now also skips `MultipathMDBFLinear` and its per-path `MDBFLinear` children (the skip applies per module, and the fp16 amplitude buffers live on the children) so fp16 metadata in MDBF quantized layers is preserved during post-load dtype normalization (`onecomp/quantized_model_loader.py`).
+- Added `MDBF.get_quant_config()` returning `quant_method: "mdbf"` with all quantization parameters for `save_quantized_model()` (`onecomp/quantizer/mdbf/_mdbf.py`)
+- Added `MDBF.finalize_quant_config_for_save()` to build per-layer `quantization_bits` list in the saved config (`onecomp/quantizer/mdbf/_mdbf.py`)
+- Added `MDBF.create_inference_layer()` to build `MultipathMDBFLinear` from `MDBFResult` (`onecomp/quantizer/mdbf/_mdbf.py`)
+
+### Bug Fixes
+
+- Fixed `Quantizer.calculate_hessian()` to return `(hessian, nsamples)` tuple; propagated `nsamples` through QEP-arch, chunked quantization, multi-GPU, and AutoBit flows so that quantizers with `flag_nsamples=True` (e.g. MDBF) receive the correct sample count, and updated direct Hessian callers such as QUIP to unpack the tuple consistently (`onecomp/quantizer/_quantizer.py`, `onecomp/qep/_quantize_with_qep_arch.py`, `onecomp/runner_methods/chunked_quantization.py`, `onecomp/runner_methods/multi_gpu_quantization.py`, `onecomp/quantizer/autobit/_autobit.py`, `onecomp/quantizer/quip/_quip.py`)
+- Fixed `Quantizer.quantize()` to accept a precomputed `nsamples` alongside the existing `hessian` argument and forward it to `quantize_layer()` for `flag_nsamples=True` quantizers, so a caller that already skipped the redundant Hessian computation (e.g. LPCD) can supply the matching sample count (`onecomp/quantizer/_quantizer.py`)
+- Propagated `nsamples` through LPCD quantization: captured `nsamples` from `compute_hessian_and_crossterm()` in LPCD runner and refiner, forwarded to quantizers during LPCD projection and QEP quantization, and forwarded through `AutoBitQuantizer` to the selected child quantizer (`onecomp/lpcd/_lpcd_runner.py`, `onecomp/lpcd/_refiner.py`, `onecomp/quantizer/autobit/_autobit.py`)
+- Fixed `AutoBitQuantizer.quantize()` rejecting the base class's `hessian` argument: its signature was `(module, input, output)` while `Quantizer.quantize()` accepts `hessian`, so a caller passing a precomputed Hessian (e.g. the LPCD refiner) raised `TypeError`; it now accepts `hessian` / `nsamples` and forwards both to the selected child quantizer (`onecomp/quantizer/autobit/_autobit.py`)
+- Added shared MDBFResult per-path validation for dequantization and inference-layer creation so missing or inconsistent path tensors fail with clear `ValueError`s (`onecomp/quantizer/mdbf/_mdbf.py`, `onecomp/quantizer/mdbf/mdbf_layer.py`)
+- Fixed `ZeroDivisionError` in MDBF ADMM improvement logging when `init_error` is zero (e.g. when target_bits forces full-rank decomposition); applied `+ 1e-12` guard consistent with other relative-error metrics in the same function (`onecomp/quantizer/mdbf/admm.py`)
+- Fixed rotation-preprocessed MDBF models registering zero online Hadamard hooks. Descendant types from the nested `MultipathMDBFLinear` could make `find_linear_layers()` stop at `model.layers`, leaving every `down_proj` unhooked and silently producing incorrect inference results. Runner and loader type collection now share `_collect_hadamard_target_types()` and the exact `is_online_hadamard_target()` predicate used for hook registration (`onecomp/pre_process/rotation_utils.py`)
+- Added `nn.Linear`-compatible `in_features` / `out_features` properties to `MDBFLinear` and `MultipathMDBFLinear`; the online Hadamard hook requires `in_features` to size its transform (`onecomp/quantizer/mdbf/mdbf_layer.py`)
+- Fixed a latent Hadamard hook re-registration bug for `nn.Linear` subclasses. The collector now excludes only modules whose exact type is `nn.Linear`, matching the exact-type behavior of the initial hook pass. Current inference layers inherit from `nn.Module`, not `nn.Linear`, so they do not trigger this case (`onecomp/pre_process/rotation_utils.py`)
+
+### Refactoring
+
+- Renamed internal identifiers from `MSVID` to `MDBF` across the entire `onecomp/quantizer/mdbf/` package and tests
+- Normalized MDBF internal logging output and removed an unused warning argument from MDBF utilities
+- Removed unused helpers from `mdbf_layer.py`: `PackedMDBFParams`, `pack/unpack_MDBF_params`, `PackedBinaryLinear`, `create_mdbf_layer_from_linear`, `replace_linear_with_mdbf`, `replace_all_MDBF_layers`, `save/load_MDBF_weights`, `verify_binary_values`, `verify_all_params`, and their associated imports
+- Removed `preunpack` option from `MDBFLinear` / `MultipathMDBFLinear`; sign matrices are always unpacked on-the-fly (consistent with DBF)
+- Translated MDBF comments and docstrings to English (`onecomp/quantizer/mdbf/`)
+
+### Tests
+
+- Added `tests/onecomp/quantizer/mdbf/test_mdbf.py`: MDBF quantizer unit tests covering `quantize_layer` result validation (type, shape, device, dtype), reproducibility, boundary parameters (`target_bits`, `l`, `P`, `svd_mode`, `use_admm`, `admm_outer_iters`, `admm_inner_iters`, `admm_reg`, `use_gradient_refine`, `gradient_iters`, `gradient_lr`, `activation_aware`, `act_init`, `mlp_target_bits`, `module_target_bits`), abnormal parameter validation (negative/zero/invalid values raise `ValueError`), CPU/GPU output match, quantization error tolerance, forward error of the inference layer, and a check pinning the shipped `(l, P) = (2, 1)` defaults
+- Updated shared quantizer test helpers to unpack `calculate_hessian()` return tuples and forward `nsamples` when required; updated affected JointQ tests to use the shared helper (`tests/onecomp/quantizer/test_module.py`, `tests/onecomp/quantizer/jointq/test_jointq.py`)
+- Updated the GPTQ/DBF bitpack and QUIP tests merged from `develop/v1-3-0` to unpack `calculate_hessian()`; they previously passed the whole `(hessian, nsamples)` tuple as the Hessian, which broke GPTQ/QUIP outright and silently slipped past the DBF tests only because their default `use_balancing=True` never dereferences the Hessian (`tests/onecomp/quantizer/gptq/test_gptq_bitpack.py`, `tests/onecomp/quantizer/dbf/test_dbf_bitpack.py`, `tests/onecomp/quantizer/dbf/test_dbf_bitpack_equivalence.py`, `tests/onecomp/quantizer/quip/test_quip.py`, `tests/onecomp/utils/test_unfuse_moe.py`)
+- Added regression coverage for nested quantized `down_proj` layers, mixed flat siblings, hook-count invariance across re-registration, and `nn.Linear` subclasses, using realistic decoder names and an `nn.ModuleList` layer container (`tests/onecomp/runner/test_hadamard_hook_type_collection.py`)
+- Added a rotated-MDBF save/load end-to-end test for hook targeting and behavior, plus `in_features` / `out_features` contract coverage for normal and saved-state MDBF construction (`tests/onecomp/runner/test_mdbf_save_load_roundtrip.py`, `tests/onecomp/quantizer/mdbf/test_mdbf.py`)
+
 ## [v1.3.0(WIP)+gptoss] 2026-08-03
 
 ### New Feature: GPT-OSS 4-bit MoE experts for vLLM (mixed_gptq)

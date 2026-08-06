@@ -40,7 +40,8 @@ def _quantize_layer(*, bitpack_on_quantize=True):
         balance_iters=1,
         bitpack_on_quantize=bitpack_on_quantize,
     )
-    hessian = quantizer.calculate_hessian(layer, inp)
+    # DBF has flag_nsamples=False, so the sample count is not needed here.
+    hessian, _ = quantizer.calculate_hessian(layer, inp)
     result = quantizer.quantize_layer(layer, inp, hessian=hessian)
     return layer, inp, result
 

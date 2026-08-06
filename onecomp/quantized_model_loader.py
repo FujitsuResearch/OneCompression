@@ -22,6 +22,8 @@ from .quantizer.dbf.config import resolve_dbf_layer_bits
 from .quantizer.dbf.dbf_layer import DoubleBinaryLinear
 from .quantizer.gptq.config import resolve_gptq_layer_group_size, resolve_gptq_layer_wbits
 from .quantizer.gptq.gptq_layer import GPTQLinear
+from .quantizer.mdbf.config import resolve_mdbf_layer_bits, resolve_mdbf_paths
+from .quantizer.mdbf.mdbf_layer import MDBFLinear, MultipathMDBFLinear
 from .quantizer.onebit.onebit_layer import OneBitLinear
 from .utils.device import get_default_device
 from .utils.dtype import needs_bfloat16
@@ -383,8 +385,13 @@ class QuantizedModelLoader:
         """Cast fp16 params/buffers of non-quantized modules to ``target_dtype``.
 
         Quantized layers (``GPTQLinear``, ``DoubleBinaryLinear``,
+        ``MultipathMDBFLinear`` and its per-path ``MDBFLinear`` children,
         ``OneBitLinear``) are skipped so their fp16 metadata (e.g. GPTQ
-        ``scales``, OneBit ``a``/``b`` scaling vectors) is preserved.
+        ``scales``, OneBit ``a``/``b`` scaling vectors, MDBF amplitude
+        buffers) is preserved.  The skip applies per visited module —
+        skipping a parent does not skip its children — so ``MDBFLinear``
+        (where the MDBF amplitudes actually live) must be listed in
+        addition to its ``MultipathMDBFLinear`` parent.
         Only fp16 tensors are cast: fp32 params (e.g. fp32 LayerNorm in
         mixed-precision models) and other dtypes are left untouched.
 
@@ -404,7 +411,13 @@ class QuantizedModelLoader:
         converted: List[str] = []
         if target_dtype == torch.float16:
             return converted
-        skip_types = (GPTQLinear, DoubleBinaryLinear, OneBitLinear)
+        skip_types = (
+            GPTQLinear,
+            DoubleBinaryLinear,
+            MDBFLinear,
+            MultipathMDBFLinear,
+            OneBitLinear,
+        )
         for mod_name, mod in model.named_modules():
             if isinstance(mod, skip_types):
                 continue
@@ -748,17 +761,26 @@ class QuantizedModelLoader:
     def _build_state_dict_prefix_map(state_dict: dict) -> Dict[str, List[str]]:
         """Build prefix -> full keys map.
 
+        Every ancestor prefix of a key is registered, not just its immediate
+        parent.  Quantizers whose per-layer tensors live in nested submodules
+        must still be discoverable under the *layer* prefix: MDBF stores one
+        ``paths.{p}`` submodule per pass, so its tensors sit two levels below
+        the quantized ``nn.Linear`` that gets replaced.
+
         Example:
-          model.layers.0.mlp.up_proj.qweight
-          -> prefix: model.layers.0.mlp.up_proj
+          model.layers.0.mlp.up_proj.qweight            (GPTQ)
+          -> model.layers.0.mlp.up_proj, model.layers.0.mlp, ...
+          model.layers.0.mlp.down_proj.paths.0.A_amp    (MDBF)
+          -> model.layers.0.mlp.down_proj.paths.0,
+             model.layers.0.mlp.down_proj, model.layers.0.mlp, ...
         """
         prefix_map: Dict[str, List[str]] = {}
 
         for key in state_dict:
             prefix, sep, _field = key.rpartition(".")
-            if not sep:
-                continue
-            prefix_map.setdefault(prefix, []).append(key)
+            while sep:
+                prefix_map.setdefault(prefix, []).append(key)
+                prefix, sep, _ = prefix.rpartition(".")
 
         return prefix_map
 
@@ -773,11 +795,14 @@ class QuantizedModelLoader:
         Returns:
             (layer_sd, source_prefix)
 
-        layer_sd is field-name based:
+        layer_sd is field-name based, relative to the layer prefix:
             {"qweight": tensor, "scales": tensor, ...}
             {"scaling0": tensor, "bp": tensor, ...}
+            {"paths.0.A_amp": tensor, ..., "bias": tensor}
 
-        This is intentionally quantizer-agnostic.
+        This is intentionally quantizer-agnostic: nested fields keep their
+        dotted remainder so quantizers with per-path submodules (MDBF) get
+        the same key layout their ``from_saved_state`` expects.
         """
         exact_keys = sd_prefix_map.get(target_name)
         if exact_keys:
@@ -925,8 +950,9 @@ class QuantizedModelLoader:
         """Replace ``nn.Linear`` with empty quantized modules.
 
         In addition, materialize quantized tensor keys from checkpoint source
-        prefixes to actual model module prefixes. This avoids GPTQ/DBF/OneBit
-        buffers staying all-zero when config and checkpoint prefixes differ.
+        prefixes to actual model module prefixes. This avoids GPTQ/DBF/MDBF/
+        OneBit buffers staying all-zero when config and checkpoint prefixes
+        differ.
         """
         quant_method = quant_config["quant_method"]
         # mixed_* use the same tensor format as the base method (e.g. mixed_gptq -> gptq)
@@ -1052,6 +1078,21 @@ class QuantizedModelLoader:
                     empty=True,
                     target_bits=layer_target_bits,
                 )
+            elif effective_method == "mdbf":
+                layer_target_bits = resolve_mdbf_layer_bits(saved_name, quant_config)
+                MultipathMDBFLinear.validate_saved_state(
+                    layer_sd,
+                    layer_name=saved_name,
+                    expected_paths=resolve_mdbf_paths(quant_config),
+                    expects_bias=getattr(linear, "bias", None) is not None,
+                )
+                quantized_module = MultipathMDBFLinear.from_saved_state(
+                    layer_sd,
+                    in_features=in_features,
+                    out_features=out_features,
+                    empty=True,
+                    target_bits=layer_target_bits,
+                )
             elif effective_method == "onebit":
                 quantized_module = OneBitLinear.from_saved_state(
                     layer_sd,
@@ -1096,6 +1137,8 @@ class QuantizedModelLoader:
         missing = [k for k in getattr(incompat, "missing_keys", []) if k not in expected_missing]
         unexpected = list(getattr(incompat, "unexpected_keys", []))
 
+        # Weight-carrying tensor names of every quantizer: missing one means
+        # the layer silently kept its empty-model zeros.
         critical_patterns = (
             "embed_tokens",
             "lm_head",
@@ -1105,6 +1148,12 @@ class QuantizedModelLoader:
             ".g_idx",
             ".scaling0",
             ".bp",
+            ".A_sign_packed",
+            ".B_sign_packed",
+            ".A_amp",
+            ".B_amp",
+            ".Q_U_amp",
+            ".Q_V_amp",
         )
 
         critical_missing = [
@@ -1157,6 +1206,26 @@ class QuantizedModelLoader:
                 # weight matrices. There is no plain "scaling"/"bp" attr.
                 required_attrs = ["scaling0", "scaling2", "scaling4", "bp1", "bp3"]
                 nonzero_attrs = {"bp1", "bp3"}
+            elif cls_name == "MDBFLinear":
+                # MDBF buffers live on the per-path MDBFLinear children of
+                # MultipathMDBFLinear, not on the wrapper, so the check keys on
+                # the path class (which also covers a bare single-path layer).
+                # The amplitudes are the nonzero probe: an all-(-1) sign matrix
+                # would pack to all-zero bits, so the packed signs alone cannot
+                # distinguish "not loaded" from a valid degenerate sign matrix.
+                # Requiring the packed buffers assumes GemLite is off, which
+                # holds right after from_saved_state().
+                required_attrs = [
+                    "A_sign_packed",
+                    "B_sign_packed",
+                    "_A_sign_shape",
+                    "_B_sign_shape",
+                    "A_amp",
+                    "B_amp",
+                    "Q_U_amp",
+                    "Q_V_amp",
+                ]
+                nonzero_attrs = {"A_amp", "B_amp", "Q_U_amp", "Q_V_amp"}
             else:
                 continue
 
