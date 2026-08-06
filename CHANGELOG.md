@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.3.1] 2026-08-06
+
+### Bug Fix
+
+- Fix `uv add onecomp` / `uv sync` failing on macOS. `gemlite==0.6.0` declares `triton>=3.6.0` without a platform marker (e.g. `sys_platform == 'linux'`), and triton only ships Linux wheels, so the dependency is unresolvable on macOS. Pin `gemlite<0.6.0` on `sys_platform == 'darwin'` only; Linux/CUDA installs are unaffected and still resolve the latest gemlite.
+
 ## [v1.3.0] 2026-08-06
 
 ### Highlights
