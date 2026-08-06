@@ -5,6 +5,8 @@ Copyright 2025-2026 Fujitsu Ltd.
 
 """
 
+import gc
+
 import torch
 
 
@@ -45,3 +47,16 @@ def empty_cache(device: torch.device | str | None = None) -> None:
         empty_cache_fn = getattr(getattr(torch, "mps", None), "empty_cache", None)
         if empty_cache_fn is not None:
             empty_cache_fn()
+
+
+def cleanup_memory(device: torch.device | str | None = None) -> None:
+    """Run a Python GC pass, then release the device memory cache.
+
+    Convenience wrapper for the common ``gc.collect()`` + :func:`empty_cache`
+    pair: the collection frees tensors still held by reference cycles so the
+    subsequent cache release can actually return their blocks. A full GC pass
+    is not free, so prefer bare :func:`empty_cache` inside hot loops (per
+    layer / per batch) and use this at coarser boundaries.
+    """
+    gc.collect()
+    empty_cache(device)

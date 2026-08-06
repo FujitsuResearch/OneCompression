@@ -38,10 +38,12 @@ Full documentation is available at **[https://FujitsuResearch.github.io/OneCompr
 - **vLLM Plugin Integration**: Serve OneComp-quantized models with [vLLM](https://docs.vllm.ai/) via built-in plugins for DBF and Mixed-GPTQ quantization methods. Pair with [Open WebUI](https://github.com/open-webui/open-webui) for a ChatGPT-like chat experience on your local machine.
 - **AutoBit**: Mixed-precision quantization with ILP-based bitwidth assignment. Automatically estimates the target bitwidth from available VRAM and assigns per-layer bitwidths to minimize quantization error under the memory budget.
 - **JointQ**: Joint quantization method that optimizes weight assignments and scale parameters simultaneously for improved quantization accuracy. Supports group-wise quantization (e.g., 4-bit, groupsize=128).
+- **MDBF (Multi-Envelope Double Binary Factorization)**: A binary factorization quantizer that approximates each weight matrix as a sum of multi-path sign matrices with multi-scale FP16 envelopes, generalizing DBF and LittleBit for aggressive low-bit (sub-1-bit) compression. Supports ADMM/gradient refinement, activation-aware initialization, and a GemLite-accelerated 1-bit inference path. See the [MDBF guide](https://FujitsuResearch.github.io/OneCompression/algorithms/mdbf/) for details.
 - **Block-wise PTQ**: Post-quantization block-wise distillation that minimises intermediate-representation MSE against an FP16 teacher model at Transformer-block granularity. Includes Phase 1 (greedy per-block optimisation) and Phase 2 CBQ (cross-block sliding-window optimisation). Supports GPTQ, DBF, and OneBit quantizers.
 - **LoRA SFT Post-Process**: Fine-tune quantized models with LoRA adapters for accuracy recovery or domain-specific knowledge injection. Supports SFT loss, teacher distillation, and intermediate block alignment.
 - **Rotation Preprocessing**: SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Rotation/scaling matrices are absorbed into model weights, with online Hadamard hooks automatically registered at load time. Supports Llama and Qwen3 architectures.
 - **Web Dashboard (HPC)**: A browser-based dashboard for launching quantization jobs, deploying models, and validating chat-based inference in HPC environments. See [dashboard/README.md](dashboard/README.md) for details.
+- **GGUF Export & Hugging Face Hub Integration**: Convert models to the GGUF v3 format (F16) for llama.cpp/Ollama with a dependency-free built-in writer, generate model cards with quantization recipes and evaluation results, and push save directories to the Hugging Face Hub. Supports Llama (SentencePiece or Llama-3-style BPE) and Qwen2 (BPE) architectures, including multi-EOS stop-token mapping. See the [GGUF Export guide](https://FujitsuResearch.github.io/OneCompression/user-guide/gguf-export/).
 - (TBD)
 
 ## 🤖 Supported Models
@@ -54,6 +56,8 @@ Other Hugging Face-compatible models may work but are currently untested.
 | 1 | Llama | TinyLlama, Llama-2, Llama-3 | ✅ Verified |
 | 2 | Qwen3 | Qwen3-0.6B ~ 32B | ✅ Verified |
 | 3 | Gemma | Gemma 2, Gemma 3, Gemma 4  | ✅ Verified |
+| 4 | [GPT-OSS](docs/user-guide/gptoss.md) | openai/gpt-oss-20b, gpt-oss-120b | ✅ Verified |
+| 5 | Qwen3.6 | Qwen3.6-27B, Qwen3.6-35B-A3B | ✅ Verified |
 
 
 > **Note:** Support for additional architectures is planned. Contributions and test reports are welcome.
@@ -274,10 +278,19 @@ uv run mkdocs serve
 
 Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 
+## 📓 Tutorial Notebook
+
+Interactive walkthrough in Jupyter or [Google Colab](https://colab.research.google.com/github/FujitsuResearch/OneCompression/blob/main/notebook/01_tutorial.ipynb)
+— RTN visualization, `Runner.auto_run`, and vLLM chat inference.
+
+See [`notebook/README.md`](./notebook/README.md) for local setup, or the
+[Tutorial Notebook guide](https://FujitsuResearch.github.io/OneCompression/getting-started/tutorial-notebook/) in the docs.
+
 ## 🚀 Examples
 
 | Category | Script | Description |
 |----------|--------|-------------|
+| Tutorial | [01_tutorial.ipynb](./notebook/01_tutorial.ipynb) | Interactive notebook (Jupyter / Colab) |
 | Quantization | [example_gptq.py](./example/example_gptq.py) | GPTQ quantization |
 | | [example_qep_gptq.py](./example/example_qep_gptq.py) | GPTQ + QEP (error propagation) |
 | | [example_lpcd_gptq.py](./example/example_lpcd_gptq.py) | GPTQ + QEP + LPCD quantization |
@@ -286,14 +299,25 @@ Then open [http://127.0.0.1:8000](http://127.0.0.1:8000) in your browser.
 | | [example_auto_run.py](./example/example_auto_run.py) | AutoBit with automatic VRAM estimation |
 | Calibration | [example_custom_calibration.py](./example/example_custom_calibration.py) | Custom calibration dataset with CalibrationConfig |
 | Save / Load | [example_save_load.py](./example/example_save_load.py) | Save and load quantized models |
+| | [example_reload_post_process_resave.py](./example/post_process/example_reload_post_process_resave.py) | Reload, post-process, and re-save a quantized checkpoint |
 | Rotation Preprocessing | [example_llama_preprocess_rtn.py](./example/pre_process/example_llama_preprocess_rtn.py) | Rotation preprocessing + RTN (TinyLlama) |
 | | [example_preprocess_save_load.py](./example/pre_process/example_preprocess_save_load.py) | Save and load rotation-preprocessed quantized models |
-| Post-Process | [example_blockwise_ptq.py](./example/post_process/example_blockwise_ptq.py) | Block-wise PTQ (GPTQ + Phase 1 & CBQ) |
+| Post-Process | [example_blockwise_ptq.py](./example/post_process/example_blockwise_ptq.py) | Block-wise PTQ via `Runner.run()` with packed buffers by default |
+| | [example_blockwise_global_ptq.py](./example/post_process/example_blockwise_global_ptq.py) | BlockWisePTQ → GlobalPTQ in a single Runner, followed by safetensors save/load |
+| | [example_blockwise_global_ptq_staged.py](./example/post_process/example_blockwise_global_ptq_staged.py) | Staged BlockWisePTQ → GlobalPTQ across save/load boundaries with accumulated post-process metadata |
+| | [example_global_ptq.py](./example/post_process/example_global_ptq.py) | Global PTQ with packed buffers by default and HF-compatible safetensors output |
+| | [example_global_ptq_dbf.py](./example/post_process/example_global_ptq_dbf.py) | Global PTQ with the DBF backend and HF-compatible safetensors output |
+| | [example_global_ptq_distributed.py](./example/post_process/example_global_ptq_distributed.py) | Multi-GPU Global PTQ with DeepSpeed / torchrun and safetensors output |
 | | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
 | | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
+| | [example_lora_sft_knowledge_jointq.py](./example/post_process/example_lora_sft_knowledge_jointq.py) | LoRA SFT knowledge injection on a JointQ-quantized model |
+| | [example_lora_gptq_vllm_inference.py](./example/post_process/example_lora_gptq_vllm_inference.py) | GPTQ + LoRA SFT, HF-compatible safetensors + PEFT sidecar, and vLLM inference |
 | vLLM | [example_gptq_vllm_inference.py](./example/vllm_inference/example_gptq_vllm_inference.py) | GPTQ + QEP quantization and vLLM inference |
+| | [example_gptq_vllm_qwen36_inference.py](./example/vllm_inference/example_gptq_vllm_qwen36_inference.py) | GPTQ quantization and vLLM inference for Qwen3.6 (full-wrapper save) |
+| | [example_gptq_vllm_gptoss_inference.py](./example/vllm_inference/example_gptq_vllm_gptoss_inference.py) | GPTQ quantization and vLLM inference for gpt-oss |
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
+| | [example_dbf_vllm_inference.py](./example/vllm_inference/example_dbf_vllm_inference.py) | DBF quantization and vLLM inference |
 
 ## 🔌 vLLM Inference
 
@@ -309,6 +333,22 @@ pip install vllm
 ```
 
 See the [vLLM Inference guide](https://FujitsuResearch.github.io/OneCompression/user-guide/vllm-inference/) for details, including Open WebUI setup instructions.
+
+### GPT-OSS (mixed_gptq)
+
+[GPT-OSS models](docs/user-guide/gptoss.md) (`openai/gpt-oss-20b`, `openai/gpt-oss-120b`) need extra steps beyond the
+standard vLLM plugin flow:
+
+1. Quantize with **`GPTQ(wbits=4)`** and keep the MoE experts 4-bit via `Runner(..., moe_quant_experts=True)` with `groupsize=64`. GPT-OSS `hidden_size` (2880) is not divisible by 128, so the experts must use **`group_size=64`** for vLLM's WNA16 MoE kernel.
+2. Before `LLM(...)`, apply vLLM runtime patches: `python -m vllm_plugins.patches.apply_all`
+3. Set `export VLLM_USE_DEEP_GEMM=0`
+
+The `--extra vllm` dependency set includes **`conch-triton-kernels`**. On NVIDIA Blackwell (B200, sm100),
+vLLM 0.20 needs Conch for `mixed_gptq` linear layers when the Marlin kernel cannot handle GPT-OSS weight shapes.
+If you install vLLM manually with `pip install vllm`, also run `pip install conch-triton-kernels`.
+
+See the [GPT-OSS guide](docs/user-guide/gptoss.md) for HF save/load, patch details, and verification scripts.
+
 
 
 ## 📬 Contact Us
@@ -359,5 +399,19 @@ author={Yuma Ichikawa and Yudai Fujimoto and Akira Sakai},
 journal={arXiv preprint arXiv:2512.01546},
 year={2025},
 url={https://arxiv.org/abs/2512.01546}
+}
+```
+
+MDBF (Multi-Envelope Double Binary Factorization):
+
+```
+@misc{ichikawa2025bitsmultienvelopedoublebinary,
+      title={More Than Bits: Multi-Envelope Double Binary Factorization for Extreme Quantization}, 
+      author={Yuma Ichikawa and Yoshihiko Fujisawa and Yudai Fujimoto and Akira Sakai and Katsuki Fujisawa},
+      year={2025},
+      eprint={2512.24545},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2512.24545}, 
 }
 ```

@@ -6,6 +6,7 @@ Author: Yuma Ichikawa, Keiji Kimura
 
 """
 
+import gc
 import logging
 import re
 from dataclasses import dataclass
@@ -13,13 +14,14 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-import gc
+GPTQ_MAX_BITS = 15
 
 import torch
 from torch import nn
 from transformers import Conv1D
 
 from onecomp.quantizer._quantizer import QuantizationResult, Quantizer
+from onecomp.quantizer.gptq.gptq_layer import PACKABLE_WBITS, is_packable_wbits
 from onecomp.utils.device import empty_cache
 from onecomp.utils.quant_config import get_quant_param
 
@@ -45,6 +47,12 @@ class GPTQResult(QuantizationResult):
         qzeros: Zero points (FP16, CPU).
         perm: Column permutation order (used when actorder=True).
 
+        [Packed state metadata]
+        qweight_is_packed: Whether qweight is stored in packed AutoGPTQ format.
+        qzeros_is_packed: Whether qzeros is stored in packed AutoGPTQ format.
+        qweight_original_shape: Original unpacked qweight shape
+            (out_features, in_features). Used to recover out_features for qzeros.
+
     Note:
         - g_idx (group index) is not stored since it can be computed from groupsize and perm.
           Computation: g_idx[perm[i]] = i // groupsize (when actorder=True)
@@ -68,6 +76,9 @@ class GPTQResult(QuantizationResult):
     scales: Optional[torch.Tensor] = None  # Scale coefficients
     qzeros: Optional[torch.Tensor] = None  # Zero points
     perm: Optional[torch.Tensor] = None  # Column permutation order (actorder=True)
+    qweight_is_packed: bool = False  # Whether qweight is bitpacked
+    qzeros_is_packed: bool = False  # Whether qzeros is bitpacked
+    qweight_original_shape: Optional[tuple[int, int]] = None  # Unpacked qweight shape
 
     def compute_dequantized_weight(self, device=None) -> torch.Tensor:
         """Compute dequantized weight from quantized data and quantization parameters.
@@ -86,10 +97,34 @@ class GPTQResult(QuantizationResult):
         compute_device = torch.device(device) if device is not None else torch.device("cpu")
 
         qweight = self.qweight.to(torch.int32).to(compute_device)
+        qweight_is_packed = bool(getattr(self, "qweight_is_packed", False))
+        qzeros_is_packed = bool(getattr(self, "qzeros_is_packed", False))
+        qweight_original_shape = getattr(self, "qweight_original_shape", None)
+
+        if qweight_is_packed:
+            if qweight_original_shape is None:
+                raise ValueError(
+                    "qweight_original_shape is required to unpack packed GPTQ qweight."
+                )
+            from onecomp.quantizer.gptq.gptq_layer import unpack_int_weights
+
+            qweight = unpack_int_weights(qweight, self.wbits, qweight_original_shape).to(
+                compute_device
+            )
+
         out_features, in_features = qweight.shape
 
         scales = self.scales.to(compute_device)
         qzeros = self.qzeros.to(compute_device)
+        if qzeros_is_packed:
+            from onecomp.quantizer.gptq.gptq_layer import unpack_zeros
+
+            qzeros = unpack_zeros(qzeros.to(torch.int32), self.wbits, out_features).to(
+                compute_device
+            )
+            # GPTQ quantization stores packed result qzeros with the same v1 offset
+            # as GPTQLinear: stored = raw_zero - 1.
+            qzeros = (qzeros + 1) & ((1 << self.wbits) - 1)
 
         if self.groupsize == -1:
             # Per-channel path (broadcast along in_features)
@@ -97,6 +132,12 @@ class GPTQResult(QuantizationResult):
                 scales = scales.unsqueeze(1)
             if qzeros.ndim == 1:
                 qzeros = qzeros.unsqueeze(1)
+            elif qzeros.ndim == 2 and qzeros.shape == (1, out_features):
+                # With bitpack_on_quantize=True, qzeros is stored in the packed
+                # AutoGPTQ-compatible layout and unpack_zeros restores it as
+                # (num_groups, out_features). Per-channel quantization has one group,
+                # so normalize (1, out_features) to (out_features, 1) for dequantize.
+                qzeros = qzeros.T
             dequantized = dequantize(qweight, scales, qzeros.float(), maxq=2**self.wbits - 1)
             return dequantized.to(torch.float16).cpu()
 
@@ -145,7 +186,7 @@ class GPTQ(Quantizer):
             Larger values may improve quality but increase memory usage. Default is 128.
         percdamp (float): Percentage of the Hessian diagonal average added for
             numerical stability (dampening). Default is 0.01.
-        wbits (int): Quantization bit width (1-8). Default is 4.
+        wbits (int): Quantization bit width (1-15). Default is 4.
         groupsize (int): Number of columns sharing the same scale/zero-point.
             -1 means per-channel (no grouping). Must be -1 or in 1..blocksize. Default is -1.
         actorder (bool): If True, reorder columns by decreasing activation magnitude
@@ -159,6 +200,8 @@ class GPTQ(Quantizer):
             (used when mse=True). Default is 600.
         q_norm (float): Norm exponent for MSE grid search error metric
             (used when mse=True). Default is 2.4.
+        bitpack_on_quantize (bool): If True, store qweight/qzeros in bitpacked
+            form immediately after quantization. Default is True.
 
     Example:
         >>> from onecomp.quantizer.gptq import GPTQ
@@ -183,6 +226,7 @@ class GPTQ(Quantizer):
     mlp_wbits: Optional[int] = None
     mlp_groupsize: Optional[int] = None
     module_wbits: Optional[dict[str, int]] = None
+    bitpack_on_quantize: bool = True
 
     @staticmethod
     def resolve_bits(
@@ -230,10 +274,12 @@ class GPTQ(Quantizer):
         Validated ranges:
             blocksize: int >= 1
             percdamp: float >= 3.95e-4
-            wbits: int, 1 <= wbits <= 63
+            wbits: int, 1 <= wbits <= 15
+              - one of 2, 3, 4, 8 when bitpack_on_quantize=True
             groupsize: int, -1 or >= 1
             q_grid: int >= 1 (when mse=True)
             q_norm: float > 0 (when mse=True)
+            bitpack_on_quantize: bool
         """
         bad = []
 
@@ -247,8 +293,11 @@ class GPTQ(Quantizer):
                 f"Invalid GPTQ parameter 'percdamp': {self.percdamp!r} (expected numeric >= 3.95e-4)."
             )
 
-        if not (isinstance(self.wbits, int) and 1 <= self.wbits <= 63):
-            bad.append(f"Invalid GPTQ parameter 'wbits': {self.wbits!r} (expected int in 1..63).")
+        if not (isinstance(self.wbits, int) and 1 <= self.wbits <= GPTQ_MAX_BITS):
+            bad.append(
+                f"Invalid GPTQ parameter 'wbits': {self.wbits!r} "
+                f"(expected int in 1..{GPTQ_MAX_BITS})."
+            )
 
         if not (isinstance(self.groupsize, int) and (self.groupsize == -1 or self.groupsize >= 1)):
             bad.append(
@@ -270,9 +319,10 @@ class GPTQ(Quantizer):
                 )
 
         if self.mlp_wbits is not None:
-            if not (isinstance(self.mlp_wbits, int) and 1 <= self.mlp_wbits <= 64):
+            if not (isinstance(self.mlp_wbits, int) and 1 <= self.mlp_wbits <= GPTQ_MAX_BITS):
                 bad.append(
-                    f"Invalid GPTQ parameter 'mlp_wbits': {self.mlp_wbits!r} (expected int in 1..64)"
+                    f"Invalid GPTQ parameter 'mlp_wbits': {self.mlp_wbits!r} "
+                    f"(expected int in 1..{GPTQ_MAX_BITS})"
                 )
 
         if self.mlp_groupsize is not None:
@@ -296,10 +346,38 @@ class GPTQ(Quantizer):
                         bad.append(
                             "Invalid GPTQ parameter 'module_wbits': keys must be layer name strings."
                         )
-                    elif not (isinstance(bits, int) and 1 <= bits <= 64):
+                    elif not (isinstance(bits, int) and 1 <= bits <= GPTQ_MAX_BITS):
                         bad.append(
-                            f"Invalid GPTQ parameter 'module_wbits[{layer_name!r}]': {bits!r} (expected int in 1..64)"
+                            f"Invalid GPTQ parameter 'module_wbits[{layer_name!r}]': "
+                            f"{bits!r} (expected int in 1..{GPTQ_MAX_BITS})"
                         )
+
+        if not isinstance(self.bitpack_on_quantize, bool):
+            bad.append(
+                f"Invalid GPTQ parameter 'bitpack_on_quantize': {self.bitpack_on_quantize!r} "
+                f"(expected bool)."
+            )
+        elif self.bitpack_on_quantize:
+            supported_bits = sorted(PACKABLE_WBITS)
+
+            def check_pack_supported(param_name: str, bits: Any) -> None:
+                if (
+                    isinstance(bits, int)
+                    and 1 <= bits <= GPTQ_MAX_BITS
+                    and not is_packable_wbits(bits)
+                ):
+                    bad.append(
+                        f"Invalid GPTQ parameter '{param_name}': {bits!r} cannot be used "
+                        f"with bitpack_on_quantize=True (expected one of {supported_bits})."
+                    )
+
+            check_pack_supported("wbits", self.wbits)
+            if self.mlp_wbits is not None:
+                check_pack_supported("mlp_wbits", self.mlp_wbits)
+            if isinstance(self.module_wbits, dict):
+                for layer_name, bits in self.module_wbits.items():
+                    if isinstance(layer_name, str):
+                        check_pack_supported(f"module_wbits[{layer_name!r}]", bits)
 
         if bad:
             raise ValueError("; ".join(bad))
@@ -329,6 +407,19 @@ class GPTQ(Quantizer):
             self.mlp_groupsize,
         )
 
+        if not (isinstance(resolved_wbits, int) and 1 <= resolved_wbits <= GPTQ_MAX_BITS):
+            raise ValueError(
+                f"Invalid GPTQ resolved wbits for layer {layer_name!r}: {resolved_wbits!r} "
+                f"(expected int in 1..{GPTQ_MAX_BITS})."
+            )
+
+        if self.bitpack_on_quantize and not is_packable_wbits(resolved_wbits):
+            supported_bits = tuple(sorted(PACKABLE_WBITS))
+            raise ValueError(
+                f"bitpack_on_quantize=True supports only wbits in {supported_bits}; "
+                f"got {resolved_wbits}. Use bitpack_on_quantize=False for unpacked GPTQ results."
+            )
+
         # Quantize the layer
         result_dict = run_gptq(
             hessian,
@@ -345,15 +436,45 @@ class GPTQ(Quantizer):
             q_norm=self.q_norm,
         )
 
+        qweight = result_dict["qweight"]
+        qzeros = result_dict["qzeros"]
+        qweight_original_shape = tuple(qweight.shape)
+        qweight_is_packed = False
+        qzeros_is_packed = False
+
+        if self.bitpack_on_quantize:
+            from onecomp.quantizer.gptq.gptq_layer import (
+                normalize_scale_zero,
+                pack_int_weights,
+                pack_zeros,
+            )
+
+            out_features = qweight_original_shape[0]
+            qzeros_for_pack = normalize_scale_zero(qzeros, out_features)
+
+            packed_qweight = pack_int_weights(qweight.to(torch.int32), resolved_wbits).cpu()
+
+            # Match GPTQLinear.__init__: normalize zeros, apply GPTQ v1 offset, then pack.
+            qzeros_v1 = qzeros_for_pack.to(torch.float32).round().to(torch.int32) - 1
+            packed_qzeros = pack_zeros(qzeros_v1, resolved_wbits).cpu()
+
+            qweight = packed_qweight
+            qzeros = packed_qzeros
+            qweight_is_packed = True
+            qzeros_is_packed = True
+
         return GPTQResult(
             wbits=resolved_wbits,
             groupsize=resolved_groupsize,
             actorder=self.actorder,
             sym=self.sym,
-            qweight=result_dict["qweight"],
+            qweight=qweight,
             scales=result_dict["scales"],
-            qzeros=result_dict["qzeros"],
+            qzeros=qzeros,
             perm=result_dict["perm"],
+            qweight_is_packed=qweight_is_packed,
+            qzeros_is_packed=qzeros_is_packed,
+            qweight_original_shape=qweight_original_shape,
         )
 
     def get_quant_config(self) -> dict:
@@ -451,6 +572,12 @@ class GPTQ(Quantizer):
         from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
 
         pack_weights = kwargs.get("pack_weights", True)
+        if pack_weights and not is_packable_wbits(result.wbits):
+            supported_bits = tuple(sorted(PACKABLE_WBITS))
+            raise ValueError(
+                f"pack_weights=True supports only GPTQ wbits in {supported_bits}; "
+                f"got {result.wbits}. Use pack_weights=False for unpacked GPTQ results."
+            )
         return GPTQLinear.from_quantization_result(
             result=result,
             bias=(
@@ -521,7 +648,7 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
     layer: torch.nn.Module,
     blocksize: int = 128,
     percdamp: float = 0.01,
-    wbits: int = 16,
+    wbits: int = GPTQ_MAX_BITS,
     groupsize: int = -1,
     actorder: bool = False,
     mse: bool = False,

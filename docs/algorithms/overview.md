@@ -24,6 +24,7 @@ where \(W\) is the original weight matrix and \(X\) is the input activation matr
 |-----------|-----------|-------------|-------------|
 | [**GPTQ**](gptq.md)  | Arbitrary (typically 2--4) | Required | Hessian-based optimal rounding with column-by-column processing |
 | [**DBF**](dbf.md)     | ~1.5 (binary) | Required | Double Binary Factorization: \(W \approx A \cdot \text{diag}(d) \cdot B\) |
+| [**MDBF**](mdbf.md)   | ~1--2 (binary) | Required | Multi-Envelope Double Binary Factorization: \(W \approx \sum_{p} F^{(p)} G^{(p)}\) with multi-scale amplitude envelopes |
 | [**RTN**](rtn.md)     | Arbitrary | Not required | Round-To-Nearest baseline |
 | [**AutoBit**](autobit.md) | Mixed-precision | Required | ILP-based per-layer bit-width assignment under a VRAM budget |
 | [**JointQ**](jointq.md) | Arbitrary | Required | Joint optimization of assignments and scale parameters |
@@ -78,3 +79,4 @@ runner.run()
 - **GPTQ + QEP + LPCD** is useful when you want additional submodule refinement beyond layer-wise PTQ
 - **RTN** is useful as a fast baseline or when calibration data is not available
 - **DBF** targets extreme compression (~1.5-bit) with binary factorization
+- **MDBF** extends DBF to ~1--2-bit with multi-path, multi-scale amplitude envelopes and continuously tunable `target_bits`

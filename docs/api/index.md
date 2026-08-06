@@ -16,6 +16,7 @@ The following are available directly from `import onecomp`:
 | `GPTQ`                 | Class    | GPTQ quantizer                           |
 | `RTN`                  | Class    | RTN quantizer                            |
 | `DBF`                  | Class    | DBF quantizer                            |
+| `MDBF`                 | Class    | MDBF (Multi-Envelope DBF) quantizer      |
 | `JointQ`               | Class    | JointQ quantizer                         |
 | `QUIP`                 | Class    | QuIP quantizer                           |
 | `ARB`                  | Class    | ARB quantizer                            |
@@ -52,6 +53,7 @@ onecomp/
         autobit/           # AutoBit (ILP mixed-precision)
         gptq/              # GPTQ
         dbf/               # DBF
+        mdbf/              # MDBF (Multi-Envelope DBF)
         rtn/               # RTN
         jointq/            # JointQ
         ...

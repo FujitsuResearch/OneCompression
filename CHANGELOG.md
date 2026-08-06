@@ -1,5 +1,83 @@
 # Change log
 
+## [v1.3.0] 2026-08-06
+
+### Highlights
+
+- **New model support**: Qwen3.6 (dense + Qwen3.6-A3B MoE) and GPT-OSS (`gpt-oss-20b` / `gpt-oss-120b`) for vLLM.
+- **CPU deployment**: export OneComp GPTQ checkpoints to GGUF and run them on CPU with Llama.cpp.
+- **New quantizer**: MDBF (Multi-Envelope Double Binary Factorization).
+- **Reload → post-process → re-save** workflow for saved quantized checkpoints.
+- **Rotation-preprocessed models** (GPTQ & DBF) now run in vLLM.
+- **HF/vLLM-compatible LoRA adapter sidecar** save/load.
+- **vLLM ROCm (AMD) support**.
+
+### Breaking Changes
+
+- **Custom post-process subclasses must implement `_run()` instead of overriding `run()`.** `PostQuantizationProcess.run()` is now a base-class template method (validation, CPU move, `eval()`/`cpu()` restore, audit metadata). All built-in post-processes were migrated; callers that only use built-in post-processes (e.g. `Runner.run_post_processes()`) are unaffected.
+- **GPTQ and DBF now bitpack on quantize by default (`bitpack_on_quantize=True`).** Quantized weights are stored packed immediately after each layer is quantized instead of being held unpacked until save. GPTQ packing is limited to bit widths `{2, 3, 4, 8}` (GPTQ bit-width validation is now `1..15`); other widths require `bitpack_on_quantize=False`. DBF has no bit-width restriction.
+
+### New Features
+
+#### Model support: Qwen3.6
+
+- Calibration, save/load, and vLLM inference for the dense Qwen3.6 text models and the Qwen3.6-A3B MoE variant, including hybrid (GatedDeltaNet `linear_attention` + `full_attention`) decoders.
+- Added a `save_format` option (`"auto"` / `"native"` / `"full_wrapper"`) to `Runner.save_quantized_model()`; `"full_wrapper"` produces the composite `model.language_model.*` layout vLLM's VLM loading expects. `load_quantized_model()` loads these checkpoints (including MoE per-expert weights) and fails fast on incompletely-loaded buffers instead of silently producing a garbage model.
+- New example: `example/vllm_inference/example_gptq_vllm_qwen36_inference.py`.
+
+#### Model support: GPT-OSS 4-bit MoE for vLLM (mixed_gptq)
+
+- End-to-end 4-bit serving of GPT-OSS MoE experts via the `mixed_gptq` plugin. Pass `Runner(..., moe_quant_experts=True)` to keep router experts as per-expert GPTQ INT4 (compressed on disk, served 4-bit). GPT-OSS requires `group_size=64` and is routed through vLLM's WNA16 path; asymmetric (`sym=False`) quantization is supported.
+- Apply the required vLLM runtime patches before serving: `python -m vllm_plugins.patches.apply_all`.
+- See the GPT-OSS guide (`docs/user-guide/gptoss.md`).
+
+#### CPU inference & GGUF export (Llama.cpp)
+
+- New `onecomp.cpu` package and `onecomp-gguf` CLI (`export` / `run` / `inspect` / `ppl` / `bench`) to export OneComp GPTQ checkpoints to GGUF and run them on CPU with llama-cpp-python.
+- Lossless GPTQ → GGUF packing (Q4_0 / Q4_1 / Q8_0) reusing the exact GPTQ/QEP integer codes with no re-quantization, plus a dequantize → `llama-quantize` fallback for unsupported layouts.
+- Mixed-precision exporter (`llamacpp_plugins/gptq`): packs 4/8-bit layers losslessly and K-quantizes 2/3-bit (and act-order) layers into a single genuinely mixed-precision GGUF.
+- Adds the `gguf` and `llamacpp` uv extras.
+
+#### MDBF quantizer
+
+- New `MDBF` quantizer (`onecomp/quantizer/mdbf/`) approximating weights as a sum of multi-path double binary factorizations. Configurable `target_bits`, `l` (default `2`), `P` (default `1`), SVD init, optional ADMM and gradient refinement, activation-aware mode, and per-layer / per-MLP bit overrides.
+- `(l, P) = (1, 1)` reproduces DBF and `(1, 2)` reproduces LittleBit. See `docs/algorithms/mdbf.md` for the BPW / rank trade-off.
+- Full save/load support and an optional GemLite 1-bit inference path (auto-enabled for `l == 1`; force with `use_gemlite=True`).
+
+#### Reload → post-process → re-save
+
+- A saved quantized checkpoint can be reloaded, refined with additional post-processes (e.g. `BlockWisePTQ`, `GlobalPTQ`), and saved again. Load to CPU with `load_quantized_model(..., device_map=None)`, drive post-processes via `Runner(quantizer=None)` with `runner.quantized_model = model`, then `save_quantized_model()`.
+- An accumulating `onecomp_post_processes` audit trail in `config.json` records which post-processes (and their hyper-parameters) were applied across load/save cycles.
+- `quantization_config` schema validation (`quant_method`, `modules_in_block_to_quantize`) is now enforced consistently on the load, save, and post-process paths.
+- New examples under `example/post_process/`: `example_reload_post_process_resave.py`, `example_blockwise_global_ptq.py`, `example_blockwise_global_ptq_staged.py`.
+
+#### Rotation-preprocessed inference in vLLM (GPTQ & DBF)
+
+- Rotation-preprocessed GPTQ and DBF models now run in vLLM: the online Hadamard transform on `mlp.down_proj` inputs is reproduced at inference time. GPTQ supports tensor parallelism; the DBF plugin requires `tensor_parallel_size=1`. Rotated GPTQ models are saved as `mixed_gptq` so vLLM loads the Hadamard-capable plugin.
+- The DBF plugin automatically falls back to the naive kernel if the GemLite path fails (OOM is re-raised, not masked). See the `TRITON_CACHE_AUTOTUNING=0` note in `docs/user-guide/vllm-inference.md`.
+- New example: `example/vllm_inference/example_dbf_vllm_inference.py`.
+
+#### LoRA adapter sidecar save/load
+
+- `save_quantized_model()` writes GPTQ + LoRA SFT outputs in HF/vLLM-compatible form: the base model as safetensors plus a PEFT adapter sidecar in `lora_adapter/` (`adapter_model.safetensors`, `adapter_config.json`). `load_quantized_model()` auto-detects the sidecar and re-wraps matching layers for round-trips, failing fast if not all adapter layers are applied.
+- New / updated examples: `example_lora_gptq_vllm_inference.py`, `example_lora_sft.py`, `example_lora_sft_knowledge.py`, `example_lora_sft_knowledge_jointq.py`.
+
+### Environment
+
+- Added `envs/vllm/` with versioned vLLM environment definitions (`0.12.0`, `0.15.1`), plus `envs/vllm/v0_24_0_rocm/` for the ROCm plugin. Both the versioned environments and the ROCm plugin must be installed separately from the main uv sync --extra vllm workflow.
+
+### Bug Fixes
+
+- Text-only `generate()` on multimodal models (e.g. Gemma-4 12B) could emit modality delimiter tokens and degrade output after quantize→reload, because `load_quantized_model()` did not restore `generation_config.json` (including `suppress_tokens`). Now loads it from the save directory when present (`quantized_model_loader.py`).
+- Fixed Hadamard online-hook registration for rotation + partially-quantized models: hook target layer types are now derived from the actual model instead of the recorded `quant_method`, so mixed quantized / unquantized `down_proj` layers no longer miss quantized layers or fire on plain `nn.Linear`.
+
+### New Contributors
+- @k-arima-3150 and @S4Y-K made their first contribution in #21
+- @cm-ysmz made their first contribution in #25
+- @fujisawa-yoshihiko made their first contribution in #28
+- @KoOhira-BP made their first contribution in #30
+- @dogwood-flo made their first contribution in #34
+
 ## [v1.2.2] 2026-07-10
 
 ### Bug Fix

@@ -85,6 +85,7 @@ Available quantizers and their typical parameters:
 | `GPTQ`             | `wbits`, `groupsize`, `sym`              | Yes                  |
 | `RTN`              | `wbits`, `groupsize`, `sym`              | No                   |
 | `DBF`              | `target_bits`, `iters`                   | Yes                  |
+| `MDBF`             | `target_bits`, `l`, `P`                  | Yes                  |
 | `JointQ`           | `bits`, `group_size`                     | Yes                  |
 
 All quantizers share common parameters:
@@ -127,7 +128,7 @@ print(f"Quantized: {quantized_ppl:.2f}")
 !!! note
     - Evaluating the original or dequantized model requires loading the full model on GPU.
     - Quantized-model evaluation (`quantized_model=True`) is supported only for quantizers
-      that implement `create_quantized_model()` (**GPTQ**, **DBF**, **AutoBitQuantizer**,
+      that implement `create_quantized_model()` (**GPTQ**, **DBF**, **MDBF**, **AutoBitQuantizer**,
       **JointQ**, **RTN**, **OneBit**). For other quantizers, evaluation automatically falls
       back to the dequantized (FP16) model.
 
@@ -150,19 +151,26 @@ runner.save_quantization_statistics("stats.json")
 # Save dequantized weights (FP16, compatible with any HF pipeline)
 runner.save_dequantized_model("./output/dequantized")
 
-# Save quantized model (packed integer weights, compatible with vLLM)
+# Save quantized model (packed weights, loadable via load_quantized_model)
 runner.save_quantized_model("./output/quantized")
 ```
+
+!!! note "vLLM serving is method-specific"
+    `save_quantized_model()` produces a model loadable by the OneComp loader for any
+    quantizer that supports saving (see the table below). vLLM serving, however, is only
+    available for methods with a vLLM plugin -- currently `dbf` and `mixed_gptq`. See
+    [vLLM Inference](vllm-inference.md) for the supported methods.
 
 !!! note "Quantizer feature support"
     `save_quantized_model()`, `create_quantized_model()`, and quantized-model PPL/ACC evaluation
     require the quantizer to implement `get_quant_config()` and `create_inference_layer()`.
-    **GPTQ**, **DBF**, **AutoBitQuantizer**, **JointQ**, **RTN**, and **OneBit** support these features.
+    **GPTQ**, **DBF**, **MDBF**, **AutoBitQuantizer**, **JointQ**, **RTN**, and **OneBit** support these features.
 
     | Quantizer          | Save | Quantized PPL/ACC | `quant_method` | Fallback                  |
     |--------------------|:----:|:-----------------:|----------------|---------------------------|
     | `GPTQ`             | Yes  | Yes               | `gptq` / `mixed_gptq` | —                  |
     | `DBF`              | Yes  | Yes               | `dbf`          | —                         |
+    | `MDBF`             | Yes  | Yes               | `mdbf`         | —                         |
     | `AutoBitQuantizer` | Yes  | Yes               | `mixed_gptq`   | —                         |
     | `JointQ`           | Yes  | Yes               | `gptq`         | —                         |
     | `RTN`              | Yes  | Yes               | `gptq`         | —                         |

@@ -16,6 +16,7 @@ from .blockwise import (
     move_kwargs_to_device,
 )
 from .device import (
+    cleanup_memory,
     empty_cache,
     get_default_device,
 )

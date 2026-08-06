@@ -15,6 +15,7 @@ by each quantizer to enable these features.
 |--------------------|:------------------:|:------------------------:|:----:|:-----------------:|
 | `GPTQ`             | Yes                | Yes                      | Yes  | Yes               |
 | `DBF`              | Yes                | Yes                      | Yes  | Yes               |
+| `MDBF`             | Yes                | Yes                      | Yes  | Yes               |
 | `AutoBitQuantizer` | Yes                | Yes                      | Yes  | Yes               |
 | `JointQ`           | Yes                | Yes                      | Yes  | Yes               |
 | `RTN`              | Yes                | Yes                      | Yes  | Yes               |

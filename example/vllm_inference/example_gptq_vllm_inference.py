@@ -72,7 +72,9 @@ def main():
     # a single all-at-once forward pass.
     runner.run()
 
-    # Step 2: Save the quantized model
+    # Step 2: Save the quantized model.
+    # (Qwen3.6 needs save_format="full_wrapper" for vLLM serving;
+    #  see example/vllm_inference/example_gptq_vllm_qwen36_inference.py.)
     runner.save_quantized_model(save_dir)
 
     # Free GPU memory used by quantization before loading vLLM

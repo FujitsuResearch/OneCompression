@@ -31,8 +31,14 @@ def inject_dbf(
     logger,
     dbf_iters=None,
     device=None,
+    bitpack_on_quantize=None,
 ):
-    """Inject DBF for ultra-low-bit assignments."""
+    """Inject DBF for ultra-low-bit assignments.
+
+    When ``bitpack_on_quantize`` is not None it is forwarded to every DBF
+    quantizer created here, so the AutoBit-level bitpack mode also governs the
+    DBF fallback (rather than silently using DBF's own default).
+    """
     raw_of = _raw_bits_map(quantizers)
 
     total_params = 0
@@ -69,6 +75,8 @@ def inject_dbf(
                 dbf_kwargs = {"target_bits": float(raw)}
                 if dbf_iters is not None:
                     dbf_kwargs["iters"] = dbf_iters
+                if bitpack_on_quantize is not None:
+                    dbf_kwargs["bitpack_on_quantize"] = bitpack_on_quantize
                 dbf_q = DBF(**dbf_kwargs)
                 dbf_cache[raw] = dbf_q
                 quantizers.append(dbf_q)

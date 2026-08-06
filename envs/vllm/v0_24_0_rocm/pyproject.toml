@@ -1,0 +1,44 @@
+# Standalone pip-installable package.
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onecomp-vllm-v0-24-0-rocm"
+version = "0.1.0"
+description = "ROCm-only workaround for vLLM 0.24.x TritonW4A16LinearKernel."
+readme = "README.md"
+requires-python = ">=3.10, <3.15"
+authors = [
+    {name = "Akihiro Yoshida"},
+]
+classifiers = [
+    "Environment :: GPU :: ROCm",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Intentionally empty.  vllm + torch are pre-installed in the target venv
+# from the wheels.vllm.ai/rocm/ index (see requirements.txt), and pinning
+# them here would conflict with the ROCm-specific local-version suffixes
+# (e.g. +rocm723, +gitd0c8b1f).  See ./pip-list.txt for the validated
+# venv contents.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/FujitsuResearch/OneCompression"
+
+# This is the bit that the main onecomp pyproject.toml deliberately does
+# NOT carry: an entry point that monkey-patches vLLM at startup.  By
+# living in this sub-package's metadata, it is only registered when this
+# sub-package is explicitly installed (typically via the workflow at the
+# top of this file).
+[project.entry-points."vllm.general_plugins"]
+onecomp_vllm_v0_24_0_rocm = "onecomp_vllm_v0_24_0_rocm.patch:apply"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

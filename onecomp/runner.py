@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 import torch
+import torch.nn as nn
 
 from .__version__ import __version__
 from .calibration import CalibrationConfig, prepare_calibration_dataset
@@ -32,7 +33,28 @@ from .utils import calculate_accuracy as calc_accuracy
 from .utils import calculate_perplexity as calc_perplexity
 from .utils import empty_cache
 from .utils.device import is_mps_device
+from .utils.lora import LORA_ADAPTER_SUBDIR
+from .utils.quant_config import get_quant_param, validate_quantized_model_config
 from .utils.quantization_progress import QuantizationProgressTracker
+
+
+def _get_num_experts(config):
+    """Return the number of MoE experts declared in a model config.
+
+    Different architectures use different attribute names:
+    ``num_experts`` (Qwen-MoE, Gemma4) or ``num_local_experts``
+    (GPT-OSS, Mixtral).  VLMs nest them under ``text_config``.
+    Returns 0 for non-MoE models.
+    """
+    candidates = [config, getattr(config, "text_config", None)]
+    for cfg in candidates:
+        if cfg is None:
+            continue
+        for attr in ("num_experts", "num_local_experts"):
+            value = getattr(cfg, attr, None)
+            if value:
+                return value
+    return 0
 
 
 class Runner:
@@ -91,6 +113,7 @@ class Runner:
         gpu_ids=None,
         post_processes=None,
         report_progress=True,
+        moe_quant_experts=False,
     ):
         """__init__ method
 
@@ -99,7 +122,10 @@ class Runner:
                 Model configuration.  Required.
             quantizer (Quantizer):
                 The quantizer to use. Specify either ``quantizer`` or
-                ``quantizers``, not both.  At least one must be given.
+                ``quantizers``, not both.  At least one must be given for
+                ``run()``. ``None`` is only supported when assigning
+                ``runner.quantized_model`` directly and calling
+                ``run_post_processes()``.
             quantizers (list[Quantizer]):
                 Specify multiple quantizers. When used with
                 ``calibration_config.batch_size``, the X^T X accumulation
@@ -132,14 +158,26 @@ class Runner:
             post_processes (list[PostQuantizationProcess] or None):
                 Optional list of post-quantization processes to execute
                 after the main quantization step.  Each process receives
-                a quantized model on CPU (built via
-                ``create_quantized_model``) and may modify it in-place.
-                Processes are executed in order.  Default is None.
+                a packed quantized model on CPU (built via
+                ``create_quantized_model(pack_weights=True, use_gemlite=False)``)
+                and may modify it in-place.  Processes preserve the
+                incoming pack state, so the final ``self.quantized_model``
+                remains packed in the production path.  Processes are
+                executed in order.  Default is None.
             report_progress (bool):
                 When ``True`` (default), emit ``[progress]`` log lines with
                 completed steps, elapsed time, and a linear ETA estimate
                 during long quantization (calibration, chunked, multi-GPU,
                 QEP).  Set to ``False`` for quiet runs (e.g. CI).
+            moe_quant_experts (bool):
+                When ``True``, MoE experts are kept as per-expert GPTQ INT4
+                tensors (``...experts.{i}.{gate,up,down}_proj.{qweight,...}``)
+                and left in the quantization config so a 4-bit MoE vLLM path
+                (e.g. the mixed_gptq plugin's gpt-oss WNA16 method) can serve
+                them.  When ``False`` (default), experts are dequantized and
+                fused into dense tensors for ``UnquantizedFusedMoEMethod``.
+                Only enable this for architectures that have a quantized MoE
+                serving path in vLLM (currently gpt-oss).
 
         Note:
             For zero-config quantization (VRAM auto-estimation +
@@ -218,6 +256,7 @@ class Runner:
         self.multi_gpu = multi_gpu
         self.gpu_ids = gpu_ids
         self.post_processes = post_processes or []
+        self.moe_quant_experts = moe_quant_experts
         self.quantized_model = None
         self.qep_config = None
         if qep:
@@ -253,6 +292,11 @@ class Runner:
 
         Note:
             ``multi_gpu=True`` requires a quantizer with ``flag_calibration=True``.
+
+            This method is intended to be called from the ``run()`` flow only.
+            It is *not* designed to be used in the
+            ``load_quantized_model() -> Runner.run_post_processes()`` flow, and
+            the checks here do not cover that use case.
 
         Raises:
             TypeError: Invalid type for ``model_config``, ``quantizer``, or ``quantizers``
@@ -356,33 +400,31 @@ class Runner:
                     )
 
     def _exclude_moe_router_if_needed(self):
-        """Exclude MoE router layers from quantization.
+        """Exclude MoE router and shared-expert-gate layers from quantization.
 
         vLLM's GateLinear (used for MoE routing) hardcodes
         quant_config=None, so router weights must stay unquantized.
+        Qwen3.6-A3B-style MoE models route through shared_expert_gate
+        the same way, so it is excluded alongside the router.
         """
         config = self.model_config.load_config()
-        num_experts = (
-            getattr(config, "num_experts", 0)
-            or getattr(getattr(config, "text_config", None), "num_experts", 0)
-            or 0
-        )
+        num_experts = _get_num_experts(config)
         if num_experts == 0:
             return
 
-        keyword = "router"
+        keywords = ["router", "shared_expert_gate"]
         target_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
         for q in target_quantizers:
-            if q.exclude_layer_keywords is None:
-                q.exclude_layer_keywords = [keyword]
-            elif keyword not in q.exclude_layer_keywords:
-                q.exclude_layer_keywords = list(q.exclude_layer_keywords) + [keyword]
+            existing = list(q.exclude_layer_keywords) if q.exclude_layer_keywords else []
+            missing = [k for k in keywords if k not in existing]
+            if missing:
+                q.exclude_layer_keywords = existing + missing
 
         self.logger.info(
             "MoE model (num_experts=%d): excluding '%s' layers from "
             "quantization (vLLM GateLinear does not support quantization)",
             num_experts,
-            keyword,
+            ", ".join(keywords),
         )
 
     def run(self):
@@ -895,29 +937,61 @@ class Runner:
     def run_post_processes(self):
         """Execute post-quantization processes.
 
-        Builds a quantized model on CPU from ``quantizer.results`` and
-        passes it to each :class:`PostQuantizationProcess` in order.
+        Uses ``self.quantized_model`` when one has already been assigned;
+        otherwise builds a packed quantized model on CPU from
+        ``quantizer.results`` with
+        ``create_quantized_model(pack_weights=True, use_gemlite=False)`` by
+        default.  The model is passed to each
+        :class:`PostQuantizationProcess` in order, and each process preserves
+        the incoming pack state (packed-in -> packed-out), so
+        ``self.quantized_model`` stays packed for memory-efficient eval reuse.
+        Processes that train (e.g. :class:`PostProcessLoraSFT`) unpack the base
+        weights internally for the duration of training and re-pack on exit.
+
+        ``use_gemlite=False`` is used because GemLite relies on fp16-only Triton
+        kernels that break when LoRA SFT runs with bfloat16 autocast; plain
+        buffers (qweight/scales) let training call ``base_layer.forward()``
+        without dtype mismatch.
+
+        If an unpacked layout is required, explicitly build the model before
+        calling this method and assign it to ``runner.quantized_model``::
+
+            runner.quantized_model, _ = runner.create_quantized_model(
+                pack_weights=False, use_gemlite=False)
+
+        Direct ``post_process.run(model, runner.model_config)`` execution can
+        use the same explicitly built model.
+
+        Each process records its own metadata in
+        ``model.config.quantization_config["onecomp_post_processes"]`` when it
+        finishes successfully, so direct process execution and Runner execution
+        share the same history path.
 
         Raises:
-            ValueError: If ``self.quantizer`` is ``None``
-                (``quantizers`` mode is not yet supported).
+            ValueError: If neither ``self.quantized_model`` nor
+                ``self.quantizer`` is available (``quantizers`` mode is not
+                yet supported for building post-process inputs).
         """
         logger = self.logger
 
-        if self.quantizer is None:
-            raise ValueError(
-                "post_processes requires a single 'quantizer'. "
-                "'quantizers' (multiple) is not yet supported with post_processes."
+        if self.quantized_model is not None:
+            logger.info("Using existing quantized model for post-quantization processes")
+            quantized_model = self.quantized_model
+        elif self.quantizer is not None:
+            logger.info("Building quantized model for post-quantization processes...")
+            # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
+            # LoRA SFT runs with bfloat16 autocast. Keep plain PyTorch inference
+            # layers while preserving the default packed quantized-buffer layout.
+            quantized_model, _ = self.create_quantized_model(
+                pack_weights=True,
+                use_gemlite=False,
             )
-
-        logger.info("Building quantized model for post-quantization processes...")
-        # use_gemlite=False: GemLite uses fp16-only Triton kernels that break when
-        # LoRA SFT runs with bfloat16 autocast.  Plain buffers (qweight/scales) are
-        # needed so training can call base_layer.forward() without dtype mismatch.
-        quantized_model, _ = self.create_quantized_model(
-            pack_weights=False,
-            use_gemlite=False,
-        )
+        else:
+            raise ValueError(
+                "post_processes requires either 'runner.quantized_model' or a single "
+                "'quantizer'. 'quantizers' (multiple) is not yet supported with "
+                "post_processes."
+            )
 
         for process in self.post_processes:
             logger.info("Start post-quantization process: %s", process.name)
@@ -1168,6 +1242,12 @@ class Runner:
             logger.info("Evaluating dequantized model (%s)...", eval_name)
             model = self.model_config.load_model()
             tokenizer = self.model_config.load_tokenizer()
+            # Unfuse MoE expert tensors so per-expert quantization results
+            # (e.g. "...experts.4.gate_proj") can be matched by module name.
+            from .utils.unfuse_moe import unfuse_moe_experts
+
+            if unfuse_moe_experts(model, logger):
+                logger.info("Unfused MoE expert tensors for dequantized evaluation")
             self.update_model_weights(model, quantizer=quantizer)
             dequantized_result = eval_function(model=model, tokenizer=tokenizer, **eval_args)
             del model, tokenizer
@@ -1664,10 +1744,41 @@ class Runner:
             >>> runner.run()
             >>> model, tokenizer = runner.create_quantized_model()
 
-            With post-process:
+            With post-process (manual single-process run; ``run_post_processes()``
+            builds the model with ``pack_weights=True`` by default).  The same
+            packed model can be passed directly to post-processes that preserve
+            quantized layer structure, such as ``BlockWisePTQ`` or ``GlobalPTQ``:
 
-            >>> model, tokenizer = runner.create_quantized_model(pack_weights=False)
+            >>> model, tokenizer = runner.create_quantized_model()
+            >>> post_process = BlockWisePTQ()
+            >>> post_process.run(model, runner.model_config)
+            >>> post_process = GlobalPTQ()
+            >>> post_process.run(model, runner.model_config)
+
+            LoRA SFT also accepts the model directly.  It introduces custom
+            wrapper modules (``LoRAGPTQLinear``), which ``save_quantized_model``
+            handles by writing the base weights as safetensors plus a
+            PEFT-compatible adapter sidecar under ``lora_adapter/``:
+
+            >>> model, tokenizer = runner.create_quantized_model(
+            ...     pack_weights=True,
+            ...     use_gemlite=False,
+            ... )
             >>> post_process = PostProcessLoraSFT(data_files="train.jsonl")
+            >>> post_process.run(model, runner.model_config)
+            >>> runner.quantized_model = model  # so the LoRA model is the one saved
+            >>> runner.save_quantized_model("./quantized_model_lora")
+
+            Post-processes preserve the incoming pack state.  If a workflow
+            requires unpacked quantized buffers (e.g. when intentionally
+            debugging an unpacked-buffer path), build the model explicitly with
+            ``pack_weights=False`` before direct execution:
+
+            >>> model, tokenizer = runner.create_quantized_model(
+            ...     pack_weights=False,
+            ...     use_gemlite=False,
+            ... )
+            >>> post_process = BlockWisePTQ()
             >>> post_process.run(model, runner.model_config)
         """
         if quantizer is None:
@@ -1680,9 +1791,13 @@ class Runner:
         model = self.model_config.load_model(device_map="cpu")
         tokenizer = self.model_config.load_tokenizer()
 
-        # Unfuse MoE experts so per-expert result keys can be resolved
-        from .utils.unfuse_moe import unfuse_moe_experts
+        from .utils.unfuse_moe import (
+            fuse_moe_experts,
+            strip_moe_experts_from_quant_config,
+            unfuse_moe_experts,
+        )
 
+        # Unfuse MoE experts so per-expert result keys can be resolved
         if unfuse_moe_experts(model, self.logger):
             self.logger.info("Unfused MoE expert tensors for quantized model save")
 
@@ -1695,20 +1810,21 @@ class Runner:
         # which discards hooks registered by RotatedModelConfig.load_model().
         fp32_had = getattr(self.model_config, "fp32_had", False)
         if self.model_config.has_additional_data():
-            from .pre_process.rotation_utils import register_online_hadamard_hooks
-
-            sample_layer = next(
-                (m for n, m in model.named_modules() if "down_proj" in n),
-                None,
+            from .pre_process.rotation_utils import (
+                collect_quantized_down_proj_types,
+                register_online_hadamard_hooks,
             )
-            if sample_layer is not None:
+
+            quantized_down_proj_types = collect_quantized_down_proj_types(model)
+
+            if quantized_down_proj_types:
                 hooks = register_online_hadamard_hooks(
                     model,
-                    layers_cls=[type(sample_layer)],
+                    layers_cls=quantized_down_proj_types,
                     fp32_had=fp32_had,
                 )
                 self.logger.info(
-                    "Re-registered Hadamard pre-hooks on %d down_proj layers (fp32_had=%s)",
+                    "Re-registered Hadamard pre-hooks on %d quantized layers (fp32_had=%s)",
                     len(hooks),
                     fp32_had,
                 )
@@ -1729,16 +1845,21 @@ class Runner:
         quant_config["rotated"] = self.model_config.has_additional_data()
         quant_config["fp32_had"] = fp32_had
 
+        # Rotated GPTQ models need the mixed_gptq plugin in vLLM so the
+        # down_proj path can apply the online Hadamard transform.
+        if quant_config.get("quant_method") == "gptq" and quant_config["rotated"]:
+            quant_config["quant_method"] = "mixed_gptq"
+            self.logger.info(
+                "Rotated GPTQ model detected: switching quant_method to mixed_gptq "
+                "for vLLM rotation compatibility"
+            )
+
         # MoE expert layers are not nn.Linear but fused3d tensors and are skipped by the
         # quantizer.  vLLM's built-in "gptq" handler still assumes them
         # GPTQ-quantized.  "mixed_gptq" returns None
         # and passes the weights to UnquantizedFusedMoEMethod.
         # cf) https://docs.vllm.ai/en/stable/features/quantization/#implementing-a-quantized-moe-method
-        num_experts = (
-            getattr(model.config, "num_experts", None)
-            or getattr(getattr(model.config, "text_config", None), "num_experts", None)
-            or 0
-        )
+        num_experts = _get_num_experts(model.config)
         if quant_config.get("quant_method") == "gptq" and num_experts > 0:
             quant_config["quant_method"] = "mixed_gptq"
             self.logger.info(
@@ -1746,6 +1867,21 @@ class Runner:
                 "switching quant_method to mixed_gptq for vLLM compatibility",
                 num_experts,
             )
+
+        if num_experts > 0:
+            if self.moe_quant_experts:
+                # Keep experts as per-expert GPTQLinear tensors (4-bit) and leave
+                # them in the quant config so the mixed_gptq vLLM plugin serves
+                # them via GPTQMarlinMoEMethod.  No fuse/dequantize/strip.
+                self.logger.info(
+                    "MoE quant-experts mode: keeping %d-expert layers GPTQ-quantized "
+                    "(no fuse/strip)",
+                    num_experts,
+                )
+            else:
+                strip_moe_experts_from_quant_config(quant_config)
+                if fuse_moe_experts(model, self.logger):
+                    self.logger.info("Fused MoE expert tensors for vLLM-compatible save")
 
         # Patch weights and quant config for architectures with shared
         # K/V projections (e.g. Gemma4 attention_k_eq_v) so that vLLM's
@@ -1821,8 +1957,263 @@ class Runner:
                 quant_config[key] = sorted(names + added)
 
     # ========================================
-    # Unified Save/Load Methods (Using quantizer.results)
+    # Unified Save/Load Methods
     # ========================================
+
+    @staticmethod
+    def _packable_gptq_wbits(wbits: int) -> bool:
+        """Return whether OneComp can export GPTQ tensors in packed format."""
+        from .quantizer.gptq.gptq_layer import is_packable_wbits
+
+        return is_packable_wbits(wbits)
+
+    @staticmethod
+    def _collect_lora_gptq_modules(model) -> list[tuple[str, torch.nn.Module]]:
+        """Return ``LoRAGPTQLinear`` modules contained in *model*."""
+        # Avoid importing post_process_lora_sft here; it pulls training deps.
+        return [
+            (name, mod)
+            for name, mod in model.named_modules()
+            if mod.__class__.__name__ == "LoRAGPTQLinear"
+        ]
+
+    @staticmethod
+    def _iter_gptq_export_layers(
+        model,
+        lora_modules: list[tuple[str, torch.nn.Module]],
+    ) -> list[tuple[str, torch.nn.Module]]:
+        """Return GPTQLinear layers keyed by their base-model export prefix."""
+        from .quantizer.gptq.gptq_layer import GPTQLinear
+
+        layers: list[tuple[str, torch.nn.Module]] = []
+        lora_base_names = set()
+        for name, mod in lora_modules:
+            base_layer = getattr(mod, "base_layer", None)
+            if isinstance(base_layer, GPTQLinear):
+                layers.append((name, base_layer))
+                lora_base_names.add(f"{name}.base_layer" if name else "base_layer")
+
+        for name, mod in model.named_modules():
+            if name in lora_base_names:
+                continue
+            if isinstance(mod, GPTQLinear):
+                layers.append((name, mod))
+        return layers
+
+    def _build_base_quantized_state_dict(
+        self,
+        model,
+        lora_modules: list[tuple[str, torch.nn.Module]],
+        pack_weights: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        """Build a base-model state_dict for HF/vLLM-compatible export.
+
+        ``LoRAGPTQLinear`` wrappers are flattened back to the base GPTQLinear
+        key layout, and LoRA tensors are omitted from the base weights. If a
+        GPTQLinear is unpacked and the bit-width is packable, only the exported
+        tensors are packed; the in-memory model is left unchanged.
+        """
+        export_state_dict: dict[str, torch.Tensor] = {}
+        lora_modules = sorted(lora_modules, key=lambda item: len(item[0]), reverse=True)
+
+        for key, tensor in model.state_dict().items():
+            skip = False
+            export_key = key
+            for lora_name, _mod in lora_modules:
+                prefix = f"{lora_name}." if lora_name else ""
+                if key.startswith(f"{prefix}lora_A.") or key.startswith(f"{prefix}lora_B."):
+                    skip = True
+                    break
+                base_prefix = f"{prefix}base_layer."
+                if key.startswith(base_prefix):
+                    export_key = f"{prefix}{key[len(base_prefix):]}"
+                    break
+            if not skip:
+                export_state_dict[export_key] = tensor
+
+        gptq_layers = self._iter_gptq_export_layers(model, lora_modules)
+        if not gptq_layers or not pack_weights:
+            return export_state_dict
+
+        from .quantizer.gptq.gptq_layer import pack_int_weights, pack_zeros
+
+        packed_layers = 0
+        skipped_layers = []
+        for layer_name, layer in gptq_layers:
+            if getattr(layer, "_weight_is_packed", False):
+                continue
+
+            wbits = getattr(layer, "wbits", 0)
+            if not self._packable_gptq_wbits(wbits):
+                if wbits != 1:
+                    skipped_layers.append((layer_name, wbits))
+                continue
+            wbits = int(wbits)
+
+            prefix = f"{layer_name}." if layer_name else ""
+            qweight_key = f"{prefix}qweight"
+            qzeros_key = f"{prefix}qzeros"
+            if qweight_key not in export_state_dict or qzeros_key not in export_state_dict:
+                self.logger.warning(
+                    "Skipping GPTQ export packing for %s because qweight/qzeros "
+                    "were not found in state_dict",
+                    layer_name,
+                )
+                continue
+
+            export_state_dict[qweight_key] = pack_int_weights(
+                layer.qweight.detach().to(torch.int32),
+                wbits,
+            ).contiguous()
+            export_state_dict[qzeros_key] = pack_zeros(
+                layer.qzeros.detach().to(torch.int32),
+                wbits,
+            ).contiguous()
+            packed_layers += 1
+
+        if packed_layers:
+            self.logger.info(
+                "Packed %d unpacked GPTQLinear layer(s) in export state_dict",
+                packed_layers,
+            )
+        if skipped_layers:
+            self.logger.warning(
+                "Left %d unpacked GPTQLinear layer(s) unpacked in export state_dict "
+                "because their wbits are not packable: %s",
+                len(skipped_layers),
+                skipped_layers,
+            )
+        return export_state_dict
+
+    def _save_lora_adapter_sidecar(
+        self, save_directory: str, model=None, save_format: str = "auto"
+    ) -> bool:
+        """Write a PEFT-compatible LoRA adapter sidecar if *model*
+        contains ``LoRAGPTQLinear`` modules (typically produced by
+        ``PostProcessLoraSFT``).
+
+        The sidecar is placed in a ``lora_adapter/`` subdirectory rather than
+        directly in ``save_directory``. Reason: vLLM's base-model safetensors
+        loader globs ``*.safetensors`` at the top level of the model directory
+        and would otherwise try to load ``adapter_model.safetensors`` as
+        base-model weights, crashing with ``"no module or parameter named
+        'base_model' in LlamaForCausalLM"``. Keeping the adapter under a
+        subdirectory avoids that collision while still keeping the whole model
+        self-contained under one directory tree.
+
+        The subdirectory contains:
+          - ``adapter_model.safetensors``
+          - ``adapter_config.json``
+
+        The format matches what vLLM's native PEFT LoRA loader expects, so::
+
+            LLM(model=save_dir, enable_lora=True)
+            LoRARequest(..., lora_path=os.path.join(save_dir, "lora_adapter"))
+
+        will load and apply the adapter without any OneComp-specific changes
+        to the vLLM plugin.
+
+        Args:
+            save_directory: Directory the model is being saved to.
+            model: Model to collect LoRA modules from; defaults to
+                ``self.quantized_model``.
+            save_format: Must match the ``save_format`` used for the base
+                weights. When ``"full_wrapper"``, adapter module paths are
+                remapped from the text-only ``model.layers.*`` namespace to
+                the composite ``model.language_model.*`` namespace so the
+                sidecar keys line up with the remapped base layers.
+
+        Returns:
+            bool: True iff an adapter was written. False if there is no
+            in-memory LoRA state to save (e.g. no post-process ran).
+        """
+        if model is None:
+            model = self.quantized_model
+        if model is None:
+            return False
+
+        # Inline imports keep runner.py import-time cheap and avoid any
+        # circular-import risk with the post_process package.
+        from safetensors.torch import save_file as _st_save_file
+
+        lora_modules = self._collect_lora_gptq_modules(model)
+        if not lora_modules:
+            return False
+
+        # Save in the base model's runtime dtype so the round-trip is a single
+        # fp32(train) -> base-dtype rounding. Hardcoding float16 would add a
+        # needless fp16 intermediate for bf16 models (fp32 -> fp16 -> bf16 in
+        # vLLM). This save path expects model_config.dtype to be a concrete
+        # "float16"/"bfloat16" that maps directly to a torch dtype; an
+        # unexpected value (e.g. "auto") is out of scope and intentionally
+        # raises via getattr rather than silently falling back.
+        save_dtype = getattr(torch, self.model_config.dtype)
+
+        # PEFT convention: keys are prefixed with "base_model.model." and the
+        # module path matches what we will see on the loaded HF model. When
+        # save_format='full_wrapper', the base weights and quantization_config
+        # are remapped to the composite ``model.language_model.*`` namespace
+        # (see _prepare_full_wrapper_quantized_save), so the adapter module
+        # paths must be remapped the same way; otherwise the sidecar keeps the
+        # text-only ``model.layers.*`` names and vLLM's full-wrapper loader
+        # cannot match the adapter tensors to the base layers.
+        remap = save_format == "full_wrapper"
+        state_dict = {}
+        for name, mod in lora_modules:
+            adapter_name = (
+                self._remap_text_only_module_name_to_full_wrapper(name) if remap else name
+            )
+            state_dict[f"base_model.model.{adapter_name}.lora_A.weight"] = (
+                mod.lora_A.weight.detach().to("cpu", save_dtype).contiguous()
+            )
+            state_dict[f"base_model.model.{adapter_name}.lora_B.weight"] = (
+                mod.lora_B.weight.detach().to("cpu", save_dtype).contiguous()
+            )
+
+        first = lora_modules[0][1]
+        lora_r = int(first.lora_r)
+        # scaling = alpha / r is stored as float; round-trip back to int alpha.
+        lora_alpha = int(round(float(first.scaling) * float(first.lora_r)))
+        lora_dropout = (
+            float(first.dropout.p) if isinstance(first.dropout, torch.nn.Dropout) else 0.0
+        )
+        target_modules = sorted({name.rsplit(".", 1)[-1] for name, _ in lora_modules})
+
+        adapter_config = {
+            "peft_type": "LORA",
+            "auto_mapping": None,
+            "base_model_name_or_path": str(Path(save_directory).resolve()),
+            "task_type": "CAUSAL_LM",
+            "r": lora_r,
+            "lora_alpha": lora_alpha,
+            "lora_dropout": lora_dropout,
+            "target_modules": target_modules,
+            "bias": "none",
+            "fan_in_fan_out": False,
+            "inference_mode": True,
+            "modules_to_save": None,
+            "init_lora_weights": True,
+            "layers_to_transform": None,
+            "layers_pattern": None,
+            "revision": None,
+        }
+
+        adapter_dir = Path(save_directory) / LORA_ADAPTER_SUBDIR
+        adapter_dir.mkdir(parents=True, exist_ok=True)
+        _st_save_file(
+            state_dict,
+            str(adapter_dir / "adapter_model.safetensors"),
+            metadata={"format": "pt"},
+        )
+        with open(adapter_dir / "adapter_config.json", "w", encoding="utf-8") as f:
+            json.dump(adapter_config, f, indent=2, ensure_ascii=True)
+
+        self.logger.info(
+            "Saved LoRA adapter sidecar (%d layers) to %s",
+            len(lora_modules),
+            adapter_dir,
+        )
+        return True
 
     def _resolve_source_model_dir(self) -> Optional[str]:
         """Resolve the original model directory for auxiliary file copy.
@@ -1920,40 +2311,156 @@ class Runner:
             self.logger.info("Copied %s to save directory", name)
         return copied
 
-    def save_quantized_model(self, save_directory: str, pack_weights: bool = True):
+    def save_quantized_model(
+        self,
+        save_directory: str,
+        pack_weights: bool = True,
+        save_format: str = "auto",
+    ):
         """Save the quantized model to the specified directory
+
+        If ``self.quantized_model`` is already set (e.g. after
+        ``run_post_processes()``, or after loading a checkpoint and assigning it
+        for a load -> post-process -> re-save flow), that in-place updated model
+        is saved as-is so post-process results are preserved: its
+        ``quantization_config`` is validated, any recorded
+        ``onecomp_post_processes`` history is persisted to ``config.json``, and
+        ``model_config`` is required (for the tokenizer).  Otherwise the base
+        quantized model is built from ``quantizer.results`` via
+        :meth:`create_quantized_model`.  The result is saved in
+        HuggingFace-compatible safetensors format.
+
+        If the selected model contains ``LoRAGPTQLinear`` wrappers, this method
+        saves base weights with LoRA tensors excluded and additionally writes a
+        PEFT-compatible LoRA adapter sidecar
+        (``lora_adapter/adapter_model.safetensors`` +
+        ``lora_adapter/adapter_config.json``).  The resulting directory can then
+        be loaded back with
+        :func:`onecomp.load_quantized_model` (which auto-detects the sidecar and
+        re-wraps the layers) or served by vLLM via ``enable_lora=True``.
 
         Args:
             save_directory (str):
                 The path to save the quantized model.
             pack_weights (bool):
-                Whether to pack quantized weights for more memory/storage-efficient
-                representation.
+                Whether to pack quantized weights for a more
+                memory/storage-efficient representation.  When building from
+                ``quantizer.results`` this controls the layout of the built
+                model.  When saving an existing ``self.quantized_model``,
+                packable unpacked GPTQ buffers are packed only in the export
+                ``state_dict`` without mutating the in-memory model.
+            save_format (str):
+                One of ``"auto"``, ``"native"``, or ``"full_wrapper"``.
+                ``"auto"``/``"native"`` save the model's own state_dict/config
+                namespace as-is (after validating they agree); use this for
+                all non-VLM models and it is the recommended default.
+                ``"full_wrapper"`` is scoped to Qwen3.6 text-only checkpoints
+                (``model_type`` ``qwen3_5_text`` / ``qwen3_5_moe_text``): it
+                remaps them to the composite ``model.language_model.*``
+                namespace that vLLM's full-wrapper VLM loader expects for
+                ``Qwen3_5ForConditionalGeneration``-style serving. It is
+                **not** a generic "save any VLM for vLLM" option — passing it
+                for any other model (or any model whose original config isn't
+                composite) raises ``RuntimeError``. Defaults to ``"auto"``.
 
         Examples:
             Single quantizer mode:
 
             >>> runner.save_quantized_model("./quantized_model")
+
+            GPTQ + LoRA SFT:
+
+            >>> runner = Runner(
+            ...     model_config=model_config,
+            ...     quantizer=GPTQ(wbits=4, groupsize=128),
+            ...     post_processes=[PostProcessLoraSFT(data_files="train.jsonl")],
+            ... )
+            >>> runner.run()
+            >>> runner.save_quantized_model("./quantized_model_lora")
         """
         logger = self.logger
         logger.info("Saving quantized model to %s", save_directory)
 
         if self.quantized_model is not None:
             logger.info("Using existing quantized model (post-process results preserved)")
+            if self.model_config is None:
+                raise RuntimeError(
+                    "save_quantized_model with runner.quantized_model requires model_config."
+                )
             model = self.quantized_model
+            validate_quantized_model_config(
+                model,
+                "save_quantized_model",
+            )
             tokenizer = self.model_config.load_tokenizer()
         else:
-            # Disable GemLite when saving to avoid extra params in safetensors
+            # Disable GemLite when saving to avoid extra params in safetensors.
             model, tokenizer = self.create_quantized_model(
-                pack_weights=pack_weights, use_gemlite=False
+                pack_weights=pack_weights,
+                use_gemlite=False,
             )
 
         # Save model and tokenizer
         save_path = Path(save_directory)
         save_path.mkdir(parents=True, exist_ok=True)
 
-        model.save_pretrained(save_directory)
+        lora_modules = self._collect_lora_gptq_modules(model)
+        gptq_layers = self._iter_gptq_export_layers(model, lora_modules)
+        needs_export_state_dict = bool(lora_modules) or any(
+            not getattr(layer, "_weight_is_packed", False) for _name, layer in gptq_layers
+        )
+        export_state_dict = None
+        if needs_export_state_dict:
+            export_state_dict = self._build_base_quantized_state_dict(
+                model, lora_modules, pack_weights=pack_weights
+            )
+
+        # MoE models write fused expert tensors per-layer.  save_original_format=True
+        # would run revert_weight_conversion (grouped_gemm) and collapse them into
+        # shared gate_up_proj$/down_proj$ keys, so force it off for MoE checkpoints.
+        # (fuse/strip of the experts themselves happens in
+        # _prepare_model_for_quantized_save so save_format remapping stays consistent.)
+        num_experts = _get_num_experts(model.config)
+        extra_save_kwargs = {"save_original_format": False} if num_experts > 0 else {}
+
+        orig_model_config_for_restore = model.config
+
+        try:
+            save_state_dict = self._prepare_model_for_quantized_save(
+                model,
+                save_format=save_format,
+                state_dict=export_state_dict,
+            )
+            if save_state_dict is not None:
+                model.save_pretrained(
+                    save_directory, state_dict=save_state_dict, **extra_save_kwargs
+                )
+            else:
+                model.save_pretrained(save_directory, **extra_save_kwargs)
+        finally:
+            model.config = orig_model_config_for_restore
+
+        if num_experts > 0:
+            if self.moe_quant_experts:
+                from .utils.unfuse_moe import verify_saved_moe_quant_checkpoint
+
+                n_experts = verify_saved_moe_quant_checkpoint(save_directory)
+                logger.info(
+                    "Saved checkpoint MoE (quant-experts): per-expert GPTQ layers=%d",
+                    n_experts,
+                )
+            else:
+                from .utils.unfuse_moe import verify_saved_moe_checkpoint
+
+                n_layers = verify_saved_moe_checkpoint(save_directory)
+                logger.info(
+                    "Saved checkpoint MoE: per-layer gate_up_proj=%d, bad$ keys=[]",
+                    n_layers,
+                )
+
         tokenizer.save_pretrained(save_directory)
+        if save_format == "full_wrapper":
+            self._save_processor_files_if_available(save_directory)
 
         # Gemma 4 PT models require BOS token for coherent generation but the
         # upstream tokenizer_config.json omits add_bos_token.  Ensure it is
@@ -1968,15 +2475,40 @@ class Runner:
                 logger.info("Set add_bos_token=true in tokenizer_config.json")
 
         # Copy auxiliary config / template files from the original model so the
-        # save directory is self-contained for VLM (image/audio) inference and
-        # for runtimes that expect e.g. ``preprocessor_config.json``,
-        # ``processor_config.json``, ``special_tokens_map.json``,
-        # ``chat_template.jinja`` to live next to the weights.
+        # save directory is self-contained for VLM inference and runtimes that
+        # expect e.g. processor_config.json, preprocessor_config.json,
+        # special_tokens_map.json, or chat_template.jinja next to weights.
         src_dir = self._resolve_source_model_dir()
         if src_dir and os.path.isdir(src_dir):
             self._copy_auxiliary_files(src_dir, save_directory)
         else:
             logger.warning("Source model dir not resolvable; skipping auxiliary file copy.")
+
+        # LoRA sidecar: only written if selected model contains LoRAGPTQLinear.
+        wrote_adapter = self._save_lora_adapter_sidecar(
+            save_directory, model=model, save_format=save_format
+        )
+        if not wrote_adapter:
+            # Remove any stale sidecar from a previous run so the directory is
+            # self-consistent and load_quantized_model does not pick up an
+            # adapter that no longer matches the saved base model.
+            stale_adapter_dir = save_path / LORA_ADAPTER_SUBDIR
+            if stale_adapter_dir.is_dir():
+                for stale in ("adapter_model.safetensors", "adapter_config.json"):
+                    stale_path = stale_adapter_dir / stale
+                    if stale_path.exists():
+                        stale_path.unlink()
+                # Remove the (now-empty) subdirectory if nothing else lives there.
+                try:
+                    stale_adapter_dir.rmdir()
+                except OSError:
+                    pass
+            # Also remove any top-level adapter files left by older versions of
+            # this helper (previous layout put the sidecar directly in save_dir).
+            for legacy in ("adapter_model.safetensors", "adapter_config.json"):
+                legacy_path = save_path / legacy
+                if legacy_path.exists():
+                    legacy_path.unlink()
 
         logger.info(f"Quantized model saved to {save_directory}")
         return save_directory
@@ -1984,14 +2516,16 @@ class Runner:
     def save_quantized_model_pt(self, save_directory: str):
         """Save the quantized model as a PyTorch .pt file.
 
-        Use this method to save models that include post-processing
-        modifications (e.g. LoRA adapters from ``PostProcessLoraSFT``).
-        The entire model object is serialized with ``torch.save``,
-        preserving custom module types such as ``LoRAGPTQLinear``.
-
-        For models without post-processing, prefer
-        ``save_quantized_model`` which uses the HF-compatible
-        safetensors format.
+        This serializes the entire model object with ``torch.save``,
+        preserving custom module types such as ``LoRAGPTQLinear``.  It is a
+        legacy/alternative to :meth:`save_quantized_model`, which is preferred
+        for all cases -- including LoRA post-processes, whose adapter is saved
+        as a PEFT-compatible safetensors sidecar and is loadable by
+        :func:`onecomp.load_quantized_model` and servable by vLLM.  Use this
+        ``.pt`` method only when you specifically need a single serialized
+        model object; note that loading it requires
+        ``allow_unsafe_deserialization=True`` (see
+        :func:`onecomp.load_quantized_model_pt`).
 
         The saved directory contains:
         - ``model.pt``: The model (``torch.save``)
@@ -2180,3 +2714,391 @@ class Runner:
                 json.dump(json_results, f, indent=2, ensure_ascii=False)
 
         return all_results
+
+    def _save_processor_files_if_available(self, save_directory: str) -> None:
+        """Save processor / image processor files required by full-wrapper VLM checkpoints.
+
+        vLLM loads multimodal/full-wrapper checkpoints through Transformers
+        processor utilities.  For VLM configs, tokenizer files alone are not
+        enough: preprocessor_config.json is required for the image processor.
+        """
+        model_id_or_path = self.model_config.get_model_id_or_path()
+
+        try:
+            from transformers import AutoProcessor
+
+            processor = AutoProcessor.from_pretrained(
+                model_id_or_path,
+                trust_remote_code=True,
+            )
+            processor.save_pretrained(save_directory)
+            self.logger.info("Saved processor files from %s", model_id_or_path)
+        except Exception as exc:
+            self.logger.warning(
+                "Could not save AutoProcessor files from %s: %s",
+                model_id_or_path,
+                exc,
+            )
+
+        try:
+            from transformers import AutoImageProcessor
+
+            image_processor = AutoImageProcessor.from_pretrained(
+                model_id_or_path,
+                trust_remote_code=True,
+            )
+            image_processor.save_pretrained(save_directory)
+            self.logger.info("Saved image processor files from %s", model_id_or_path)
+        except Exception as exc:
+            self.logger.warning(
+                "Could not save AutoImageProcessor files from %s: %s",
+                model_id_or_path,
+                exc,
+            )
+
+    # ------------------------------------------------------------------
+    # Save namespace helpers
+    # ------------------------------------------------------------------
+
+    def _is_quantized_module(self, module) -> bool:
+        """Return True for OneCompression quantized inference modules.
+
+        Keep this name-based to avoid import cycles and to remain extensible
+        for future quantizers.
+        """
+        return module.__class__.__name__ in {
+            "GPTQLinear",
+            "DoubleBinaryLinear",
+        }
+
+    def _collect_quantized_module_names(self, model) -> list[str]:
+        """Collect actual quantized module names from the model to be saved.
+
+        This is more reliable than quantizer.results.keys() because wrapper
+        models may expose different names during quantization and save.
+        """
+        return sorted(
+            name for name, module in model.named_modules() if self._is_quantized_module(module)
+        )
+
+    def _detect_weight_namespace(self, model) -> str:
+        """Detect whether state_dict is text-only or full-wrapper style."""
+        keys = list(model.state_dict().keys())
+
+        if any(k.startswith("model.language_model.model.layers.") for k in keys):
+            return "full_language_model"
+
+        if any(k.startswith("model.language_model.layers.") for k in keys):
+            return "full_language_model"
+
+        if any(k.startswith("language_model.layers.") for k in keys):
+            return "full_language_model"
+
+        if any(".language_model.layers." in k for k in keys):
+            return "full_language_model"
+
+        if any(k.startswith("model.layers.") for k in keys):
+            return "text_only"
+
+        return "unknown"
+
+    def _detect_config_namespace(self, model) -> str:
+        """Detect whether config is text-only or full/composite style."""
+        cfg = model.config
+        model_type = getattr(cfg, "model_type", None)
+
+        if model_type in {
+            "qwen3_5_text",
+            "qwen3_5_moe_text",
+        }:
+            return "text_only"
+
+        if model_type in {
+            "qwen3_5",
+            "qwen3_5_moe",
+        }:
+            return "full_language_model"
+
+        if getattr(cfg, "text_config", None) is not None:
+            return "full_language_model"
+
+        return "unknown"
+
+    def _restore_original_composite_config_if_needed(self, model) -> None:
+        """Restore outer/composite config if state_dict uses wrapper prefix.
+
+        Example bad checkpoint:
+          config:
+            model_type = qwen3_5_text
+            architectures = Qwen3_5ForCausalLM
+
+          state_dict:
+            model.language_model.layers.0....
+
+        For such a model, save the original outer config instead:
+          model_type = qwen3_5
+          architectures = Qwen3_5ForConditionalGeneration
+          text_config = {...}
+          vision_config = {...}
+        """
+        cfg_ns = self._detect_config_namespace(model)
+        sd_ns = self._detect_weight_namespace(model)
+
+        if cfg_ns != "text_only" or sd_ns != "full_language_model":
+            return
+
+        orig_config = self.model_config.load_config()
+
+        # Only restore when the original config is actually composite.
+        if getattr(orig_config, "text_config", None) is None:
+            return
+
+        quant_config = getattr(model.config, "quantization_config", None)
+
+        self.logger.warning(
+            "Detected text-only config with full language_model state_dict. "
+            "Restoring original composite config before save_pretrained()."
+        )
+
+        model.config = copy.deepcopy(orig_config)
+
+        if quant_config is not None:
+            model.config.quantization_config = quant_config
+
+    def _assert_config_state_dict_namespace_consistent(self, model) -> None:
+        """Fail before saving a checkpoint whose config and state_dict disagree."""
+        cfg_ns = self._detect_config_namespace(model)
+        sd_ns = self._detect_weight_namespace(model)
+
+        if cfg_ns == "unknown" or sd_ns == "unknown":
+            return
+
+        if cfg_ns != sd_ns:
+            raise RuntimeError(
+                "config/state_dict namespace mismatch before save_pretrained().\n"
+                f"  config namespace: {cfg_ns}\n"
+                f"  state_dict namespace: {sd_ns}\n"
+                f"  config model_type: {getattr(model.config, 'model_type', None)}\n"
+                "This would create a checkpoint that may load with missing or "
+                "zero-filled quantized buffers."
+            )
+
+    def _prepare_model_for_quantized_save(
+        self,
+        model,
+        *,
+        save_format: str,
+        state_dict: dict | None = None,
+    ) -> dict | None:
+        """Prepare model.config and optional state_dict for save_pretrained.
+
+        Returns:
+            None:
+                Use model.state_dict() as-is.
+
+            dict:
+                Pass this remapped state_dict to save_pretrained().
+        """
+        if save_format not in {"auto", "native", "full_wrapper"}:
+            raise ValueError(
+                f"Unknown save_format={save_format!r}. "
+                "Expected one of: auto, native, full_wrapper."
+            )
+
+        # MoE models: fuse per-expert (dequantized) tensors back to the fused 3D
+        # layout vLLM expects, and drop per-expert entries from quant_config so the
+        # namespace assertions below (and the full_wrapper remap) do not flag the
+        # now-absent per-expert modules.  Idempotent: a no-op when the model is
+        # already fused/stripped (create_quantized_model handles this on the normal
+        # path); this is the safety net for the self.quantized_model path.
+        if _get_num_experts(model.config) > 0 and not self.moe_quant_experts:
+            from .utils.unfuse_moe import (
+                fuse_moe_experts,
+                strip_moe_experts_from_quant_config,
+            )
+
+            if fuse_moe_experts(model, self.logger):
+                self.logger.info("Fused MoE expert tensors before save")
+            qcfg = getattr(model.config, "quantization_config", None)
+            if isinstance(qcfg, dict):
+                strip_moe_experts_from_quant_config(qcfg)
+
+        if save_format in {"auto", "native"}:
+            self._restore_original_composite_config_if_needed(model)
+            self._assert_config_state_dict_namespace_consistent(model)
+            self._assert_quant_config_matches_model_namespace(model)
+            return state_dict
+
+        # save_format == "full_wrapper"
+        return self._prepare_full_wrapper_quantized_save(model, state_dict=state_dict)
+
+    def _assert_quant_config_matches_model_namespace(self, model) -> None:
+        quant_config = getattr(model.config, "quantization_config", None)
+        if not quant_config:
+            return
+
+        names = quant_config.get("modules_in_block_to_quantize") or []
+        names = [n for n in names if isinstance(n, str)]
+        if not names:
+            return
+
+        model_module_names = set(dict(model.named_modules()).keys())
+
+        missing = [n for n in names if n not in model_module_names]
+
+        if missing:
+            raise RuntimeError(
+                "quantization_config contains module names that do not exist "
+                "in the model being saved.\n"
+                f"missing={missing[:50]}"
+            )
+
+    def _prepare_full_wrapper_quantized_save(self, model, state_dict: dict | None = None) -> dict:
+        """Prepare full-wrapper checkpoint for vLLM-like runtimes.
+
+        This does not mutate tensor objects; it only remaps state_dict keys and
+        replaces model.config with the original composite config.
+        """
+        cfg_ns = self._detect_config_namespace(model)
+        sd_ns = self._detect_weight_namespace(model)
+
+        if cfg_ns == "full_language_model" and sd_ns == "full_language_model":
+            self._assert_config_state_dict_namespace_consistent(model)
+            self._assert_quant_config_matches_model_namespace(model)
+            return state_dict
+
+        orig_config = self.model_config.load_config()
+
+        if getattr(orig_config, "text_config", None) is None:
+            raise RuntimeError(
+                "save_format='full_wrapper' was requested, but the original "
+                "model config is not composite and has no text_config."
+            )
+
+        if cfg_ns != "text_only" or sd_ns != "text_only":
+            raise RuntimeError(
+                "save_format='full_wrapper' currently supports converting "
+                "consistent text-only checkpoints only.\n"
+                f"config namespace: {cfg_ns}\n"
+                f"state_dict namespace: {sd_ns}"
+            )
+
+        old_quant_config = getattr(model.config, "quantization_config", None)
+        if old_quant_config is None:
+            raise RuntimeError("model.config has no quantization_config")
+
+        full_quant_config = self._remap_text_only_quant_config_to_full_wrapper(old_quant_config)
+
+        # Replace config with original composite config.
+        model.config = copy.deepcopy(orig_config)
+        model.config.quantization_config = full_quant_config
+
+        # Remap tensors to match the full-wrapper config.
+        source_state_dict = state_dict if state_dict is not None else model.state_dict()
+        full_state_dict = self._remap_text_only_state_dict_to_full_wrapper(source_state_dict)
+        full_state_dict = self._strip_moe_expert_g_idx_for_vllm(full_state_dict, full_quant_config)
+
+        self.logger.info(
+            "Prepared full-wrapper quantized save: model_type=%s, first_quantized=%s",
+            getattr(model.config, "model_type", None),
+            full_quant_config.get("modules_in_block_to_quantize", ["<none>"])[0],
+        )
+
+        return full_state_dict
+
+    @staticmethod
+    def _remap_text_only_quant_config_to_full_wrapper(quant_config: dict) -> dict:
+        quant_config = copy.deepcopy(quant_config)
+
+        def remap_name(name: str) -> str:
+            if name.startswith("model.layers."):
+                return "model.language_model.layers." + name[len("model.layers.") :]
+            if name.startswith("model.embed_tokens."):
+                return "model.language_model.embed_tokens." + name[len("model.embed_tokens.") :]
+            if name.startswith("model.norm."):
+                return "model.language_model.norm." + name[len("model.norm.") :]
+            return name
+
+        for key in ("modules_in_block_to_quantize", "quantized_layer_names"):
+            names = quant_config.get(key)
+            if isinstance(names, list):
+                quant_config[key] = [remap_name(n) if isinstance(n, str) else n for n in names]
+
+        return quant_config
+
+    @staticmethod
+    def _remap_text_only_module_name_to_full_wrapper(name: str) -> str:
+        """Remap a single text-only module/tensor path to the composite
+        ``model.language_model.*`` namespace used by the full-wrapper save.
+
+        Example:
+          model.layers.0...      -> model.language_model.layers.0...
+          model.embed_tokens...  -> model.language_model.embed_tokens...
+          model.norm...          -> model.language_model.norm...
+
+        Top-level ``lm_head.*`` is left unchanged.
+        """
+        if name.startswith("lm_head."):
+            return name
+        if name.startswith("model.") and not name.startswith("model.language_model."):
+            return "model.language_model." + name[len("model.") :]
+        return name
+
+    @staticmethod
+    def _remap_text_only_state_dict_to_full_wrapper(state_dict: dict) -> dict:
+        """Remap text-only CausalLM state_dict to composite language_model prefix.
+
+        Example:
+          model.layers.0...      -> model.language_model.layers.0...
+          model.embed_tokens...  -> model.language_model.embed_tokens...
+          model.norm...          -> model.language_model.norm...
+
+        Keep top-level lm_head.* unchanged.
+        """
+        remapped = {}
+
+        for key, tensor in state_dict.items():
+            new_key = Runner._remap_text_only_module_name_to_full_wrapper(key)
+
+            if new_key in remapped:
+                raise RuntimeError(
+                    f"State dict key collision during full-wrapper remap: " f"{key} -> {new_key}"
+                )
+
+            remapped[new_key] = tensor
+
+        return remapped
+
+    def _strip_moe_expert_g_idx_for_vllm(self, state_dict: dict, quant_config: dict) -> dict:
+        """Drop per-expert GPTQ ``g_idx`` buffers from a vLLM-facing export.
+
+        vLLM's GPTQ MoE kernel (MoeWNA16) has no ``g_idx`` parameter, so an
+        unmapped ``g_idx`` key crashes weight loading. Safe to drop only
+        when ``desc_act``/``actorder`` is disabled, since ``g_idx`` is then
+        just the trivial ``arange(in_features) // group_size`` grouping the
+        kernel already assumes; raises otherwise.
+        """
+        from vllm_plugins.utils.module import is_moe_expert_g_idx_key
+
+        moe_g_idx_keys = [key for key in state_dict if is_moe_expert_g_idx_key(key)]
+        if not moe_g_idx_keys:
+            return state_dict
+
+        desc_act = get_quant_param(quant_config, "desc_act", "actorder", default=False)
+        if desc_act:
+            raise RuntimeError(
+                "Cannot export an actorder/desc_act GPTQ MoE checkpoint for "
+                "vLLM: vLLM's GPTQ FusedMoE kernel (MoeWNA16Method) has no "
+                "g_idx support, so activation-order MoE quantization is not "
+                "servable by vLLM yet."
+            )
+
+        state_dict = dict(state_dict)
+        for key in moe_g_idx_keys:
+            del state_dict[key]
+        self.logger.info(
+            "Dropped %d trivial MoE expert g_idx buffer(s) unsupported by "
+            "vLLM's GPTQ FusedMoE kernel",
+            len(moe_g_idx_keys),
+        )
+        return state_dict
