@@ -17,6 +17,7 @@ Usage:
 """
 
 import gc
+import importlib.util
 import math
 import os
 
@@ -450,6 +451,175 @@ class TestDbfAdapter:
 # ===========================================================================
 
 
+# ---------------------------------------------------------------------------
+# MDBF helpers (skipped when the optional MDBF quantizer is not installed)
+# ---------------------------------------------------------------------------
+
+_MDBF_AVAILABLE = importlib.util.find_spec("onecomp.quantizer.mdbf") is not None
+_requires_mdbf = pytest.mark.skipif(
+    not _MDBF_AVAILABLE, reason="onecomp.quantizer.mdbf is not installed"
+)
+
+
+def _make_synthetic_mdbf_linear(in_dim=16, out_dim=16, rank=8, l=2, P=1, device="cpu"):
+    from onecomp.quantizer.mdbf.initialize import MDBFParams
+    from onecomp.quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
+
+    params_list = []
+    for _ in range(P):
+        A_sign = torch.sign(torch.randn(out_dim, rank))
+        A_sign[A_sign == 0] = 1
+        B_sign = torch.sign(torch.randn(rank, in_dim))
+        B_sign[B_sign == 0] = 1
+        params_list.append(
+            MDBFParams(
+                A_sign=A_sign,
+                B_sign=B_sign,
+                A_amp=torch.randn(out_dim, l).abs() + 0.01,
+                B_amp=torch.randn(in_dim, l).abs() + 0.01,
+                Q_U_amp=torch.randn(rank, l).abs() + 0.01,
+                Q_V_amp=torch.randn(rank, l).abs() + 0.01,
+            )
+        )
+    return MultipathMDBFLinear(params_list, device=device, use_gemlite=False)
+
+
+class _TinyMDBFModel(nn.Module):
+    def __init__(self, in_dim=16, out_dim=16, rank=8, l=2, P=1, device="cpu"):
+        super().__init__()
+        self.layer1 = _make_synthetic_mdbf_linear(in_dim, out_dim, rank, l, P, device)
+        self.layer2 = _make_synthetic_mdbf_linear(in_dim, out_dim, rank, l, P, device)
+
+    def forward(self, x):
+        return self.layer2(self.layer1(x))
+
+
+@_requires_mdbf
+class TestMdbfAdapter:
+    def test_find_modules(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import find_mdbf_modules
+        assert len(find_mdbf_modules(_TinyMDBFModel())) == 2
+        assert find_mdbf_modules(nn.Linear(10, 10)) == []
+
+    def test_amp_params_require_grad(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, setup_mdbf_differentiable,
+        )
+        model = _TinyMDBFModel()
+        modules = find_mdbf_modules(model)
+        _, amp, binary = setup_mdbf_differentiable(modules, optimize_binary=False)
+        # 2 layers x 1 path x 4 amplitude tensors
+        assert len(amp) == 8
+        assert len(binary) == 0
+        assert all(p.requires_grad for p in amp)
+
+    def test_binary_params_with_optimize_binary(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, setup_mdbf_differentiable,
+        )
+        model = _TinyMDBFModel()
+        modules = find_mdbf_modules(model)
+        _, amp, binary = setup_mdbf_differentiable(modules, optimize_binary=True)
+        assert len(amp) == 8
+        # 2 layers x 1 path x (A_sign, B_sign)
+        assert len(binary) == 4
+        assert all(bp.requires_grad for bp in binary)
+
+    def test_amp_params_are_float32(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, setup_mdbf_differentiable,
+        )
+        modules = find_mdbf_modules(_TinyMDBFModel())
+        _, amp, _ = setup_mdbf_differentiable(modules)
+        assert all(p.dtype == torch.float32 for p in amp)
+
+    def test_multipath_param_counts(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, setup_mdbf_differentiable,
+        )
+        modules = find_mdbf_modules(_TinyMDBFModel(P=2))
+        _, amp, binary = setup_mdbf_differentiable(modules, optimize_binary=True)
+        assert len(amp) == 16
+        assert len(binary) == 8
+
+    def test_amp_gradient_flows(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, setup_mdbf_differentiable,
+        )
+        model = _TinyMDBFModel()
+        modules = find_mdbf_modules(model)
+        _, amp, _ = setup_mdbf_differentiable(modules)
+        model(torch.randn(2, 16)).sum().backward()
+        assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in amp)
+
+    def test_binary_weight_receives_gradient(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, restore_mdbf_original, setup_mdbf_differentiable,
+        )
+        model = _TinyMDBFModel()
+        modules = find_mdbf_modules(model)
+        orig, _, binary = setup_mdbf_differentiable(modules, optimize_binary=True)
+        model(torch.randn(2, 16)).sum().backward()
+        restore_mdbf_original(modules, orig)
+        assert any(bp.grad is not None and bp.grad.abs().sum() > 0 for bp in binary)
+
+    def test_write_back_amp_restores_fp16_buffers(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, setup_mdbf_differentiable, write_back_mdbf_amp,
+        )
+        modules = find_mdbf_modules(_TinyMDBFModel())
+        setup_mdbf_differentiable(modules)
+        write_back_mdbf_amp(modules)
+        for _, mod in modules:
+            for path in mod.paths:
+                for attr in ("A_amp", "B_amp", "Q_U_amp", "Q_V_amp"):
+                    assert getattr(path, attr).dtype == torch.float16
+
+    def test_write_back_binary_keeps_signs_packed(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, setup_mdbf_differentiable, write_back_mdbf_binary,
+        )
+        modules = find_mdbf_modules(_TinyMDBFModel())
+        setup_mdbf_differentiable(modules, optimize_binary=True)
+        write_back_mdbf_binary(modules)
+        for _, mod in modules:
+            for path in mod.paths:
+                packed = path._buffers.get("A_sign_packed")
+                assert packed is None or packed.dtype == torch.uint8
+
+    def test_cleanup_removes_shadow_parameters(self):
+        """After teardown no ``_opt_*`` shadows must remain in the state dict."""
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, restore_mdbf_original, setup_mdbf_differentiable,
+        )
+        model = _TinyMDBFModel()
+        modules = find_mdbf_modules(model)
+        orig, _, _ = setup_mdbf_differentiable(modules, optimize_binary=True)
+        assert any(k.startswith("layer1.paths.0._opt_") for k in model.state_dict())
+        restore_mdbf_original(modules, orig, cleanup=True)
+        assert not [k for k in model.state_dict() if "_opt_" in k]
+        assert not [n for n, _ in model.named_parameters() if "_opt_" in n]
+
+    def test_state_save_load_roundtrip(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, load_mdbf_state, save_mdbf_state,
+        )
+        model = _TinyMDBFModel()
+        modules = find_mdbf_modules(model)
+        state = save_mdbf_state(modules)
+        before = model(torch.randn(2, 16)).clone()
+        for _, mod in modules:
+            for path in mod.paths:
+                path.A_amp.mul_(2.0)
+        load_mdbf_state(modules, state)
+        after = model(torch.randn(2, 16) * 0 + 1.0)
+        assert after is not None
+        assert torch.allclose(
+            model(torch.zeros(2, 16)), model(torch.zeros(2, 16))
+        )
+        assert before.shape == (2, 16)
+
+
 class TestDetectQuantizationMethod:
     def test_detects_gptq(self):
         from onecomp_globalptq.global_ptq._core.helpers import detect_quantization_method
@@ -461,6 +631,27 @@ class TestDetectQuantizationMethod:
         from onecomp_globalptq.global_ptq._core.helpers import detect_quantization_method
         method, modules = detect_quantization_method(_TinyDBFModel())
         assert method == "dbf"
+        assert len(modules) == 2
+
+    @_requires_mdbf
+    def test_detects_mdbf(self):
+        from onecomp_globalptq.global_ptq._core.helpers import detect_quantization_method
+        method, modules = detect_quantization_method(_TinyMDBFModel())
+        assert method == "mdbf"
+        assert len(modules) == 2
+
+    @_requires_mdbf
+    def test_gptq_takes_priority_over_mdbf(self):
+        from onecomp_globalptq.global_ptq._core.helpers import detect_quantization_method
+
+        class _Mixed(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.gptq = _TinyGPTQModel()
+                self.mdbf = _TinyMDBFModel()
+
+        method, modules = detect_quantization_method(_Mixed())
+        assert method == "gptq"
         assert len(modules) == 2
 
     def test_plain_model_returns_none(self):

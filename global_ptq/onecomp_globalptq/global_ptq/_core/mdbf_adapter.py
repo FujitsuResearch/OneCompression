@@ -162,22 +162,22 @@ def setup_mdbf_differentiable(
 
             # ---- discrete sign parameters (optional) ----
             if optimize_binary:
-                for which in _BINARY_SIGN_NAMES:
-                    shape = (path.n, path.r) if which == "A" else (path.r, path.m)
-                    packed_key = f"{which}_sign_packed"
+                for sign in _BINARY_SIGN_NAMES:
+                    shape = (path.n, path.r) if sign == "A" else (path.r, path.m)
+                    packed_key = f"{sign}_sign_packed"
                     packed = path._buffers.get(packed_key)
                     if packed is None:
                         # GemLite mode: stashed on CPU
-                        packed = path._packed_cpu.get(which)
+                        packed = path._packed_cpu.get(sign)
                     if packed is None:
                         continue
                     unpacked = unpack_binary(packed, shape).float().detach().clone()
                     new_param = nn.Parameter(unpacked, requires_grad=True)
-                    setattr(path, f"_opt_{which}_sign", new_param)
+                    setattr(path, f"_opt_{sign}_sign", new_param)
                     binary_params.append(new_param)
 
         original_forwards[name] = mod.forward
-        mod._binary_ste_k = float(ste_k)
+        mod._binary_ste_k = ste_k
         mod.forward = MethodType(_make_mdbf_differentiable_forward(), mod)
 
     return original_forwards, amp_params, binary_params
@@ -208,8 +208,8 @@ def restore_mdbf_original(
                     opt_attr = f"_opt_{attr}"
                     if hasattr(path, opt_attr):
                         delattr(path, opt_attr)
-                for which in _BINARY_SIGN_NAMES:
-                    opt_attr = f"_opt_{which}_sign"
+                for sign in _BINARY_SIGN_NAMES:
+                    opt_attr = f"_opt_{sign}_sign"
                     if hasattr(path, opt_attr):
                         delattr(path, opt_attr)
 
@@ -237,20 +237,20 @@ def write_back_mdbf_binary(mdbf_modules: List[Tuple[str, nn.Module]]) -> None:
     with torch.no_grad():
         for _name, mod in mdbf_modules:
             for path in mod.paths:
-                for which in _BINARY_SIGN_NAMES:
-                    opt_attr = f"_opt_{which}_sign"
+                for sign in _BINARY_SIGN_NAMES:
+                    opt_attr = f"_opt_{sign}_sign"
                     if not hasattr(path, opt_attr):
                         continue
                     w = getattr(path, opt_attr)
                     q = w.sign()
                     q[q == 0] = 1
-                    shape = (path.n, path.r) if which == "A" else (path.r, path.m)
+                    shape = (path.n, path.r) if sign == "A" else (path.r, path.m)
                     packed, _ = pack_binary(q.to(torch.int8).reshape(shape))
-                    buf_key = f"{which}_sign_packed"
+                    buf_key = f"{sign}_sign_packed"
                     if buf_key in path._buffers:
                         path._buffers[buf_key].copy_(packed.to(path._buffers[buf_key].device))
-                    elif which in path._packed_cpu:
-                        path._packed_cpu[which].copy_(packed.cpu())
+                    elif sign in path._packed_cpu:
+                        path._packed_cpu[sign].copy_(packed.cpu())
 
 
 def write_back_mdbf_amp(mdbf_modules: List[Tuple[str, nn.Module]]) -> None:
@@ -281,12 +281,12 @@ def save_mdbf_state(mdbf_modules: List[Tuple[str, nn.Module]]) -> Dict:
             d: dict = {}
             for attr in _AMP_ATTRS:
                 d[attr] = getattr(path, attr).data.clone()
-            for which in _BINARY_SIGN_NAMES:
-                buf_key = f"{which}_sign_packed"
+            for sign in _BINARY_SIGN_NAMES:
+                buf_key = f"{sign}_sign_packed"
                 if buf_key in path._buffers:
                     d[buf_key] = path._buffers[buf_key].clone()
-                elif which in path._packed_cpu:
-                    d[buf_key] = path._packed_cpu[which].clone()
+                elif sign in path._packed_cpu:
+                    d[buf_key] = path._packed_cpu[sign].clone()
             paths_state[p] = d
         state[name] = paths_state
     return state
@@ -309,11 +309,11 @@ def load_mdbf_state(
                 for attr in _AMP_ATTRS:
                     if attr in d:
                         getattr(path, attr).copy_(d[attr])
-                for which in _BINARY_SIGN_NAMES:
-                    buf_key = f"{which}_sign_packed"
+                for sign in _BINARY_SIGN_NAMES:
+                    buf_key = f"{sign}_sign_packed"
                     if buf_key not in d:
                         continue
                     if buf_key in path._buffers:
                         path._buffers[buf_key].copy_(d[buf_key])
-                    elif which in path._packed_cpu:
-                        path._packed_cpu[which].copy_(d[buf_key].cpu())
+                    elif sign in path._packed_cpu:
+                        path._packed_cpu[sign].copy_(d[buf_key].cpu())

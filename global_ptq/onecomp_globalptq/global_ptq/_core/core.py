@@ -645,7 +645,13 @@ def run_kl_distillation(
     student_device: Optional[str] = None,
     teacher_device: Optional[str] = None,
 ) -> Dict:
-    """Run KL-distillation global PTQ on a GPTQ or DBF quantized model.
+    """Run KL-distillation global PTQ on a GPTQ, DBF or MDBF quantized model.
+
+    The quantization method is auto-detected from the layer types present in
+    *quantized_model* (see :func:`detect_quantization_method`).  For MDBF the
+    per-path amplitude factors are trained with ``dbf_lr``; with
+    ``optimize_binary=True`` the +/-1 sign matrices are trained as well through
+    a smooth sign STE whose sharpness is controlled by ``mdbf_ste_k``.
 
     The model is modified **in-place**.  Returns a results dict.
     """
