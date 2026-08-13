@@ -17,7 +17,6 @@ Usage:
 """
 
 import gc
-import importlib.util
 import math
 import os
 
@@ -451,16 +450,6 @@ class TestDbfAdapter:
 # ===========================================================================
 
 
-# ---------------------------------------------------------------------------
-# MDBF helpers (skipped when the optional MDBF quantizer is not installed)
-# ---------------------------------------------------------------------------
-
-_MDBF_AVAILABLE = importlib.util.find_spec("onecomp.quantizer.mdbf") is not None
-_requires_mdbf = pytest.mark.skipif(
-    not _MDBF_AVAILABLE, reason="onecomp.quantizer.mdbf is not installed"
-)
-
-
 def _make_synthetic_mdbf_linear(
     in_dim=16,
     out_dim=16,
@@ -508,7 +497,6 @@ class _TinyMDBFModel(nn.Module):
         return self.layer2(self.layer1(x))
 
 
-@_requires_mdbf
 class TestMdbfAdapter:
     def test_find_modules(self):
         from onecomp_globalptq.global_ptq._core.mdbf_adapter import find_mdbf_modules
@@ -792,14 +780,12 @@ class TestDetectQuantizationMethod:
         assert method == "dbf"
         assert len(modules) == 2
 
-    @_requires_mdbf
     def test_detects_mdbf(self):
         from onecomp_globalptq.global_ptq._core.helpers import detect_quantization_method
         method, modules = detect_quantization_method(_TinyMDBFModel())
         assert method == "mdbf"
         assert len(modules) == 2
 
-    @_requires_mdbf
     def test_gptq_takes_priority_over_mdbf(self):
         from onecomp_globalptq.global_ptq._core.helpers import detect_quantization_method
 
