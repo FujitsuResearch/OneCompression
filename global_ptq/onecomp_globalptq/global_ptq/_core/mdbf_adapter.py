@@ -247,8 +247,8 @@ def _refresh_gemlite_sign_kernels(path: nn.Module) -> None:
     MDBF's GemLite kernels keep a private packed copy of each sign matrix.
     Updating ``*_sign_packed`` (or the CPU stash) alone therefore leaves the
     inference kernel stale.  Rebuild only paths which were already using
-    GemLite.  If rebuilding is unavailable or fails, the cleared path safely
-    falls back to the dense packed-buffer implementation.
+    GemLite.  Repacking failures are propagated so finalization cannot
+    silently leave the path with missing or stale inference kernels.
     """
     gemlite_layers = getattr(path, "_gemlite_layers", None)
     if not getattr(path, "use_gemlite", False) and not gemlite_layers:
