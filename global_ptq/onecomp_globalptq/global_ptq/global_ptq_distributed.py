@@ -279,12 +279,10 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             restore_dbf_original,
         )
         from ._core.mdbf_adapter import (
+            finalize_mdbf_differentiable,
             load_mdbf_state,
             save_mdbf_state,
             setup_mdbf_differentiable,
-            write_back_mdbf_binary,
-            write_back_mdbf_amp,
-            restore_mdbf_original,
         )
         from onecomp import CalibrationConfig
         from onecomp.calibration import prepare_calibration_dataset
@@ -599,9 +597,10 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 write_back_dbf_scaling(dbf_modules)
                 restore_dbf_original(dbf_modules, original_forwards)
             elif method == "mdbf":
-                write_back_mdbf_binary(mdbf_modules)
-                write_back_mdbf_amp(mdbf_modules)
-                restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
+                finalize_mdbf_differentiable(
+                    mdbf_modules, original_forwards,
+                    write_back=not rollback_happened,
+                )
         finally:
             if original_use_cache is not None:
                 quantized_model.config.use_cache = original_use_cache

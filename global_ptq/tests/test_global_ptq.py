@@ -461,7 +461,16 @@ _requires_mdbf = pytest.mark.skipif(
 )
 
 
-def _make_synthetic_mdbf_linear(in_dim=16, out_dim=16, rank=8, l=2, P=1, device="cpu"):
+def _make_synthetic_mdbf_linear(
+    in_dim=16,
+    out_dim=16,
+    rank=8,
+    l=2,
+    P=1,
+    device="cpu",
+    use_gemlite=False,
+    bias=None,
+):
     from onecomp.quantizer.mdbf.initialize import MDBFParams
     from onecomp.quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
 
@@ -481,7 +490,12 @@ def _make_synthetic_mdbf_linear(in_dim=16, out_dim=16, rank=8, l=2, P=1, device=
                 Q_V_amp=torch.randn(rank, l).abs() + 0.01,
             )
         )
-    return MultipathMDBFLinear(params_list, device=device, use_gemlite=False)
+    return MultipathMDBFLinear(
+        params_list,
+        bias=bias,
+        device=device,
+        use_gemlite=use_gemlite,
+    )
 
 
 class _TinyMDBFModel(nn.Module):
@@ -542,6 +556,41 @@ class TestMdbfAdapter:
         assert len(amp) == 16
         assert len(binary) == 8
 
+    @pytest.mark.parametrize("optimize_binary", [False, True])
+    def test_differentiable_forward_matches_inference(self, optimize_binary):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, setup_mdbf_differentiable,
+        )
+        torch.manual_seed(0)
+        model = _make_synthetic_mdbf_linear(
+            in_dim=16, out_dim=12, rank=8, l=3, P=2,
+            bias=torch.randn(12),
+        )
+        x = torch.randn(4, 16)
+        expected = model(x)
+        modules = find_mdbf_modules(model)
+        setup_mdbf_differentiable(
+            modules, optimize_binary=optimize_binary,
+        )
+        actual = model(x)
+        assert torch.allclose(actual, expected, rtol=1e-4, atol=1e-4)
+
+    def test_all_parameters_receive_finite_nonzero_gradients(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules, setup_mdbf_differentiable,
+        )
+        torch.manual_seed(1)
+        model = _TinyMDBFModel(P=2, l=3)
+        modules = find_mdbf_modules(model)
+        _, amp, binary = setup_mdbf_differentiable(
+            modules, optimize_binary=True,
+        )
+        model(torch.randn(3, 16)).square().mean().backward()
+        for param in amp + binary:
+            assert param.grad is not None
+            assert torch.isfinite(param.grad).all()
+            assert torch.count_nonzero(param.grad) > 0
+
     def test_amp_gradient_flows(self):
         from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
             find_mdbf_modules, setup_mdbf_differentiable,
@@ -569,23 +618,50 @@ class TestMdbfAdapter:
         )
         modules = find_mdbf_modules(_TinyMDBFModel())
         setup_mdbf_differentiable(modules)
-        write_back_mdbf_amp(modules)
+        expected = []
         for _, mod in modules:
             for path in mod.paths:
                 for attr in ("A_amp", "B_amp", "Q_U_amp", "Q_V_amp"):
-                    assert getattr(path, attr).dtype == torch.float16
+                    opt = getattr(path, f"_opt_{attr}")
+                    opt.data.add_(0.125)
+                    expected.append(opt.data.half().clone())
+        write_back_mdbf_amp(modules)
+        index = 0
+        for _, mod in modules:
+            for path in mod.paths:
+                for attr in ("A_amp", "B_amp", "Q_U_amp", "Q_V_amp"):
+                    actual = getattr(path, attr)
+                    assert actual.dtype == torch.float16
+                    assert torch.equal(actual, expected[index])
+                    index += 1
 
     def test_write_back_binary_keeps_signs_packed(self):
+        from onecomp.quantizer.mdbf.mdbf_layer import unpack_binary
         from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
             find_mdbf_modules, setup_mdbf_differentiable, write_back_mdbf_binary,
         )
         modules = find_mdbf_modules(_TinyMDBFModel())
         setup_mdbf_differentiable(modules, optimize_binary=True)
-        write_back_mdbf_binary(modules)
+        expected = []
         for _, mod in modules:
             for path in mod.paths:
-                packed = path._buffers.get("A_sign_packed")
-                assert packed is None or packed.dtype == torch.uint8
+                for sign in ("A", "B"):
+                    opt = getattr(path, f"_opt_{sign}_sign")
+                    opt.data.neg_()
+                    expected.append(opt.data.sign().clone())
+        write_back_mdbf_binary(modules)
+        index = 0
+        for _, mod in modules:
+            for path in mod.paths:
+                for sign, shape in (
+                    ("A", (path.n, path.r)),
+                    ("B", (path.r, path.m)),
+                ):
+                    packed = path._buffers[f"{sign}_sign_packed"]
+                    assert packed.dtype == torch.uint8
+                    actual = unpack_binary(packed, shape).float()
+                    assert torch.equal(actual, expected[index])
+                    index += 1
 
     def test_cleanup_removes_shadow_parameters(self):
         """After teardown no ``_opt_*`` shadows must remain in the state dict."""
@@ -601,23 +677,106 @@ class TestMdbfAdapter:
         assert not [n for n, _ in model.named_parameters() if "_opt_" in n]
 
     def test_state_save_load_roundtrip(self):
+        """The same input and every persisted MDBF buffer survive a roundtrip."""
         from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
             find_mdbf_modules, load_mdbf_state, save_mdbf_state,
         )
+        torch.manual_seed(2)
         model = _TinyMDBFModel()
         modules = find_mdbf_modules(model)
         state = save_mdbf_state(modules)
-        before = model(torch.randn(2, 16)).clone()
+        x = torch.randn(2, 16)
+        before = model(x).clone()
         for _, mod in modules:
             for path in mod.paths:
-                path.A_amp.mul_(2.0)
+                for attr in ("A_amp", "B_amp", "Q_U_amp", "Q_V_amp"):
+                    getattr(path, attr).zero_()
+                for sign in ("A", "B"):
+                    key = f"{sign}_sign_packed"
+                    if key in path._buffers:
+                        path._buffers[key].zero_()
+                    elif sign in path._packed_cpu:
+                        path._packed_cpu[sign].zero_()
         load_mdbf_state(modules, state)
-        after = model(torch.randn(2, 16) * 0 + 1.0)
-        assert after is not None
-        assert torch.allclose(
-            model(torch.zeros(2, 16)), model(torch.zeros(2, 16))
+        after = model(x)
+        assert torch.equal(after, before)
+        restored = save_mdbf_state(modules)
+        assert restored.keys() == state.keys()
+        for name, paths in state.items():
+            for path_index, buffers in paths.items():
+                for key, expected in buffers.items():
+                    assert torch.equal(
+                        restored[name][path_index][key], expected,
+                    )
+
+    def test_rollback_finalize_does_not_overwrite_restored_state(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            finalize_mdbf_differentiable,
+            find_mdbf_modules,
+            load_mdbf_state,
+            save_mdbf_state,
+            setup_mdbf_differentiable,
         )
-        assert before.shape == (2, 16)
+        model = _TinyMDBFModel()
+        modules = find_mdbf_modules(model)
+        initial = save_mdbf_state(modules)
+        original_forwards, _, _ = setup_mdbf_differentiable(
+            modules, optimize_binary=True,
+        )
+        for _, mod in modules:
+            for path in mod.paths:
+                path._opt_A_amp.data.add_(10)
+                path._opt_A_sign.data.neg_()
+        load_mdbf_state(modules, initial)
+        finalize_mdbf_differentiable(
+            modules, original_forwards, write_back=False,
+        )
+        restored = save_mdbf_state(modules)
+        for name, paths in initial.items():
+            for path_index, buffers in paths.items():
+                for key, expected in buffers.items():
+                    assert torch.equal(
+                        restored[name][path_index][key], expected,
+                    )
+
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(), reason="CUDA not available",
+    )
+    def test_gemlite_binary_shadows_and_repacked_kernels(self):
+        from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
+            find_mdbf_modules,
+            restore_mdbf_original,
+            setup_mdbf_differentiable,
+            write_back_mdbf_binary,
+        )
+        layer = _make_synthetic_mdbf_linear(
+            in_dim=256, out_dim=256, rank=128, l=1, P=1,
+            device="cuda:0", use_gemlite=True,
+        )
+        path = layer.paths[0]
+        if not path.use_gemlite:
+            pytest.skip("GemLite is unavailable for this CUDA environment")
+
+        x = torch.randn(2, 256, device="cuda:0", dtype=torch.float16)
+        before = layer(x)
+        old_kernels = dict(path._gemlite_layers)
+        modules = find_mdbf_modules(layer)
+        original_forwards, _, binary = setup_mdbf_differentiable(
+            modules, optimize_binary=True,
+        )
+        assert binary
+        assert all(param.device == path.A_amp.device for param in binary)
+        path._opt_A_sign.data.neg_()
+        write_back_mdbf_binary(modules)
+        restore_mdbf_original(modules, original_forwards, cleanup=True)
+
+        assert path.use_gemlite
+        assert all(
+            path._gemlite_layers[name] is not kernel
+            for name, kernel in old_kernels.items()
+        )
+        after = layer(x)
+        assert not torch.equal(after, before)
 
 
 class TestDetectQuantizationMethod:

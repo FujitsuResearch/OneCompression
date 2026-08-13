@@ -171,7 +171,18 @@ def setup_mdbf_differentiable(
                         packed = path._packed_cpu.get(sign)
                     if packed is None:
                         continue
-                    unpacked = unpack_binary(packed, shape).float().detach().clone()
+                    # GemLite removes its redundant packed buffers from the
+                    # module and stashes them on CPU.  The differentiable sign
+                    # parameter must nevertheless live with the layer; keeping
+                    # it on CPU makes the reconstructed CUDA forward fail with
+                    # a device mismatch.
+                    target_device = path.A_amp.device
+                    unpacked = (
+                        unpack_binary(packed.to(target_device), shape)
+                        .float()
+                        .detach()
+                        .clone()
+                    )
                     new_param = nn.Parameter(unpacked, requires_grad=True)
                     setattr(path, f"_opt_{sign}_sign", new_param)
                     binary_params.append(new_param)
@@ -230,6 +241,30 @@ def setup_mdbf_forwards_only(
 # ---------------------------------------------------------------------------
 
 
+def _refresh_gemlite_sign_kernels(path: nn.Module) -> None:
+    """Repack GemLite kernels after their source sign matrices changed.
+
+    MDBF's GemLite kernels keep a private packed copy of each sign matrix.
+    Updating ``*_sign_packed`` (or the CPU stash) alone therefore leaves the
+    inference kernel stale.  Rebuild only paths which were already using
+    GemLite.  If rebuilding is unavailable or fails, the cleared path safely
+    falls back to the dense packed-buffer implementation.
+    """
+    gemlite_layers = getattr(path, "_gemlite_layers", None)
+    if not getattr(path, "use_gemlite", False) and not gemlite_layers:
+        return
+
+    enable_gemlite = getattr(path, "enable_gemlite", None)
+    if enable_gemlite is None:
+        return
+
+    # ``enable_gemlite`` returns early while old kernels are registered, so
+    # discard them before asking MDBFLinear to repack from the updated signs.
+    path._gemlite_layers = {}
+    path.use_gemlite = False
+    enable_gemlite(device=path.A_amp.device, force=True)
+
+
 def write_back_mdbf_binary(mdbf_modules: List[Tuple[str, nn.Module]]) -> None:
     """Write optimised float sign tensors back to packed uint8 buffers."""
     from onecomp.quantizer.mdbf.mdbf_layer import pack_binary
@@ -237,6 +272,7 @@ def write_back_mdbf_binary(mdbf_modules: List[Tuple[str, nn.Module]]) -> None:
     with torch.no_grad():
         for _name, mod in mdbf_modules:
             for path in mod.paths:
+                signs_changed = False
                 for sign in _BINARY_SIGN_NAMES:
                     opt_attr = f"_opt_{sign}_sign"
                     if not hasattr(path, opt_attr):
@@ -251,6 +287,9 @@ def write_back_mdbf_binary(mdbf_modules: List[Tuple[str, nn.Module]]) -> None:
                         path._buffers[buf_key].copy_(packed.to(path._buffers[buf_key].device))
                     elif sign in path._packed_cpu:
                         path._packed_cpu[sign].copy_(packed.cpu())
+                    signs_changed = True
+                if signs_changed:
+                    _refresh_gemlite_sign_kernels(path)
 
 
 def write_back_mdbf_amp(mdbf_modules: List[Tuple[str, nn.Module]]) -> None:
@@ -265,6 +304,20 @@ def write_back_mdbf_amp(mdbf_modules: List[Tuple[str, nn.Module]]) -> None:
                     opt_param = getattr(path, opt_attr)
                     buf = getattr(path, attr)
                     buf.copy_(opt_param.data.half())
+
+
+def finalize_mdbf_differentiable(
+    mdbf_modules: List[Tuple[str, nn.Module]],
+    original_forwards: Dict[str, object],
+    write_back: bool,
+) -> None:
+    """Finalize MDBF QAT without overwriting a state restored for rollback."""
+    if write_back:
+        write_back_mdbf_binary(mdbf_modules)
+        write_back_mdbf_amp(mdbf_modules)
+    restore_mdbf_original(
+        mdbf_modules, original_forwards, cleanup=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +359,7 @@ def load_mdbf_state(
                 if p not in paths_state:
                     continue
                 d = paths_state[p]
+                signs_changed = False
                 for attr in _AMP_ATTRS:
                     if attr in d:
                         getattr(path, attr).copy_(d[attr])
@@ -317,3 +371,6 @@ def load_mdbf_state(
                         path._buffers[buf_key].copy_(d[buf_key])
                     elif sign in path._packed_cpu:
                         path._packed_cpu[sign].copy_(d[buf_key].cpu())
+                    signs_changed = True
+                if signs_changed:
+                    _refresh_gemlite_sign_kernels(path)
