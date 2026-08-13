@@ -242,7 +242,16 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 self.save_steps, self.save_strategy,
             )
 
-    def run(
+    # OneComp < 1.3.1 made ``run`` abstract.  Newer versions provide a
+    # validated/audited public ``run`` wrapper and make ``_run`` abstract.
+    # Define the legacy entry point only when the installed base requires it,
+    # so current OneComp can retain its wrapper instead of being overridden.
+    if "_run" not in getattr(PostQuantizationProcess, "__abstractmethods__", set()):
+
+        def run(self, quantized_model: nn.Module, model_config: ModelConfig) -> None:
+            return self._run(quantized_model, model_config)
+
+    def _run(
         self,
         quantized_model: nn.Module,
         model_config: ModelConfig,
