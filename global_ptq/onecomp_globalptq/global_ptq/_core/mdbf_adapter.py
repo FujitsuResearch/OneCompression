@@ -306,20 +306,6 @@ def write_back_mdbf_amp(mdbf_modules: List[Tuple[str, nn.Module]]) -> None:
                     buf.copy_(opt_param.data.half())
 
 
-def finalize_mdbf_differentiable(
-    mdbf_modules: List[Tuple[str, nn.Module]],
-    original_forwards: Dict[str, object],
-    write_back: bool,
-) -> None:
-    """Finalize MDBF QAT without overwriting a state restored for rollback."""
-    if write_back:
-        write_back_mdbf_binary(mdbf_modules)
-        write_back_mdbf_amp(mdbf_modules)
-    restore_mdbf_original(
-        mdbf_modules, original_forwards, cleanup=True,
-    )
-
-
 # ---------------------------------------------------------------------------
 # State save / load (for rollback)
 # ---------------------------------------------------------------------------

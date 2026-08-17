@@ -428,7 +428,7 @@ def cosine_warmup_lr_lambda(
 
 
 @torch.no_grad()
-def _teacher_logits(
+def _get_teacher_logits(
     teacher_model: nn.Module,
     input_ids: torch.Tensor,
     teacher_dev: torch.device,
@@ -462,7 +462,7 @@ def eval_kl(
             attention_mask = attention_mask.to(dev)
 
         logits_s = get_logits(model(input_ids))
-        logits_t = _teacher_logits(teacher_model, input_ids, teacher_dev, dev)
+        logits_t = _get_teacher_logits(teacher_model, input_ids, teacher_dev, dev)
         total += compute_kl_loss(
             logits_t, logits_s, temperature, attention_mask=attention_mask,
         ).item()
@@ -703,6 +703,7 @@ def run_kl_distillation(
     for p in teacher_model.parameters():
         p.requires_grad = False
     if teacher_dev.type != "cpu":
+        logger.info("Moving FP16 teacher model from CPU to %s.", teacher_dev)
         teacher_model.to(teacher_dev)
 
     # ------------------------------------------------------------------
@@ -994,7 +995,7 @@ def run_kl_distillation(
 
                 with amp_ctx:
                     logits_s = get_logits(quantized_model(input_ids))
-                    logits_t = _teacher_logits(
+                    logits_t = _get_teacher_logits(
                         teacher_model, input_ids, teacher_dev, dev,
                     )
 

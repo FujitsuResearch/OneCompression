@@ -242,15 +242,6 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 self.save_steps, self.save_strategy,
             )
 
-    # OneComp < 1.3.1 made ``run`` abstract.  Newer versions provide a
-    # validated/audited public ``run`` wrapper and make ``_run`` abstract.
-    # Define the legacy entry point only when the installed base requires it,
-    # so current OneComp can retain its wrapper instead of being overridden.
-    if "_run" not in getattr(PostQuantizationProcess, "__abstractmethods__", set()):
-
-        def run(self, quantized_model: nn.Module, model_config: ModelConfig) -> None:
-            return self._run(quantized_model, model_config)
-
     def _run(
         self,
         quantized_model: nn.Module,
@@ -288,10 +279,12 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             restore_dbf_original,
         )
         from ._core.mdbf_adapter import (
-            finalize_mdbf_differentiable,
             load_mdbf_state,
+            restore_mdbf_original,
             save_mdbf_state,
             setup_mdbf_differentiable,
+            write_back_mdbf_amp,
+            write_back_mdbf_binary,
         )
         from onecomp import CalibrationConfig
         from onecomp.calibration import prepare_calibration_dataset
@@ -606,9 +599,11 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 write_back_dbf_scaling(dbf_modules)
                 restore_dbf_original(dbf_modules, original_forwards)
             elif method == "mdbf":
-                finalize_mdbf_differentiable(
-                    mdbf_modules, original_forwards,
-                    write_back=not rollback_happened,
+                if not rollback_happened:
+                    write_back_mdbf_binary(mdbf_modules)
+                    write_back_mdbf_amp(mdbf_modules)
+                restore_mdbf_original(
+                    mdbf_modules, original_forwards, cleanup=True,
                 )
         finally:
             if original_use_cache is not None:

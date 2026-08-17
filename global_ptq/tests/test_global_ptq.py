@@ -697,11 +697,11 @@ class TestMdbfAdapter:
                         restored[name][path_index][key], expected,
                     )
 
-    def test_rollback_finalize_does_not_overwrite_restored_state(self):
+    def test_rollback_cleanup_does_not_overwrite_restored_state(self):
         from onecomp_globalptq.global_ptq._core.mdbf_adapter import (
-            finalize_mdbf_differentiable,
             find_mdbf_modules,
             load_mdbf_state,
+            restore_mdbf_original,
             save_mdbf_state,
             setup_mdbf_differentiable,
         )
@@ -716,8 +716,8 @@ class TestMdbfAdapter:
                 path._opt_A_amp.data.add_(10)
                 path._opt_A_sign.data.neg_()
         load_mdbf_state(modules, initial)
-        finalize_mdbf_differentiable(
-            modules, original_forwards, write_back=False,
+        restore_mdbf_original(
+            modules, original_forwards, cleanup=True,
         )
         restored = save_mdbf_state(modules)
         for name, paths in initial.items():
