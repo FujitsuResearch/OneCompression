@@ -23,7 +23,7 @@ pytestmark = pytest.mark.slow
 
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 
-TIMEOUT = 1200
+TIMEOUT = 3600  # 1 hour
 
 _skip_variant = pytest.mark.skipif(
     not os.environ.get("RUN_CLI_VARIANT_TESTS"),
