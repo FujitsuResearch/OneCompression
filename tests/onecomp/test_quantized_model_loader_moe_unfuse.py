@@ -21,7 +21,9 @@ class TestUnfuseMoeBeforeLoad:
         # only resolve if the empty model's fused gate_up_proj/down_proj
         # parameters have already been unfused into per-expert nn.Linear
         # modules, so unfuse_moe_experts must run before the state_dict is
-        # materialized against the model.
+        # materialized against the model.  The unfuse decision is made after the
+        # checkpoint is read from disk (so fused-MoE checkpoints can skip it),
+        # but still before model.load_state_dict materializes the tensors.
         fake_model = MagicMock(name="empty_model")
         call_order = []
 
@@ -66,7 +68,7 @@ class TestUnfuseMoeBeforeLoad:
 
         mock_unfuse.assert_called_once()
         assert mock_unfuse.call_args[0][0] is fake_model
-        assert call_order == ["build", "unfuse", "load_state_dict"]
+        assert call_order == ["build", "load_state_dict", "unfuse"]
 
 
 class _FakeMoEExpertsBlock(nn.Module):
