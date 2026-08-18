@@ -354,7 +354,7 @@ model_config = ModelConfig(
 gptq = GPTQ(wbits=4, groupsize=128)
 
 post_process = PostProcessLoraSFT(
-    dataset_name="wikitext",
+    dataset_name="Salesforce/wikitext",
     dataset_config_name="wikitext-2-raw-v1",
     train_split="train",
     text_column="text",
@@ -512,7 +512,7 @@ model, tokenizer = load_quantized_model_pt(
 
 ```python
 PostProcessLoraSFT(
-    dataset_name="wikitext",
+    dataset_name="Salesforce/wikitext",
     dataset_config_name="wikitext-2-raw-v1",
     train_split="train",
     text_column="text",
@@ -560,7 +560,7 @@ Teacher distillation aligns the quantized model's output distribution with a ful
 
 ```python
 post_process = PostProcessLoraSFT(
-    dataset_name="wikitext",
+    dataset_name="Salesforce/wikitext",
     dataset_config_name="wikitext-2-raw-v1",
     train_split="train",
     text_column="text",
@@ -591,7 +591,7 @@ Intermediate block alignment adds a loss term that aligns hidden states at selec
 
 ```python
 post_process = PostProcessLoraSFT(
-    dataset_name="wikitext",
+    dataset_name="Salesforce/wikitext",
     dataset_config_name="wikitext-2-raw-v1",
     train_split="train",
     text_column="text",
