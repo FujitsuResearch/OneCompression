@@ -23,6 +23,18 @@ variables:
   GIT_DEPTH: "1"
   PYTEST_MARKERS: "not slow"
 
+lint:conflict-markers:
+  stage: lint
+  tags:
+    - lint
+  variables:
+    # The MR diff base may be outside the default shallow clone.
+    GIT_DEPTH: "0"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - git diff --check "${CI_MERGE_REQUEST_DIFF_BASE_SHA}" "${CI_COMMIT_SHA}"
+
 lint:format:
   extends: .skip_docs_only
   stage: lint
