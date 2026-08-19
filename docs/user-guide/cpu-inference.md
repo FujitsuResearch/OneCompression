@@ -19,6 +19,48 @@ for inference. The direct export path additionally uses llama.cpp's pure-Python
 `convert_hf_to_gguf.py` to build the model metadata/tokenizer; it is fetched
 automatically (a shallow `git clone`) or taken from `$LLAMA_CPP_DIR` if set.
 
+
+### macOS
+
+If you have installed gcc or clang on macOS using a tool like Homebrew, the OpenMP associated with them will confilic with the OpenMP with OneComp's PyTorch backend.
+
+- OneComp's PyTorch backend is often cofigured to use OpenMP library located within .venv directory.
+- Depending on your environment, Llama.cpp is configured to use OpenMP library associated with gcc or clang.
+
+If the following warning message is shown, this conflict may be occurring.
+
+```bash
+**/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+```
+
+### solution (recommended)
+
+#### Search for OpenMP associated with PyTorch.
+
+Search for OpenMP library associated with PyTorch backend (using find command).
+
+```bash
+$ find .venv -type f \( -name 'libomp.dylib' -o -name 'libgomp*.dylib' \) -print | grep torch
+.venv/lib/python3.<PYVERSION>/site-packages/torch/lib/libomp.dylib
+```
+
+#### Create an .env
+
+Create a .env file and add the OpenMP path as an environment variable, as shown below.
+
+```bash
+DYLD_LIBRARY_PATH=".venv/lib/python3.<PYVERSION>/site-packages/torch/lib"
+```
+
+#### Run uv
+
+Pass the following `--env-file` options when running uv run.
+
+```bash
+uv run --env-file /path/to/.env ... python your_script.py
+```
+
 ## One entry point: `export_to_gguf`
 
 You do not need to know which path a checkpoint requires. `export_to_gguf`
