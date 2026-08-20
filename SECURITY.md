@@ -6,7 +6,7 @@ Security updates are provided for the latest release line of Fujitsu One Compres
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.2.2   | :white_check_mark: |
+| 1.2.2 >= | :white_check_mark: |
 | < 1.2.2 | :x:                |
 
 We recommend always upgrading to the latest release before reporting an issue.
@@ -38,8 +38,20 @@ Please make a good-faith effort to avoid privacy violations, data destruction, a
 
 Thank you for helping keep OneComp and its users safe.
 
+## Resolved Security Issues
+
+### CVE-2026-73325 — Unsafe Deserialization
+
+An unsafe deserialization vulnerability (CWE-502) was identified in
+`QuantizedModelLoader.load_quantized_model_pt()`.
+
+- **Affected versions:** v1.2.0 and earlier
+- **Fixed version:** v1.2.1
+- **CVE:** CVE-2026-73325
+- **Resolution:** The issue was addressed in v1.2.1. Users should upgrade to the latest supported release.
+
 ## Security Acknowledgments
 
 We thank the following researchers for responsibly disclosing security issues in OneComp:
 
-- **Nir Yehoshua, Cipher Security Labs** — unsafe deserialization in `QuantizedModelLoader.load_quantized_model_pt()` (CWE-502), fixed in v1.2.1.
+- **Nir Yehoshua, Cipher Security Labs** — unsafe deserialization in `QuantizedModelLoader.load_quantized_model_pt()` (CVE-2026-73325, CWE-502), affecting OneComp versions through v1.2.0 and fixed in v1.2.1.

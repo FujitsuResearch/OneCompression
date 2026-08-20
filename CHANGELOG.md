@@ -100,11 +100,11 @@
 
 ### Security
 
-- **Unsafe deserialization hardening (CWE-502)**: `QuantizedModelLoader.load_quantized_model_pt()` (alias `onecomp.load_quantized_model_pt()`) previously called `torch.load(model.pt, weights_only=False)` unconditionally, allowing arbitrary code execution when loading a malicious `.pt` checkpoint. It now refuses to load unless the caller explicitly opts in via `allow_unsafe_deserialization=True`, and emits a strong warning when it does load. For untrusted models, use the safetensors-based `load_quantized_model()`, which does not execute code.
+- **Unsafe deserialization hardening (CVE-2026-73325, CWE-502)**: `QuantizedModelLoader.load_quantized_model_pt()` (alias `onecomp.load_quantized_model_pt()`) previously called `torch.load(model.pt, weights_only=False)` unconditionally, allowing arbitrary code execution when loading a malicious `.pt` checkpoint. It now refuses to load unless the caller explicitly opts in via `allow_unsafe_deserialization=True`, and emits a strong warning when it does load. For untrusted models, use the safetensors-based `load_quantized_model()`, which does not execute code.
   - **Breaking change**: existing callers of `load_quantized_model_pt()` must pass `allow_unsafe_deserialization=True` for trusted `.pt` files.
 - **`Quantizer.load_results()` / `ResultLoader`**: same hardening applied. Loading with `weights_only=False` now requires `allow_unsafe_deserialization=True` (added as a `ResultLoader` field), and logs a warning. The safe `weights_only=True` path is unchanged.
 - Updated docstrings, docs, and the LoRA SFT example to document the risk and the required opt-in.
-- **Credit**: this unsafe deserialization issue (CWE-502) was responsibly disclosed by **Nir Yehoshua, Cipher Security Labs**. Thank you for the report.
+- **Credit**: this unsafe deserialization issue (CVE-2026-73325, CWE-502) was responsibly disclosed by **Nir Yehoshua, Cipher Security Labs**. Thank you for the report.
 
 ## [v1.2.0] 2026-06-08
 
