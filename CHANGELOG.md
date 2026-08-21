@@ -1,5 +1,12 @@
 # Change log
 
+## [v1.3.2(WIP)+fix/wikitext-hf-dataset-id] 2026-08-18
+
+### Bug Fix
+
+- Fix WikiText dataset loading in clean environments by using the canonical
+  `Salesforce/wikitext` dataset ID for perplexity evaluation and LoRA SFT examples.
+
 ## [v1.3.2] 2026-08-dd
 
 ## [v1.3.1] 2026-08-06
