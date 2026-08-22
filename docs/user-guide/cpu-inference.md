@@ -22,38 +22,49 @@ automatically (a shallow `git clone`) or taken from `$LLAMA_CPP_DIR` if set.
 
 ### macOS
 
-If you have installed gcc or clang on macOS using a tool like Homebrew, the OpenMP associated with them will confilic with the OpenMP with OneComp's PyTorch backend.
+#### Symptom
 
-- OneComp's PyTorch backend is often cofigured to use OpenMP library located within .venv directory.
-- Depending on your environment, Llama.cpp is configured to use OpenMP library associated with gcc or clang.
+If you have installed gcc or clang on macOS using a tool like Homebrew, the OpenMP dynamic library with them can conflict with the OpenMP dynamic library used by OneComp's PyTorch backend.
 
-If the following warning message is shown, this conflict may be occurring.
+- OneComp's PyTorch backend is often configured to use an OpenMP library located within the .venv directory.
+- Depending on your environment, Llama.cpp is configured to use an OpenMP library associated with gcc or clang.
 
-```bash
-**/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+If the following problems is occurring , this conflict may be occurring.
+
+- Your Python interpreter shows the following warning message.
+
+```python
+.../multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
   warnings.warn('resource_tracker: There appear to be %d '
 ```
 
-### solution (recommended)
+- The following message is shown, when you import PyTorch and Llama.cpp in your script. 
 
-#### Search for OpenMP associated with PyTorch.
+```python
+OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized.
+OMP: Hint This means that mult
+```
+
+#### Solution
+
+##### 1. Search for OpenMP associated with PyTorch.
 
 Search for OpenMP library associated with PyTorch backend (using find command).
 
 ```bash
-$ find .venv -type f \( -name 'libomp.dylib' -o -name 'libgomp*.dylib' \) -print | grep torch
-.venv/lib/python3.<PYVERSION>/site-packages/torch/lib/libomp.dylib
+$ find $PWD/.venv -type f \( -name 'libomp.dylib' -o -name 'libgomp*.dylib' \) -print | grep torch
+/to/path/.venv/lib/python3.<PYVERSION>/site-packages/torch/lib/libomp.dylib
 ```
 
-#### Create an .env
+##### 2. Create an .env
 
 Create a .env file and add the OpenMP path as an environment variable, as shown below.
 
 ```bash
-DYLD_LIBRARY_PATH=".venv/lib/python3.<PYVERSION>/site-packages/torch/lib"
+DYLD_LIBRARY_PATH="/to/path/.venv/lib/python3.<PYVERSION>/site-packages/torch/lib"
 ```
 
-#### Run uv
+##### 3. Run uv
 
 Pass the following `--env-file` options when running uv run.
 

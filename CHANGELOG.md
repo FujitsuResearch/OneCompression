@@ -1,5 +1,7 @@
 # Change log
 
+## [v1.3.2] 2026-08-dd
+
 ### Documentation
 
 - Add troubleshooting information for running OneComp with Llama.cpp on macOS.
