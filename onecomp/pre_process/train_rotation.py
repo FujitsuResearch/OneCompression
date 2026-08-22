@@ -321,7 +321,7 @@ def _convert_model_structure(config, model_type, model_path, use_sdpa=False):
     if is_llama:
         quant_model = QLlamaFC.from_pretrained(
             model_path,
-            torch_dtype="auto",
+            dtype="auto",
             device_map="cpu",
             low_cpu_mem_usage=True,
             config=config,
@@ -329,7 +329,7 @@ def _convert_model_structure(config, model_type, model_path, use_sdpa=False):
     elif is_qwen3:
         quant_model = QQwen3FC.from_pretrained(
             model_path,
-            torch_dtype="auto",
+            dtype="auto",
             device_map="cpu",
             low_cpu_mem_usage=True,
             config=config,

@@ -319,7 +319,7 @@ def prepare_rotated_model(
         t0 = time.time()
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
-            torch_dtype="auto",
+            dtype="auto",
             device_map="cpu",
             low_cpu_mem_usage=True,
         )
