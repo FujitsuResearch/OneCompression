@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.3.2] 2026-08-dd
+
+### Bug Fix
+
+- Fix warning regarding the data type arguments of Transformers.
+
 ## [v1.3.1] 2026-08-06
 
 ### Bug Fix
