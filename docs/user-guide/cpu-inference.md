@@ -38,7 +38,7 @@ If the following problems is occurring , this conflict may be occurring.
   warnings.warn('resource_tracker: There appear to be %d '
 ```
 
-- The following message is shown, when you import PyTorch and Llama.cpp in your script. 
+- The following message is shown, when you import PyTorch and Llama.cpp in your script.
 
 ```python
 OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized.
