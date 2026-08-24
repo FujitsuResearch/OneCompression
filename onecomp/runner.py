@@ -261,6 +261,8 @@ class Runner:
         self.qep_config = None
         if qep:
             self.qep_config = qep_config if qep_config is not None else QEPConfig()
+            if self.qep_config.device is None and self.model_config is not None:
+                self.qep_config.device = str(self.model_config.get_device())
         self.lpcd_config = None
         if lpcd:
             self.lpcd_config = lpcd_config if lpcd_config is not None else LPCDConfig()
