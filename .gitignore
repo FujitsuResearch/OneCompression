@@ -12,6 +12,8 @@ models
 .cursor/rules/gitlab-integration.mdc
 .cursor/rules/slurm-submit.mdc
 .cursor/rules/run-tests-examples.mdc
+.github/prompts
+.github/copilot-instructions.md
 .hydra/
 *.out
 *.err
