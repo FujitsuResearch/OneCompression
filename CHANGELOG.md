@@ -7,16 +7,12 @@
 - Fix WikiText dataset loading in clean environments by using the canonical
   `Salesforce/wikitext` dataset ID for perplexity evaluation and LoRA SFT examples.
 - Fix warning regarding the data type arguments of Transformers.
+- Fixed GemLite AssertionError during CPU inference execution for OneComp with Llama.cpp.
+- Fixed `QuantizedModelLoader.load_quantized_model()` calling `unfuse_moe_experts()` twice on non-fused MoE checkpoints. An earlier unconditional unfuse (run right after building the empty model) was left in place when the checkpoint-aware unfuse (added for gpt-oss fused-MoE support) was introduced. The redundant unconditional call was removed, and the checkpoint-aware unfuse now runs before `_remap_state_dict_keys()` so key remapping still aligns against the unfused per-expert module paths. This also prevents wrongly unfusing gpt-oss fused-MoE checkpoints, whose fused 3D expert tensors must be loaded as-is (`quantized_model_loader.py`).
 
 ### Documentation
 
 - Add troubleshooting information for running OneComp with Llama.cpp on macOS.
-
-### Bug Fix
-
-- Fixed GemLite AssertionError during CPU inference execution for OneComp with Llama.cpp.
-
-- Fixed `QuantizedModelLoader.load_quantized_model()` calling `unfuse_moe_experts()` twice on non-fused MoE checkpoints. An earlier unconditional unfuse (run right after building the empty model) was left in place when the checkpoint-aware unfuse (added for gpt-oss fused-MoE support) was introduced. The redundant unconditional call was removed, and the checkpoint-aware unfuse now runs before `_remap_state_dict_keys()` so key remapping still aligns against the unfused per-expert module paths. This also prevents wrongly unfusing gpt-oss fused-MoE checkpoints, whose fused 3D expert tensors must be loaded as-is (`quantized_model_loader.py`).
 
 ## [v1.3.1] 2026-08-06
 
