@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.3.3] 2026-08-dd
+
+### Enhancement
+
+- Add device mode synchronization between ModelConfig and QepConfig.
+
 ## [v1.3.2] 2026-08-24
 
 ### Bug Fix
