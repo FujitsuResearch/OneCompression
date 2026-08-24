@@ -1,13 +1,12 @@
 # Change log
 
-## [v1.3.2(WIP)+fix/wikitext-hf-dataset-id] 2026-08-18
+## [v1.3.2] 2026-08-24
 
 ### Bug Fix
 
 - Fix WikiText dataset loading in clean environments by using the canonical
   `Salesforce/wikitext` dataset ID for perplexity evaluation and LoRA SFT examples.
-
-## [v1.3.2] 2026-08-dd
+- Fix warning regarding the data type arguments of Transformers.
 
 ## [v1.3.1] 2026-08-06
 

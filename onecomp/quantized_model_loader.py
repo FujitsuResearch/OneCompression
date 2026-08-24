@@ -568,11 +568,11 @@ class QuantizedModelLoader:
         config_cls = CONFIG_MAPPING[model_type]
         model_config = config_cls.from_dict(clean_config)
         try:
-            return AutoModelForCausalLM.from_config(model_config, torch_dtype=dtype)
+            return AutoModelForCausalLM.from_config(model_config, dtype=dtype)
         except (ValueError, KeyError):
             from transformers import AutoModelForImageTextToText
 
-            return AutoModelForImageTextToText.from_config(model_config, torch_dtype=dtype)
+            return AutoModelForImageTextToText.from_config(model_config, dtype=dtype)
 
     @staticmethod
     def _set_module_by_name(
