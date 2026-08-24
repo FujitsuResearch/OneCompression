@@ -8,6 +8,10 @@
   `Salesforce/wikitext` dataset ID for perplexity evaluation and LoRA SFT examples.
 - Fix warning regarding the data type arguments of Transformers.
 
+### Documentation
+
+- Add troubleshooting information for running OneComp with Llama.cpp on macOS.
+
 ## [v1.3.1] 2026-08-06
 
 ### Bug Fix
