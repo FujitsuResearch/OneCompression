@@ -98,7 +98,7 @@ def dequantize_to_hf(
         pass
 
     logger.info("Building empty dense model from config (%s)", config.model_type)
-    model = AutoModelForCausalLM.from_config(config, torch_dtype=torch_dtype)
+    model = AutoModelForCausalLM.from_config(config, dtype=torch_dtype)
 
     state: Dict[str, torch.Tensor] = {}
     for shard in sorted(glob(os.path.join(save_directory, "*.safetensors"))):

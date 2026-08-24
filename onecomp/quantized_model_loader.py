@@ -101,22 +101,14 @@ class QuantizedModelLoader:
             torch_dtype = torch.bfloat16
         model = cls._build_empty_model_from_config(config_dict, torch_dtype)
 
-        # Mirror the unfuse step performed before quantization/save (see
-        # Runner.save_quantized_model) so per-expert module names such as
-        # "model.layers.0.mlp.experts.0.down_proj" resolve against the
-        # freshly-built model instead of its fused 3D expert parameters.
-        if unfuse_moe_experts(model, logger):
-            logger.info("Unfused MoE expert tensors for quantized model load")
-
         # Load state_dict from safetensors
         state_dict = cls._load_state_dict_from_dir(save_directory)
 
-        # Align checkpoint key prefixes with the empty model built from config.
-        # Gemma3 VLMs are a common case: weights saved from from_pretrained
-        # use model.language_model.model.layers. (language_model is a
-        # ForCausalLM wrapper) while from_config exposes
-        # model.language_model.layers.* directly.
-        state_dict = cls._remap_state_dict_keys(state_dict, model)
+        # Decide, from the checkpoint alone, whether the empty model must be
+        # unfused into per-expert nn.Linear modules.  This must happen before
+        # _remap_state_dict_keys so remapping aligns checkpoint keys against the
+        # unfused module paths; fused-MoE checkpoints (e.g. gpt-oss) keep the
+        # fused 3D parameters and skip unfuse.
         from .utils.unfuse_moe import (
             _checkpoint_uses_fused_moe,
             _expand_deduped_moe_keys,
@@ -130,6 +122,13 @@ class QuantizedModelLoader:
                 logger.info("Loading fused MoE expert tensors (skipping unfuse)")
         elif unfuse_moe_experts(model, logger):
             logger.info("Unfused MoE expert tensors for quantized model load")
+
+        # Align checkpoint key prefixes with the empty model built from config.
+        # Gemma3 VLMs are a common case: weights saved from from_pretrained
+        # use model.language_model.model.layers. (language_model is a
+        # ForCausalLM wrapper) while from_config exposes
+        # model.language_model.layers.* directly.
+        state_dict = cls._remap_state_dict_keys(state_dict, model)
 
         # Replace quantized layers with empty modules and align quantized
         # tensor keys with the actual module names in the model built from
@@ -568,11 +567,11 @@ class QuantizedModelLoader:
         config_cls = CONFIG_MAPPING[model_type]
         model_config = config_cls.from_dict(clean_config)
         try:
-            return AutoModelForCausalLM.from_config(model_config, torch_dtype=dtype)
+            return AutoModelForCausalLM.from_config(model_config, dtype=dtype)
         except (ValueError, KeyError):
             from transformers import AutoModelForImageTextToText
 
-            return AutoModelForImageTextToText.from_config(model_config, torch_dtype=dtype)
+            return AutoModelForImageTextToText.from_config(model_config, dtype=dtype)
 
     @staticmethod
     def _set_module_by_name(
