@@ -16,13 +16,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # Optional GemLite/HQQ imports
-try:
-    from gemlite.core import DType, GemLiteLinearTriton
-    from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
+HAS_GEMLITE = False
+if torch.cuda.is_available():
+    try:
+        from gemlite.core import DType, GemLiteLinearTriton
+        from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
 
-    HAS_GEMLITE = True
-except (ImportError, AttributeError):
-    HAS_GEMLITE = False
+        HAS_GEMLITE = True
+    except (ImportError, AttributeError, AssertionError):
+        pass
 
 
 # Constants
