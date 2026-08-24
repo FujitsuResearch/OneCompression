@@ -19,6 +19,59 @@ for inference. The direct export path additionally uses llama.cpp's pure-Python
 `convert_hf_to_gguf.py` to build the model metadata/tokenizer; it is fetched
 automatically (a shallow `git clone`) or taken from `$LLAMA_CPP_DIR` if set.
 
+
+### macOS
+
+#### Symptom
+
+If you have installed gcc or clang on macOS using a tool like Homebrew, the OpenMP dynamic library with them can conflict with the OpenMP dynamic library used by OneComp's PyTorch backend.
+
+- OneComp's PyTorch backend is often configured to use an OpenMP library located within the .venv directory.
+- Depending on your environment, Llama.cpp is configured to use an OpenMP library associated with gcc or clang.
+
+If the following problems is occurring , this conflict may be occurring.
+
+- Your Python interpreter shows the following warning message.
+
+```python
+.../multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+```
+
+- The following message is shown, when you import PyTorch and Llama.cpp in your script. 
+
+```python
+OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized.
+OMP: Hint This means that multiple copies of the OpenMP runtime have been linked into the program.
+```
+
+#### Solution
+
+##### 1. Search for OpenMP associated with PyTorch.
+
+Search for OpenMP library associated with PyTorch backend (using find command).
+
+```bash
+$ find $PWD/.venv -type f \( -name 'libomp.dylib' -o -name 'libgomp*.dylib' \) -print | grep torch
+/to/path/.venv/lib/python3.<PYVERSION>/site-packages/torch/lib/libomp.dylib
+```
+
+##### 2. Create an .env
+
+Create a .env file and add the OpenMP path as an environment variable, as shown below.
+
+```bash
+DYLD_LIBRARY_PATH="/to/path/.venv/lib/python3.<PYVERSION>/site-packages/torch/lib"
+```
+
+##### 3. Run uv
+
+Pass the following `--env-file` options when running uv run.
+
+```bash
+uv run --env-file /path/to/.env ... python your_script.py
+```
+
 ## One entry point: `export_to_gguf`
 
 You do not need to know which path a checkpoint requires. `export_to_gguf`

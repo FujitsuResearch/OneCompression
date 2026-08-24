@@ -312,7 +312,7 @@ def estimate_wbits_from_vram(
 
     config = AutoConfig.from_pretrained(model_id)
     with torch.device("meta"):
-        model = AutoModelForCausalLM.from_config(config, torch_dtype=torch.float16)
+        model = AutoModelForCausalLM.from_config(config, dtype=torch.float16)
 
     return estimate_target_bitwidth(
         model,
