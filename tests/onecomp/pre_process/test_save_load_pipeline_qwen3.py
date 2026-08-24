@@ -89,7 +89,7 @@ class TestSaveLoadPipelineQwen3:
         else:
             model_before = AutoModelForCausalLM.from_pretrained(
                 rotated_config.path,
-                torch_dtype=torch.float16,
+                dtype=torch.float16,
                 device_map="cpu",
             )
             runner.update_model_weights(model_before)
@@ -111,7 +111,7 @@ class TestSaveLoadPipelineQwen3:
         else:
             model = AutoModelForCausalLM.from_pretrained(
                 save_dir,
-                torch_dtype=torch.float16,
+                dtype=torch.float16,
                 device_map=device,
             )
             tokenizer = AutoTokenizer.from_pretrained(save_dir)

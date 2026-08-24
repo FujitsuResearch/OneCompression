@@ -41,7 +41,7 @@ def calculate_perplexity(
     model=None,
     tokenizer=None,
     model_config=None,
-    dataset_name="wikitext",
+    dataset_name="Salesforce/wikitext",
     dataset_config="wikitext-2-raw-v1",
     split="test",
     max_samples=None,
@@ -53,7 +53,7 @@ def calculate_perplexity(
     Based on https://huggingface.co/docs/transformers/perplexity
 
     Args:
-        dataset_name (str): Dataset name (e.g. "wikitext", "allenai/c4").
+        dataset_name (str): Dataset name (e.g. "Salesforce/wikitext", "allenai/c4").
         dataset_config (str): Dataset configuration.
             - For WikiText: "wikitext-2-raw-v1"
             - For C4: "en/c4-train.00001-of-01024.json.gz" (treated as data_files)
