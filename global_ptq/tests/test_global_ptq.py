@@ -60,6 +60,9 @@ class TestGlobalPTQDataclass:
         assert g.epochs == 5
         assert g.gptq_lr == 1e-5
         assert g.dbf_lr == 5e-5
+        assert g.gptq_ste_k == 100.0
+        assert g.dbf_ste_k == 2.0
+        assert g.mdbf_ste_k == 2.0
         assert g.temperature == 1.0
         assert g.grad_clip == 1.0
         assert g.gptq_optimize_intweight is False
@@ -86,6 +89,10 @@ class TestGlobalPTQDataclass:
         """Old ``lr`` field was removed; only gptq_lr / dbf_lr exist."""
         with pytest.raises(TypeError):
             GlobalPTQ(lr=1e-3)
+
+    def test_legacy_ste_k_keyword_raises_type_error(self):
+        with pytest.raises(TypeError):
+            GlobalPTQ(ste_k=3.0)
 
     def test_epochs_zero_raises(self):
         with pytest.raises(ValueError, match="epochs must be >= 1"):
@@ -118,6 +125,9 @@ class TestGlobalPTQDistributedDataclass:
         assert g.epochs == 5
         assert g.gptq_lr == 1e-5
         assert g.dbf_lr == 5e-5
+        assert g.gptq_ste_k == 100.0
+        assert g.dbf_ste_k == 2.0
+        assert g.mdbf_ste_k == 2.0
         assert g.deepspeed_config is None
         assert g.use_gradient_checkpointing is True
         assert g.bf16 is True
@@ -125,6 +135,10 @@ class TestGlobalPTQDistributedDataclass:
         assert g.gradient_accumulation_steps == 1
         assert g.lr_scheduler_type == "cosine"
         assert g.report_to == "none"
+
+    def test_legacy_ste_k_keyword_raises_type_error(self):
+        with pytest.raises(TypeError):
+            GlobalPTQDistributed(ste_k=3.0)
 
     def test_both_loss_weights_zero_raises(self):
         with pytest.raises(ValueError, match="Both w_distill and w_ntp are 0"):
@@ -306,8 +320,9 @@ class TestGptqAdapter:
         from onecomp_globalptq.global_ptq._core.gptq_adapter import find_gptq_modules, setup_gptq_differentiable
         model = _TinyGPTQModel()
         modules = find_gptq_modules(model)
-        _, _, intweight = setup_gptq_differentiable(modules, torch.device("cpu"), optimize_intweight=True)
+        _, _, intweight = setup_gptq_differentiable(modules, torch.device("cpu"), optimize_intweight=True, ste_k=7.0)
         assert len(intweight) == 2
+        assert all(mod._ste_k == 7.0 for _, mod in modules)
 
     def test_differentiable_forward_gradient_flows(self):
         from onecomp_globalptq.global_ptq._core.gptq_adapter import find_gptq_modules, setup_gptq_differentiable
@@ -395,10 +410,11 @@ class TestDbfAdapter:
         from onecomp_globalptq.global_ptq._core.dbf_adapter import find_dbf_modules, setup_dbf_differentiable
         model = _TinyDBFModel()
         modules = find_dbf_modules(model)
-        _, scaling, binary = setup_dbf_differentiable(modules, optimize_binary=True)
+        _, scaling, binary = setup_dbf_differentiable(modules, optimize_binary=True, ste_k=3.0)
         assert len(scaling) == 6
         assert len(binary) == 4
         assert all(bp.requires_grad for bp in binary)
+        assert all(mod._binary_ste_k == 3.0 for _, mod in modules)
 
     def test_scaling_params_are_float32(self):
         from onecomp_globalptq.global_ptq._core.dbf_adapter import find_dbf_modules, setup_dbf_differentiable
@@ -521,11 +537,12 @@ class TestMdbfAdapter:
         )
         model = _TinyMDBFModel()
         modules = find_mdbf_modules(model)
-        _, amp, binary = setup_mdbf_differentiable(modules, optimize_binary=True)
+        _, amp, binary = setup_mdbf_differentiable(modules, optimize_binary=True, ste_k=4.0)
         assert len(amp) == 8
         # 2 layers x 1 path x (A_sign, B_sign)
         assert len(binary) == 4
         assert all(bp.requires_grad for bp in binary)
+        assert all(mod._binary_ste_k == 4.0 for _, mod in modules)
 
     def test_amp_params_are_float32(self):
         from onecomp_globalptq.global_ptq._core.mdbf_adapter import (

@@ -216,9 +216,9 @@ def smooth_sign_ste(
 
     Note:
         The default ``k=100.0`` is suitable for ``smooth_ste_round`` where
-        values lie far from the transition boundary.  For DBF binary weights
-        (values near +/-1), ``dbf_adapter._BINARY_STE_K`` (=2.0) is passed
-        explicitly to avoid gradient saturation in ``tanh(k*x)``.
+        values lie far from the transition boundary.  DBF and MDBF binary
+        weights use their respective ``dbf_ste_k`` and ``mdbf_ste_k`` values
+        (both default to 2.0) to avoid gradient saturation in ``tanh(k*x)``.
     """
     hard = x.sign()
     hard[hard == 0] = 1

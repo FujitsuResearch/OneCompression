@@ -102,13 +102,18 @@ def _make_dbf_differentiable_forward():
 def setup_dbf_differentiable(
     dbf_modules: List[Tuple[str, nn.Module]],
     optimize_binary: bool = False,
+    ste_k: float = _BINARY_STE_K,
 ) -> Tuple[Dict[str, object], List[torch.Tensor], List[torch.Tensor]]:
     """Make DBF scaling (and optionally binary) parameters trainable.
 
     The original ``forward`` method of every module is replaced with a
     differentiable version.  Scaling parameters are promoted to float32.
-    Binary STE sharpness is set to :data:`_BINARY_STE_K` (see module
-    docstring for rationale).
+
+    Args:
+        dbf_modules: DBF modules to make differentiable.
+        optimize_binary: Whether to optimize the binary matrices.
+        ste_k: Sharpness for binary sign STE (``tanh(k*x)`` backward).
+            Default is :data:`_BINARY_STE_K` (2.0).
 
     Returns:
         ``(original_forwards, scaling_params, binary_params)``
@@ -146,7 +151,7 @@ def setup_dbf_differentiable(
                 binary_params.append(bw)
 
         original_forwards[name] = mod.forward
-        mod._binary_ste_k = _BINARY_STE_K
+        mod._binary_ste_k = ste_k
         mod.forward = MethodType(_make_dbf_differentiable_forward(), mod)
 
     return original_forwards, scaling_params, binary_params

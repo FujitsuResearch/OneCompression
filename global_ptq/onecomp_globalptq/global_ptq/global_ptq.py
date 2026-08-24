@@ -73,10 +73,13 @@ class GlobalPTQ(PostQuantizationProcess):
         optimize_binary (bool):
             Whether to optimise DBF binary matrices via sign STE.
             Default is False.
-        ste_k (float):
+        gptq_ste_k (float):
             Smoothness parameter for GPTQ integer-weight Smooth STE
             rounding.  Only used when ``gptq_optimize_intweight=True``.
             Default is 100.0.
+        dbf_ste_k (float):
+            Sharpness for DBF binary sign STE (``tanh(k*x)`` backward).
+            Default is 2.0.
         mdbf_ste_k (float):
             Sharpness for MDBF binary sign STE (``tanh(k*x)`` backward).
             Default is 2.0.
@@ -184,7 +187,8 @@ class GlobalPTQ(PostQuantizationProcess):
     gptq_intweight_lr: float = 1e-4
     dbf_lr: float = 5e-5
     optimize_binary: bool = False
-    ste_k: float = 100.0
+    gptq_ste_k: float = 100.0
+    dbf_ste_k: float = 2.0
     mdbf_ste_k: float = 2.0
     calibration_dataset: Optional[List[str]] = None
     num_calibration_samples: int = 128
@@ -291,7 +295,8 @@ class GlobalPTQ(PostQuantizationProcess):
             gptq_optimize_intweight=self.gptq_optimize_intweight,
             gptq_intweight_lr=self.gptq_intweight_lr,
             optimize_binary=self.optimize_binary,
-            ste_k=self.ste_k,
+            gptq_ste_k=self.gptq_ste_k,
+            dbf_ste_k=self.dbf_ste_k,
             mdbf_ste_k=self.mdbf_ste_k,
             calibration_dataset=self.calibration_dataset,
             num_calibration_samples=self.num_calibration_samples,

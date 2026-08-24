@@ -611,7 +611,8 @@ def run_kl_distillation(
     gptq_optimize_intweight: bool = False,
     gptq_intweight_lr: float = 1e-4,
     optimize_binary: bool = False,
-    ste_k: float = 100.0,
+    gptq_ste_k: float = 100.0,
+    dbf_ste_k: float = 2.0,
     mdbf_ste_k: float = 2.0,
     calibration_dataset=None,
     num_calibration_samples: int = 128,
@@ -648,10 +649,11 @@ def run_kl_distillation(
     """Run KL-distillation global PTQ on a GPTQ, DBF or MDBF quantized model.
 
     The quantization method is auto-detected from the layer types present in
-    *quantized_model* (see :func:`detect_quantization_method`).  For MDBF the
-    per-path amplitude factors are trained with ``dbf_lr``; with
-    ``optimize_binary=True`` the +/-1 sign matrices are trained as well through
-    a smooth sign STE whose sharpness is controlled by ``mdbf_ste_k``.
+    *quantized_model* (see :func:`detect_quantization_method`).  GPTQ integer
+    weights use ``gptq_ste_k`` for Smooth STE rounding.  With
+    ``optimize_binary=True``, DBF and MDBF sign matrices use their independent
+    ``dbf_ste_k`` and ``mdbf_ste_k`` sharpness settings.  MDBF per-path
+    amplitude factors are trained with ``dbf_lr``.
 
     The model is modified **in-place**.  Returns a results dict.
     """
@@ -722,7 +724,7 @@ def run_kl_distillation(
     if method == "gptq":
         gptq_modules = detected_modules
         original_forwards, scaling_params, intweight_params = setup_gptq_differentiable(
-            gptq_modules, dev, gptq_optimize_intweight, ste_k,
+            gptq_modules, dev, gptq_optimize_intweight, gptq_ste_k,
         )
         param_groups = [{"params": scaling_params, "lr": gptq_lr}]
         if intweight_params:
@@ -737,8 +739,9 @@ def run_kl_distillation(
     elif method == "dbf":
         dbf_modules = detected_modules
         original_forwards, scaling_params, binary_params = setup_dbf_differentiable(
-            dbf_modules, optimize_binary,
+            dbf_modules, optimize_binary, ste_k=dbf_ste_k,
         )
+        logger.info("DBF binary STE sharpness dbf_ste_k=%.4g", dbf_ste_k)
         all_dbf_params = list(scaling_params)
         if binary_params:
             all_dbf_params += binary_params

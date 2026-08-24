@@ -65,10 +65,13 @@ class GlobalPTQDistributed(PostQuantizationProcess):
         gptq_intweight_lr (float):
             Learning rate for integer weight optimisation.
             Default is 1e-4.
-        ste_k (float):
+        gptq_ste_k (float):
             Smoothness parameter for GPTQ integer-weight Smooth STE
             rounding.  Only used when ``gptq_optimize_intweight=True``.
             Default is 100.0.
+        dbf_ste_k (float):
+            Sharpness for DBF binary sign STE (``tanh(k*x)`` backward).
+            Default is 2.0.
         mdbf_ste_k (float):
             Sharpness for MDBF binary sign STE (``tanh(k*x)`` backward).
             Default is 2.0.
@@ -169,11 +172,12 @@ class GlobalPTQDistributed(PostQuantizationProcess):
     gptq_lr: float = 1e-5
     gptq_optimize_intweight: bool = False
     gptq_intweight_lr: float = 1e-4
-    ste_k: float = 100.0
+    gptq_ste_k: float = 100.0
 
     # --- DBF / MDBF ---
     dbf_lr: float = 5e-5
     optimize_binary: bool = False
+    dbf_ste_k: float = 2.0
     mdbf_ste_k: float = 2.0
 
     # --- Calibration ---
@@ -354,7 +358,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             original_forwards, scaling_params, intweight_params = (
                 setup_gptq_differentiable(
                     gptq_modules, dev,
-                    self.gptq_optimize_intweight, self.ste_k,
+                    self.gptq_optimize_intweight, self.gptq_ste_k,
                 )
             )
             param_groups = [{"params": scaling_params, "lr": self.gptq_lr}]
@@ -372,8 +376,13 @@ class GlobalPTQDistributed(PostQuantizationProcess):
         elif method == "dbf":
             dbf_modules = detected_modules
             original_forwards, scaling_params, binary_params = (
-                setup_dbf_differentiable(dbf_modules, self.optimize_binary)
+                setup_dbf_differentiable(
+                    dbf_modules,
+                    self.optimize_binary,
+                    ste_k=self.dbf_ste_k,
+                )
             )
+            logger.info("DBF binary STE sharpness dbf_ste_k=%.4g", self.dbf_ste_k)
             all_dbf_params = list(scaling_params)
             if binary_params:
                 all_dbf_params += binary_params

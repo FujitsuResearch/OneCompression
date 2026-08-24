@@ -86,8 +86,10 @@ torchrun --nproc_per_node=2 my_script.py
 |-----------|---------|-------------|
 | `gptq_optimize_intweight` | `False` | Optimise GPTQ integer weights via STE |
 | `gptq_intweight_lr` | `1e-4` | Learning rate for integer-weight parameters |
-| `optimize_binary` | `False` | Optimise DBF binary matrices via sign-STE |
-| `ste_k` | `100.0` | Smoothness for GPTQ integer-weight STE rounding |
+| `optimize_binary` | `False` | Optimise DBF/MDBF binary matrices via sign-STE |
+| `gptq_ste_k` | `100.0` | Smoothness for GPTQ integer-weight STE rounding |
+| `dbf_ste_k` | `2.0` | Sharpness for DBF binary sign STE |
+| `mdbf_ste_k` | `2.0` | Sharpness for MDBF binary sign STE |
 
 #### Advanced Optimisation Techniques
 
