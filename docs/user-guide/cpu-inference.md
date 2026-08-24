@@ -42,7 +42,7 @@ If the following problems is occurring , this conflict may be occurring.
 
 ```python
 OMP: Error #15: Initializing libomp.dylib, but found libomp.dylib already initialized.
-OMP: Hint This means that mult
+OMP: Hint This means that multiple copies of the OpenMP runtime have been linked into the program.
 ```
 
 #### Solution
