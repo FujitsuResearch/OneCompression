@@ -66,7 +66,7 @@ model_config = ModelConfig(model_id=MODEL_ID, device="cuda:0")
 gptq = GPTQ(wbits=4, groupsize=128)
 
 post_process = PostProcessLoraSFT(
-    dataset_name="wikitext",
+    dataset_name="Salesforce/wikitext",
     dataset_config_name="wikitext-2-raw-v1",
     train_split="train",
     text_column="text",
