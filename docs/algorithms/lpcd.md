@@ -71,7 +71,6 @@ lpcd_config = LPCDConfig(
     perccorr=0.5,
     percdamp=0.01,
     use_closed_form=True,
-    device="cuda:0",
 )
 
 runner = Runner(
@@ -131,7 +130,7 @@ You can use LPCD without QEP, but the common setup in OneComp is `GPTQ + QEP + L
 | `gd_steps` | `int` | Gradient-descent steps per sub-problem | `20` |
 | `gd_batch_size` | `int` | Effective batch size for gradient accumulation | `16` |
 | `gd_base_lr` | `float` | Base learning rate for gradient solver | `1e-4` |
-| `device` | `str` | Device for LPCD optimization | `"cuda:0"` |
+| `device` | `str` | Device for LPCD optimization | `None` |
 
 ## Current Support
 

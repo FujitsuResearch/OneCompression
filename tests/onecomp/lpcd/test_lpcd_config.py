@@ -38,10 +38,9 @@ class TestLPCDConfigDefaults:
         assert cfg.gd_base_lr > 0.0
 
     def test_default_device(self):
-        """Default device is a CUDA device string."""
+        """Default device is None."""
         cfg = LPCDConfig()
-        assert isinstance(cfg.device, str)
-        assert cfg.device.startswith("cuda")
+        assert cfg.device is None
 
 
 class TestLPCDConfigCustomValues:
