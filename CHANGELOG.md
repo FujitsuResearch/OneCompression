@@ -4,7 +4,7 @@
 
 ### Enhancement
 
-- Add device mode synchronization between ModelConfig and QepConfig.
+- Add device mode synchronization between ModelConfig and QEPConfig.
 
 ## [v1.3.2] 2026-08-24
 

@@ -25,7 +25,7 @@ class QEPConfig:
             Default is 0.5.
         device (str): Device to use for QEP computations
             (e.g., "cuda", "mps", "cpu").
-            Default is "cuda:0".
+            Default is None. When None, Runner synchronises it with ModelConfig.device.
         exclude_layer_keywords (list[str]): List of keywords to identify
             layers excluded from error propagation. Layers whose names
             contain any of these keywords will be excluded.
@@ -52,6 +52,6 @@ class QEPConfig:
     general: bool = False
     percdamp: float = 0.01
     perccorr: float = 0.5
-    device: str | None = None
+    device: str = None
     exclude_layer_keywords: list[str] = field(default_factory=lambda: ["mlp.down_proj"])
     # TODO: exclude_layer_keywords depends on the architecture and needs to be fixed

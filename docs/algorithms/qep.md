@@ -83,7 +83,6 @@ qep_config = QEPConfig(
     general=False,              # Architecture-aware (default)
     percdamp=0.01,              # Hessian damping
     perccorr=0.5,               # Correction strength
-    device="cuda:0",            # GPU for QEP computation
     exclude_layer_keywords=["mlp.down_proj"],
 )
 
@@ -117,7 +116,7 @@ runner.run()
 | `general`                 | `bool`      | Use generic (architecture-independent) QEP       | `False`              |
 | `percdamp`                | `float`     | Damping percentage for Hessian regularization     | `0.01`               |
 | `perccorr`                | `float`     | Correction strength (0 = no correction, 1 = full)| `0.5`                |
-| `device`                  | `str`       | GPU device for QEP computation                    | `"cuda:0"`           |
+| `device`                  | `str`       | GPU device for QEP computation                    | `None`           |
 | `exclude_layer_keywords`  | `list[str]` | Layer keywords excluded from error propagation    | `["mlp.down_proj"]`  |
 
 !!! note

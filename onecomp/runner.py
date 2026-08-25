@@ -266,6 +266,8 @@ class Runner:
         self.lpcd_config = None
         if lpcd:
             self.lpcd_config = lpcd_config if lpcd_config is not None else LPCDConfig()
+            if self.lpcd_config.device is None and self.model_config is not None:
+                self.lpcd_config.device = str(self.model_config.get_device())
         self.report_progress = report_progress
 
     def check(self):
