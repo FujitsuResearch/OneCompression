@@ -164,6 +164,12 @@ class GlobalPTQ(PostQuantizationProcess):
             optimiser update.  Default is 1 (no accumulation).
             Incompatible with ``use_sam=True``; when both are set,
             this value is silently forced to 1.
+        student_device (str or None):
+            Device used by the quantized student model.  When ``None``,
+            CUDA is used when available, otherwise CPU.  Default is None.
+        teacher_device (str or None):
+            Optional device for the FP16 teacher model.  When ``None``,
+            the teacher uses ``student_device``.  Default is None.
     Examples:
         >>> from onecomp import Runner, ModelConfig, GPTQ
         >>> from onecomp_globalptq import GlobalPTQ

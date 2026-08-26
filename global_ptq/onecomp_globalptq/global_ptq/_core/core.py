@@ -434,7 +434,7 @@ def _get_teacher_logits(
     teacher_dev: torch.device,
     student_dev: torch.device,
 ) -> torch.Tensor:
-    """Run teacher forward; move logits to *student_dev* if devices differ."""
+    """Run the teacher on *teacher_dev* and return logits on *student_dev*."""
     if teacher_dev == student_dev:
         return get_logits(teacher_model(input_ids))
     logits_t = get_logits(teacher_model(input_ids.to(teacher_dev)))
@@ -450,19 +450,27 @@ def eval_kl(
     temperature: float = 1.0,
     teacher_dev: Optional[torch.device] = None,
 ) -> float:
-    """Mean KL divergence over *dataloader* batches."""
+    """Mean KL divergence over *dataloader* batches.
+
+    ``dev`` is the student model device.  ``teacher_dev`` optionally places
+    the teacher on a different device; when omitted, the teacher uses the
+    student model device.
+    """
     was_training = model.training
     model.eval()
-    teacher_dev = teacher_dev or dev
+    student_dev = dev
+    teacher_dev = teacher_dev or student_dev
     total, n = 0.0, 0
     for batch in dataloader:
-        input_ids = batch["input_ids"].to(dev)
+        input_ids = batch["input_ids"].to(student_dev)
         attention_mask = batch.get("attention_mask")
         if attention_mask is not None:
-            attention_mask = attention_mask.to(dev)
+            attention_mask = attention_mask.to(student_dev)
 
         logits_s = get_logits(model(input_ids))
-        logits_t = _get_teacher_logits(teacher_model, input_ids, teacher_dev, dev)
+        logits_t = _get_teacher_logits(
+            teacher_model, input_ids, teacher_dev, student_dev,
+        )
         total += compute_kl_loss(
             logits_t, logits_s, temperature, attention_mask=attention_mask,
         ).item()
@@ -654,6 +662,10 @@ def run_kl_distillation(
     ``optimize_binary=True``, DBF and MDBF sign matrices use their independent
     ``dbf_ste_k`` and ``mdbf_ste_k`` sharpness settings.  MDBF per-path
     amplitude factors are trained with ``dbf_lr``.
+
+    ``student_device`` selects the device used by the quantized student model.
+    ``teacher_device`` may place the FP16 teacher on a different device; when
+    omitted, the teacher uses the student model device.
 
     The model is modified **in-place**.  Returns a results dict.
     """

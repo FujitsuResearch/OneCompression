@@ -16,8 +16,6 @@ Trainable (discrete, opt-in):
 
 Copyright 2025-2026 Fujitsu Ltd.
 
-Authors: Keiji Kimura
-
 """
 
 from types import MethodType

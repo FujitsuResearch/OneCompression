@@ -6,8 +6,6 @@ optimized model.
 
 Copyright 2025-2026 Fujitsu Ltd.
 
-Authors: Yoshiyuki Ishii
-
 Usage:
     python example/example_global_ptq_mdbf.py
 """

@@ -86,19 +86,11 @@ def detect_quantization_method(
     from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
     from onecomp.quantizer.dbf.dbf_layer import DoubleBinaryLinear
 
-    try:
-        from onecomp.quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
-    except ImportError:
-        # MDBF quantizer is optional; without it only GPTQ/DBF are detectable.
-        MultipathMDBFLinear = None
+    from onecomp.quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
 
     gptq_modules = find_target_modules(model, GPTQLinear)
     dbf_modules = find_target_modules(model, DoubleBinaryLinear)
-    mdbf_modules = (
-        find_target_modules(model, MultipathMDBFLinear)
-        if MultipathMDBFLinear is not None
-        else []
-    )
+    mdbf_modules = find_target_modules(model, MultipathMDBFLinear)
 
     if gptq_modules and (dbf_modules or mdbf_modules):
         logger.warning(
