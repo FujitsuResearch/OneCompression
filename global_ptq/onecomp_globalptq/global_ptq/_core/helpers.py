@@ -76,30 +76,35 @@ def detect_quantization_method(
     """Auto-detect the quantization method applied to *model*.
 
     Returns:
-        (method, modules) where *method* is ``"gptq"``, ``"dbf"``, or
-        ``None``, and *modules* is the list of ``(name, module)`` pairs
-        for the detected quantized layers.
+        (method, modules) where *method* is ``"gptq"``, ``"dbf"``,
+        ``"mdbf"``, or ``None``, and *modules* is the list of
+        ``(name, module)`` pairs for the detected quantized layers.
 
-    When both GPTQ and DBF layers are present (mixed quantization),
-    a warning is emitted and only GPTQ layers are returned.
+    Priority: GPTQ > DBF > MDBF.  When multiple types coexist a warning is
+    emitted and only the highest-priority layers are returned.
     """
     from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
     from onecomp.quantizer.dbf.dbf_layer import DoubleBinaryLinear
 
+    from onecomp.quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
+
     gptq_modules = find_target_modules(model, GPTQLinear)
     dbf_modules = find_target_modules(model, DoubleBinaryLinear)
+    mdbf_modules = find_target_modules(model, MultipathMDBFLinear)
 
-    if gptq_modules and dbf_modules:
+    if gptq_modules and (dbf_modules or mdbf_modules):
         logger.warning(
-            "Mixed GPTQ + DBF model detected (gptq=%d, dbf=%d). "
+            "Mixed GPTQ + DBF/MDBF model detected (gptq=%d, dbf=%d, mdbf=%d). "
             "Global PTQ currently optimises GPTQ layers only; "
-            "DBF layers will be skipped.",
-            len(gptq_modules), len(dbf_modules),
+            "other layers will be skipped.",
+            len(gptq_modules), len(dbf_modules), len(mdbf_modules),
         )
     if gptq_modules:
         return "gptq", gptq_modules
     if dbf_modules:
         return "dbf", dbf_modules
+    if mdbf_modules:
+        return "mdbf", mdbf_modules
     return None, []
 
 
@@ -203,9 +208,9 @@ def smooth_sign_ste(
 
     Note:
         The default ``k=100.0`` is suitable for ``smooth_ste_round`` where
-        values lie far from the transition boundary.  For DBF binary weights
-        (values near +/-1), ``dbf_adapter._BINARY_STE_K`` (=2.0) is passed
-        explicitly to avoid gradient saturation in ``tanh(k*x)``.
+        values lie far from the transition boundary.  DBF and MDBF binary
+        weights use their respective ``dbf_ste_k`` and ``mdbf_ste_k`` values
+        (both default to 2.0) to avoid gradient saturation in ``tanh(k*x)``.
     """
     hard = x.sign()
     hard[hard == 0] = 1

@@ -2200,8 +2200,8 @@ wheels = [
 
 [[package]]
 name = "onecomp"
-version = "1.1.1"
-source = { git = "https://github.com/FujitsuResearch/OneCompression.git?branch=main#da41b49e3ea578570ab5963f73efc90c911f3202" }
+version = "1.3.1"
+source = { git = "https://github.com/FujitsuResearch/OneCompression.git?branch=main#53c0be25fc4bd79eb51e29ec267c32d30adbe71e" }
 dependencies = [
     { name = "accelerate" },
     { name = "datasets" },

@@ -31,6 +31,12 @@ from .dbf_adapter import (
     setup_dbf_forwards_only,
     write_back_dbf_binary,
 )
+from .mdbf_adapter import (
+    restore_mdbf_original,
+    setup_mdbf_forwards_only,
+    write_back_mdbf_binary,
+    write_back_mdbf_amp,
+)
 
 logger = getLogger(__name__)
 
@@ -91,9 +97,11 @@ class _GlobalPTQTrainer(Trainer):
         self,
         *,
         teacher_model: nn.Module,
+        teacher_device=None,
         method: str,
         gptq_modules: list,
         dbf_modules: list,
+        mdbf_modules: list = None,
         original_forwards: dict,
         optimize_intweight: bool,
         optimize_binary: bool,
@@ -105,9 +113,11 @@ class _GlobalPTQTrainer(Trainer):
     ):
         super().__init__(**kwargs)
         self.teacher_model = teacher_model
+        self.teacher_device = teacher_device
         self.method = method
         self.gptq_modules = gptq_modules
         self.dbf_modules = dbf_modules
+        self.mdbf_modules = mdbf_modules or []
         self.original_forwards = original_forwards
         self.optimize_intweight = optimize_intweight
         self.optimize_binary = optimize_binary
@@ -157,9 +167,19 @@ class _GlobalPTQTrainer(Trainer):
         loss = torch.tensor(0.0, device=logits_s.device)
         if self.w_distill > 0 and self.teacher_model is not None:
             with torch.no_grad():
-                # Teacher also gets all available inputs
-                teacher_outputs = self.teacher_model(**inputs)
-                logits_t = get_logits(teacher_outputs)
+                if (
+                    self.teacher_device is not None
+                    and self.teacher_device != logits_s.device
+                ):
+                    teacher_inputs = {
+                        k: v.to(self.teacher_device)
+                        if isinstance(v, torch.Tensor) else v
+                        for k, v in inputs.items()
+                    }
+                    teacher_outputs = self.teacher_model(**teacher_inputs)
+                else:
+                    teacher_outputs = self.teacher_model(**inputs)
+                logits_t = get_logits(teacher_outputs).to(logits_s.device)
             
             loss = loss + self.w_distill * compute_kl_loss(
                 logits_t, logits_s, self.temperature,
@@ -191,6 +211,10 @@ class _GlobalPTQTrainer(Trainer):
         elif self.method == "dbf":
             write_back_dbf_binary(self.dbf_modules)
             restore_dbf_original(self.dbf_modules, self.original_forwards)
+        elif self.method == "mdbf":
+            write_back_mdbf_binary(self.mdbf_modules)
+            write_back_mdbf_amp(self.mdbf_modules)
+            restore_mdbf_original(self.mdbf_modules, self.original_forwards)
 
         result = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
 
@@ -202,6 +226,10 @@ class _GlobalPTQTrainer(Trainer):
         elif self.method == "dbf":
             setup_dbf_forwards_only(
                 self.dbf_modules, self.original_forwards,
+            )
+        elif self.method == "mdbf":
+            setup_mdbf_forwards_only(
+                self.mdbf_modules, self.original_forwards,
             )
 
         return result
