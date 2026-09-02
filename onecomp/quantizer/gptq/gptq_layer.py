@@ -414,12 +414,6 @@ class GPTQLinear(nn.Module):
         if self._gemlite_layer is not None:
             self.using_gemlite = True
 
-        # Permutation order
-        if perm is not None and actorder:
-            self.register_buffer("perm", perm.to(device))
-        else:
-            self.perm = None
-
         # Bias
         if bias is not None:
             self.register_buffer("bias", bias.to(torch.float16).to(device))

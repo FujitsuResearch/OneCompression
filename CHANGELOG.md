@@ -1,10 +1,15 @@
 # Change log
 
-## [v1.3.3] 2026-08-dd
+## [v1.3.3] 2026-09-dd
 
 ### Enhancement
 
 - Add device mode synchronization between ModelConfig and QEPConfig.
+
+### Bug Fix
+
+- Stop saving perm in `GPTQLinear` when `actorder=True`, as it is unnecessary for inference and causes vLLM serving errors.
+- Support retrying Cholesky decomposition with an increased damping coefficient during the QEP loop.
 
 ## [v1.3.2] 2026-08-24
 

@@ -400,12 +400,32 @@ class Quantizer(metaclass=ABCMeta):
         weight[:, dead] = 0
 
         # QEP correction
-        damp = percdamp * torch.mean(torch.diag(hessian))
-        diag = torch.arange(hessian.shape[0], device=hessian.device)
-        hessian[diag, diag] += damp
-        rhs = weight @ delta_hatX
-        delta_weight = _safe_cholesky_and_solve(hessian, rhs).t()
-        weight = weight + (perccorr * delta_weight)
+        damp_scale = 1.0
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                damp = percdamp * torch.mean(torch.diag(hessian))
+                diag = torch.arange(hessian.shape[0], device=hessian.device)
+                hessian[diag, diag] += damp
+                rhs = weight @ delta_hatX
+                delta_weight = _safe_cholesky_and_solve(hessian, rhs).t()
+                weight = weight + (perccorr * delta_weight)
+                break
+            except torch._C._LinAlgError:
+                damp_scale *= 10.0
+                extra = damp_scale * damp
+                hessian[diag, diag] += extra
+                self.logger.warning(
+                    "Cholesky failed (attempt %d/%d); adding extra damping %.2e",
+                    attempt + 1,
+                    max_retries,
+                    extra,
+                )
+        else:
+            raise RuntimeError(
+                "Cholesky decomposition failed after %d damping attempts. "
+                "The Hessian may be severely ill-conditioned." % max_retries
+            )
 
         if isinstance(module, Conv1d):
             weight = weight.t()
