@@ -25,7 +25,8 @@ class LPCDConfig:
         gd_steps: Number of gradient-descent epochs per sub-problem.
         gd_batch_size: Effective batch size for gradient accumulation.
         gd_base_lr: Base learning rate for gradient-descent solver.
-        device: Device to perform LPCD optimisation on.
+        device: Device to perform LPCD optimisation on. Default is None.
+            When None, Runner synchronises it with ModelConfig.device.
 
     Examples:
         Minimal (residual correction only, fast)::
@@ -53,4 +54,4 @@ class LPCDConfig:
     gd_steps: int = 20
     gd_batch_size: int = 16
     gd_base_lr: float = 1e-4
-    device: str = "cuda:0"
+    device: str = None

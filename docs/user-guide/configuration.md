@@ -153,7 +153,7 @@ qep_config = QEPConfig(
 | `general`                 | `bool`      | Use generic (architecture-independent) QEP       | `False`              |
 | `percdamp`                | `float`     | Damping percentage for Hessian regularization     | `0.01`               |
 | `perccorr`                | `float`     | Correction percentage for error propagation       | `0.5`                |
-| `device`                  | `str`       | Device for QEP computations (`"cuda"`, `"mps"`, `"cpu"`) | `"cuda:0"`           |
+| `device`                  | `str`       | Device for QEP computations (`"cuda"`, `"mps"`, `"cpu"`) | `None`           |
 | `exclude_layer_keywords`  | `list[str]` | Layer keywords excluded from error propagation    | `["mlp.down_proj"]`  |
 
 !!! tip
@@ -188,7 +188,7 @@ lpcd_config = LPCDConfig(
 | `gd_steps` | `int` | Gradient-descent steps per sub-problem | `20` |
 | `gd_batch_size` | `int` | Effective batch size for gradient accumulation | `16` |
 | `gd_base_lr` | `float` | Base learning rate for gradient solver | `1e-4` |
-| `device` | `str` | Device for LPCD computation | `"cuda:0"` |
+| `device` | `str` | Device for LPCD computation | `None` |
 
 !!! tip
     `LPCDConfig()` defaults to residual-only refinement, which is the fastest
