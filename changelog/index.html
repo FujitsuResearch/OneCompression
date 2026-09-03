@@ -1,0 +1,3030 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Open-source Python library for post-training quantization of Large Language Models">
+      
+      
+      
+        <link rel="canonical" href="https://FujitsuResearch.github.io/OneCompression/changelog/">
+      
+      
+        <link rel="prev" href="../contributing/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Changelog - Fujitsu One Compression</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Fujitsu One Compression" class="md-header__button md-logo" aria-label="Fujitsu One Compression" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Fujitsu One Compression
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/FujitsuResearch/OneCompression" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    FujitsuResearch/OneCompression
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../user-guide/basic-usage/" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../algorithms/overview/" class="md-tabs__link">
+          
+  
+  
+  Algorithms
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Fujitsu One Compression" class="md-nav__button md-logo" aria-label="Fujitsu One Compression" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Fujitsu One Compression
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/FujitsuResearch/OneCompression" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    FujitsuResearch/OneCompression
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/tutorial-notebook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorial Notebook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/basic-usage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basic Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/mps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS / MPS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/pre-process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-Process (Rotation)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/post-process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Process (Global PTQ / Block-wise PTQ / LoRA SFT)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/vllm-inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vLLM Inference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/gptoss/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPT-OSS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/cpu-inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CPU Inference (llama.cpp / GGUF)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/gguf-export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GGUF Export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-guide/examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Algorithms
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Algorithms
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/qep/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QEP (Quantization Error Propagation)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/lpcd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LPCD (Layer-Projected Coordinate Descent)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/gptq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPTQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/dbf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DBF (Double Binary Factorization)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/mdbf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MDBF (Multi-Envelope Double Binary Factorization)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/rtn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RTN (Round-To-Nearest)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/autobit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AutoBit (Mixed-Precision ILP)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../algorithms/jointq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JointQ (Joint Optimization)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/runner/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/model_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ModelConfig
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/calibration_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CalibrationConfig
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/qep_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QEPConfig
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/lpcd_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LPCDConfig
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_7" id="__nav_5_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantizers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Quantizers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantizers/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Base Classes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantizers/autobit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AutoBit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantizers/gptq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPTQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantizers/dbf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DBF
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantizers/mdbf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MDBF
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantizers/rtn/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RTN
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantizers/jointq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    JointQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantizers/onebit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OneBit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quantized_model_loader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QuantizedModelLoader
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/pre_process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pre-Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/post_process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Process
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/eval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h1 id="change-log">Change log<a class="headerlink" href="#change-log" title="Permanent link">&para;</a></h1>
+<h2 id="v133-2026-09-03">[v1.3.3] 2026-09-03<a class="headerlink" href="#v133-2026-09-03" title="Permanent link">&para;</a></h2>
+<h3 id="enhancement">Enhancement<a class="headerlink" href="#enhancement" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add device mode synchronization between ModelConfig and QEPConfig.</li>
+</ul>
+<h3 id="bug-fix">Bug Fix<a class="headerlink" href="#bug-fix" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Stop saving perm in <code>GPTQLinear</code> when <code>actorder=True</code>, as it is unnecessary for inference and causes vLLM serving errors.</li>
+<li>Support retrying Cholesky decomposition with an increased damping coefficient during the QEP loop.</li>
+</ul>
+<h2 id="v132-2026-08-24">[v1.3.2] 2026-08-24<a class="headerlink" href="#v132-2026-08-24" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fix_1">Bug Fix<a class="headerlink" href="#bug-fix_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fix WikiText dataset loading in clean environments by using the canonical
+  <code>Salesforce/wikitext</code> dataset ID for perplexity evaluation and LoRA SFT examples.</li>
+<li>Fix warning regarding the data type arguments of Transformers.</li>
+<li>Fixed GemLite AssertionError during CPU inference execution for OneComp with Llama.cpp.</li>
+<li>Fixed <code>QuantizedModelLoader.load_quantized_model()</code> calling <code>unfuse_moe_experts()</code> twice on non-fused MoE checkpoints. An earlier unconditional unfuse (run right after building the empty model) was left in place when the checkpoint-aware unfuse (added for gpt-oss fused-MoE support) was introduced. The redundant unconditional call was removed, and the checkpoint-aware unfuse now runs before <code>_remap_state_dict_keys()</code> so key remapping still aligns against the unfused per-expert module paths. This also prevents wrongly unfusing gpt-oss fused-MoE checkpoints, whose fused 3D expert tensors must be loaded as-is (<code>quantized_model_loader.py</code>).</li>
+</ul>
+<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add troubleshooting information for running OneComp with Llama.cpp on macOS.</li>
+</ul>
+<h2 id="v131-2026-08-06">[v1.3.1] 2026-08-06<a class="headerlink" href="#v131-2026-08-06" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fix_2">Bug Fix<a class="headerlink" href="#bug-fix_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fix <code>uv add onecomp</code> / <code>uv sync</code> failing on macOS. <code>gemlite==0.6.0</code> declares <code>triton&gt;=3.6.0</code> without a platform marker (e.g. <code>sys_platform == 'linux'</code>), and triton only ships Linux wheels, so the dependency is unresolvable on macOS. Pin <code>gemlite&lt;0.6.0</code> on <code>sys_platform == 'darwin'</code> only; Linux/CUDA installs are unaffected and still resolve the latest gemlite.</li>
+</ul>
+<h2 id="v130-2026-08-06">[v1.3.0] 2026-08-06<a class="headerlink" href="#v130-2026-08-06" title="Permanent link">&para;</a></h2>
+<h3 id="highlights">Highlights<a class="headerlink" href="#highlights" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>New model support</strong>: Qwen3.6 (dense + Qwen3.6-A3B MoE) and GPT-OSS (<code>gpt-oss-20b</code> / <code>gpt-oss-120b</code>) for vLLM.</li>
+<li><strong>CPU deployment</strong>: export OneComp GPTQ checkpoints to GGUF and run them on CPU with Llama.cpp.</li>
+<li><strong>New quantizer</strong>: MDBF (Multi-Envelope Double Binary Factorization).</li>
+<li><strong>Reload → post-process → re-save</strong> workflow for saved quantized checkpoints.</li>
+<li><strong>Rotation-preprocessed models</strong> (GPTQ &amp; DBF) now run in vLLM.</li>
+<li><strong>HF/vLLM-compatible LoRA adapter sidecar</strong> save/load.</li>
+<li><strong>vLLM ROCm (AMD) support</strong>.</li>
+</ul>
+<h3 id="breaking-changes">Breaking Changes<a class="headerlink" href="#breaking-changes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Custom post-process subclasses must implement <code>_run()</code> instead of overriding <code>run()</code>.</strong> <code>PostQuantizationProcess.run()</code> is now a base-class template method (validation, CPU move, <code>eval()</code>/<code>cpu()</code> restore, audit metadata). All built-in post-processes were migrated; callers that only use built-in post-processes (e.g. <code>Runner.run_post_processes()</code>) are unaffected.</li>
+<li><strong>GPTQ and DBF now bitpack on quantize by default (<code>bitpack_on_quantize=True</code>).</strong> Quantized weights are stored packed immediately after each layer is quantized instead of being held unpacked until save. GPTQ packing is limited to bit widths <code>{2, 3, 4, 8}</code> (GPTQ bit-width validation is now <code>1..15</code>); other widths require <code>bitpack_on_quantize=False</code>. DBF has no bit-width restriction.</li>
+</ul>
+<h3 id="new-features">New Features<a class="headerlink" href="#new-features" title="Permanent link">&para;</a></h3>
+<h4 id="model-support-qwen36">Model support: Qwen3.6<a class="headerlink" href="#model-support-qwen36" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Calibration, save/load, and vLLM inference for the dense Qwen3.6 text models and the Qwen3.6-A3B MoE variant, including hybrid (GatedDeltaNet <code>linear_attention</code> + <code>full_attention</code>) decoders.</li>
+<li>Added a <code>save_format</code> option (<code>"auto"</code> / <code>"native"</code> / <code>"full_wrapper"</code>) to <code>Runner.save_quantized_model()</code>; <code>"full_wrapper"</code> produces the composite <code>model.language_model.*</code> layout vLLM's VLM loading expects. <code>load_quantized_model()</code> loads these checkpoints (including MoE per-expert weights) and fails fast on incompletely-loaded buffers instead of silently producing a garbage model.</li>
+<li>New example: <code>example/vllm_inference/example_gptq_vllm_qwen36_inference.py</code>.</li>
+</ul>
+<h4 id="model-support-gpt-oss-4-bit-moe-for-vllm-mixed_gptq">Model support: GPT-OSS 4-bit MoE for vLLM (mixed_gptq)<a class="headerlink" href="#model-support-gpt-oss-4-bit-moe-for-vllm-mixed_gptq" title="Permanent link">&para;</a></h4>
+<ul>
+<li>End-to-end 4-bit serving of GPT-OSS MoE experts via the <code>mixed_gptq</code> plugin. Pass <code>Runner(..., moe_quant_experts=True)</code> to keep router experts as per-expert GPTQ INT4 (compressed on disk, served 4-bit). GPT-OSS requires <code>group_size=64</code> and is routed through vLLM's WNA16 path; asymmetric (<code>sym=False</code>) quantization is supported.</li>
+<li>Apply the required vLLM runtime patches before serving: <code>python -m vllm_plugins.patches.apply_all</code>.</li>
+<li>See the GPT-OSS guide (<code>docs/user-guide/gptoss.md</code>).</li>
+</ul>
+<h4 id="cpu-inference-gguf-export-llamacpp">CPU inference &amp; GGUF export (Llama.cpp)<a class="headerlink" href="#cpu-inference-gguf-export-llamacpp" title="Permanent link">&para;</a></h4>
+<ul>
+<li>New <code>onecomp.cpu</code> package and <code>onecomp-gguf</code> CLI (<code>export</code> / <code>run</code> / <code>inspect</code> / <code>ppl</code> / <code>bench</code>) to export OneComp GPTQ checkpoints to GGUF and run them on CPU with llama-cpp-python.</li>
+<li>Lossless GPTQ → GGUF packing (Q4_0 / Q4_1 / Q8_0) reusing the exact GPTQ/QEP integer codes with no re-quantization, plus a dequantize → <code>llama-quantize</code> fallback for unsupported layouts.</li>
+<li>Mixed-precision exporter (<code>llamacpp_plugins/gptq</code>): packs 4/8-bit layers losslessly and K-quantizes 2/3-bit (and act-order) layers into a single genuinely mixed-precision GGUF.</li>
+<li>Adds the <code>gguf</code> and <code>llamacpp</code> uv extras.</li>
+</ul>
+<h4 id="mdbf-quantizer">MDBF quantizer<a class="headerlink" href="#mdbf-quantizer" title="Permanent link">&para;</a></h4>
+<ul>
+<li>New <code>MDBF</code> quantizer (<code>onecomp/quantizer/mdbf/</code>) approximating weights as a sum of multi-path double binary factorizations. Configurable <code>target_bits</code>, <code>l</code> (default <code>2</code>), <code>P</code> (default <code>1</code>), SVD init, optional ADMM and gradient refinement, activation-aware mode, and per-layer / per-MLP bit overrides.</li>
+<li><code>(l, P) = (1, 1)</code> reproduces DBF and <code>(1, 2)</code> reproduces LittleBit. See <code>docs/algorithms/mdbf.md</code> for the BPW / rank trade-off.</li>
+<li>Full save/load support and an optional GemLite 1-bit inference path (auto-enabled for <code>l == 1</code>; force with <code>use_gemlite=True</code>).</li>
+</ul>
+<h4 id="reload-post-process-re-save">Reload → post-process → re-save<a class="headerlink" href="#reload-post-process-re-save" title="Permanent link">&para;</a></h4>
+<ul>
+<li>A saved quantized checkpoint can be reloaded, refined with additional post-processes (e.g. <code>BlockWisePTQ</code>, <code>GlobalPTQ</code>), and saved again. Load to CPU with <code>load_quantized_model(..., device_map=None)</code>, drive post-processes via <code>Runner(quantizer=None)</code> with <code>runner.quantized_model = model</code>, then <code>save_quantized_model()</code>.</li>
+<li>An accumulating <code>onecomp_post_processes</code> audit trail in <code>config.json</code> records which post-processes (and their hyper-parameters) were applied across load/save cycles.</li>
+<li><code>quantization_config</code> schema validation (<code>quant_method</code>, <code>modules_in_block_to_quantize</code>) is now enforced consistently on the load, save, and post-process paths.</li>
+<li>New examples under <code>example/post_process/</code>: <code>example_reload_post_process_resave.py</code>, <code>example_blockwise_global_ptq.py</code>, <code>example_blockwise_global_ptq_staged.py</code>.</li>
+</ul>
+<h4 id="rotation-preprocessed-inference-in-vllm-gptq-dbf">Rotation-preprocessed inference in vLLM (GPTQ &amp; DBF)<a class="headerlink" href="#rotation-preprocessed-inference-in-vllm-gptq-dbf" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Rotation-preprocessed GPTQ and DBF models now run in vLLM: the online Hadamard transform on <code>mlp.down_proj</code> inputs is reproduced at inference time. GPTQ supports tensor parallelism; the DBF plugin requires <code>tensor_parallel_size=1</code>. Rotated GPTQ models are saved as <code>mixed_gptq</code> so vLLM loads the Hadamard-capable plugin.</li>
+<li>The DBF plugin automatically falls back to the naive kernel if the GemLite path fails (OOM is re-raised, not masked). See the <code>TRITON_CACHE_AUTOTUNING=0</code> note in <code>docs/user-guide/vllm-inference.md</code>.</li>
+<li>New example: <code>example/vllm_inference/example_dbf_vllm_inference.py</code>.</li>
+</ul>
+<h4 id="lora-adapter-sidecar-saveload">LoRA adapter sidecar save/load<a class="headerlink" href="#lora-adapter-sidecar-saveload" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>save_quantized_model()</code> writes GPTQ + LoRA SFT outputs in HF/vLLM-compatible form: the base model as safetensors plus a PEFT adapter sidecar in <code>lora_adapter/</code> (<code>adapter_model.safetensors</code>, <code>adapter_config.json</code>). <code>load_quantized_model()</code> auto-detects the sidecar and re-wraps matching layers for round-trips, failing fast if not all adapter layers are applied.</li>
+<li>New / updated examples: <code>example_lora_gptq_vllm_inference.py</code>, <code>example_lora_sft.py</code>, <code>example_lora_sft_knowledge.py</code>, <code>example_lora_sft_knowledge_jointq.py</code>.</li>
+</ul>
+<h3 id="environment">Environment<a class="headerlink" href="#environment" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>envs/vllm/</code> with versioned vLLM environment definitions (<code>0.12.0</code>, <code>0.15.1</code>), plus <code>envs/vllm/v0_24_0_rocm/</code> for the ROCm plugin. Both the versioned environments and the ROCm plugin must be installed separately from the main uv sync --extra vllm workflow.</li>
+</ul>
+<h3 id="bug-fixes">Bug Fixes<a class="headerlink" href="#bug-fixes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Text-only <code>generate()</code> on multimodal models (e.g. Gemma-4 12B) could emit modality delimiter tokens and degrade output after quantize→reload, because <code>load_quantized_model()</code> did not restore <code>generation_config.json</code> (including <code>suppress_tokens</code>). Now loads it from the save directory when present (<code>quantized_model_loader.py</code>).</li>
+<li>Fixed Hadamard online-hook registration for rotation + partially-quantized models: hook target layer types are now derived from the actual model instead of the recorded <code>quant_method</code>, so mixed quantized / unquantized <code>down_proj</code> layers no longer miss quantized layers or fire on plain <code>nn.Linear</code>.</li>
+</ul>
+<h3 id="new-contributors">New Contributors<a class="headerlink" href="#new-contributors" title="Permanent link">&para;</a></h3>
+<ul>
+<li>@k-arima-3150 and @S4Y-K made their first contribution in #21</li>
+<li>@cm-ysmz made their first contribution in #25</li>
+<li>@fujisawa-yoshihiko made their first contribution in #28</li>
+<li>@KoOhira-BP made their first contribution in #30</li>
+<li>@dogwood-flo made their first contribution in #34</li>
+</ul>
+<h2 id="v122-2026-07-10">[v1.2.2] 2026-07-10<a class="headerlink" href="#v122-2026-07-10" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fix_3">Bug Fix<a class="headerlink" href="#bug-fix_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fixed <code>device="auto"</code> evaluation crashes in <code>Runner.calculate_perplexity()</code> and related paths by adding <code>ModelConfig.get_device()</code> and using a resolved <code>torch.device</code> for PyTorch operations such as <code>model.to()</code> and <code>empty_cache()</code>. Hugging Face <code>device_map="auto"</code> remains unchanged for model loading, but PyTorch no longer receives the raw <code>"auto"</code> string.</li>
+</ul>
+<h2 id="v121-2026-07-03">[v1.2.1] 2026-07-03<a class="headerlink" href="#v121-2026-07-03" title="Permanent link">&para;</a></h2>
+<h3 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Unsafe deserialization hardening (CVE-2026-73325, CWE-502)</strong>: <code>QuantizedModelLoader.load_quantized_model_pt()</code> (alias <code>onecomp.load_quantized_model_pt()</code>) previously called <code>torch.load(model.pt, weights_only=False)</code> unconditionally, allowing arbitrary code execution when loading a malicious <code>.pt</code> checkpoint. It now refuses to load unless the caller explicitly opts in via <code>allow_unsafe_deserialization=True</code>, and emits a strong warning when it does load. For untrusted models, use the safetensors-based <code>load_quantized_model()</code>, which does not execute code.</li>
+<li><strong>Breaking change</strong>: existing callers of <code>load_quantized_model_pt()</code> must pass <code>allow_unsafe_deserialization=True</code> for trusted <code>.pt</code> files.</li>
+<li><strong><code>Quantizer.load_results()</code> / <code>ResultLoader</code></strong>: same hardening applied. Loading with <code>weights_only=False</code> now requires <code>allow_unsafe_deserialization=True</code> (added as a <code>ResultLoader</code> field), and logs a warning. The safe <code>weights_only=True</code> path is unchanged.</li>
+<li>Updated docstrings, docs, and the LoRA SFT example to document the risk and the required opt-in.</li>
+<li><strong>Credit</strong>: this unsafe deserialization issue (CVE-2026-73325, CWE-502) was responsibly disclosed by <strong>Nir Yehoshua, Cipher Security Labs</strong>. Thank you for the report.</li>
+</ul>
+<h2 id="v120-2026-06-08">[v1.2.0] 2026-06-08<a class="headerlink" href="#v120-2026-06-08" title="Permanent link">&para;</a></h2>
+<h3 id="saveload-support-for-jointq-rtn-and-onebit-quantizers">Save/Load Support for JointQ, RTN, and OneBit Quantizers<a class="headerlink" href="#saveload-support-for-jointq-rtn-and-onebit-quantizers" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>JointQ</strong>: Added <code>get_quant_config()</code>, <code>finalize_quant_config_for_save()</code>, and <code>create_inference_layer()</code> to <code>JointQ</code> class (<code>onecomp/quantizer/jointq/_jointq.py</code>)</li>
+<li>Emits <code>quant_method="gptq"</code> to reuse <code>GPTQLinear</code> and vLLM GPTQ plugin (JointQ uses the same scale/zero/assignment structure as GPTQ)</li>
+<li><code>create_inference_layer()</code> converts JointQ's 3D assignment <code>(out_features, num_groups, group_size)</code> to 2D qweight <code>(out_features, in_features)</code> matching GPTQ format, with scale/zero transposition</li>
+<li>Handles <code>actorder</code> permutation: restores original column order before passing to <code>GPTQLinear</code> so <code>g_idx</code> is constructed correctly</li>
+<li>Symmetric quantization: shifts signed integers <code>[-2^(n-1), 2^(n-1)-1]</code> to unsigned <code>[0, 2^n - 1]</code> for GPTQLinear bit packing</li>
+<li>Added <code>bits == 1</code> warning in <code>validate_params()</code>: GPTQLinear weight packing does not support 1-bit; inference layer must be built with <code>pack_weights=False</code></li>
+<li>Added <code>_build_quantization_bits()</code> static method to emit per-layer <code>quantization_bits</code> metadata for mixed-precision save</li>
+<li><strong>RTN</strong>: Added <code>get_quant_config()</code>, <code>finalize_quant_config_for_save()</code>, <code>create_inference_layer()</code>, and <code>RTNResult.compute_dequantized_weight()</code> to <code>RTN</code> class (<code>onecomp/quantizer/rtn/_rtn.py</code>)</li>
+<li>Emits <code>quant_method="gptq"</code> to reuse <code>GPTQLinear</code> and vLLM GPTQ plugin (RTN uses the same qweight/scales/qzeros tensor format)</li>
+<li><code>compute_dequantized_weight()</code> implements <code>W = (quantized_weight - zero) * scale</code> with per-channel and group-wise paths</li>
+<li><code>create_inference_layer()</code> transposes scale/zero from <code>(out_features, num_groups)</code> to <code>(num_groups, out_features)</code> for GPTQLinear compatibility</li>
+<li>Added <code>_build_quantization_bits()</code> static method for per-layer metadata</li>
+<li><strong>OneBit</strong>: Added <code>get_quant_config()</code>, <code>finalize_quant_config_for_save()</code>, <code>create_inference_layer()</code>, and <code>OnebitResult.compute_dequantized_weight()</code> to <code>Onebit</code> class (<code>onecomp/quantizer/onebit/_onebit.py</code>)</li>
+<li>Emits <code>quant_method="onebit"</code> with OneBit-specific parameters (<code>iters</code>, <code>use_importance_scaling</code>, <code>use_balancing</code>, <code>balance_iters</code>, <code>balance_alpha</code>)</li>
+<li><code>compute_dequantized_weight()</code> implements <code>W ≈ a[:, None] * sign * b[None, :]</code></li>
+<li><code>create_inference_layer()</code> builds <code>OneBitLinear</code> via <code>OneBitLinear.from_quantization_result()</code></li>
+<li>Added <code>_build_quantization_bits()</code> static method for per-layer metadata</li>
+</ul>
+<h3 id="apple-silicon-macos-support">Apple Silicon / macOS support<a class="headerlink" href="#apple-silicon-macos-support" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>MPS quantization</strong>: GPTQ (and AutoBit with GPTQ-only candidates) on <code>device="mps"</code>; cross-platform <code>empty_cache()</code> via new <code>onecomp/utils/device.py</code> (<code>runner.py</code>, <code>quantizer/gptq/_gptq.py</code>, <code>quantizer/_quantizer.py</code>)</li>
+<li><strong>MPS device placement (GPTQ on CPU, QEP correction on MPS)</strong>: With <code>device="mps"</code>, <code>run_gptq</code> moves the Hessian and weights to <strong>CPU</strong> for the full column-wise GPTQ loop (including inverse-Hessian Cholesky). The main reason is not absent Cholesky kernels on MPS (recent PyTorch supports them); if the GPTQ loop stayed on MPS, <code>maxq.item()</code> inside <code>quantize()</code> would run once per column—each call waits for pending MPS work to finish and read back a single scalar to the host (per-column host sync), not a full matrix copy per column—and that overhead is often several times slower than CPU on Apple Silicon (~4× in internal benchmarks with PyTorch 2.12). When QEP weight correction runs (<code>adjust_weight</code>, typically under <code>qep=True</code>), per-layer work stays on <strong>MPS</strong> (e.g. <code>weight @ delta_hatX</code>); only the Cholesky solve uses CPU via <code>_safe_cholesky_and_solve</code> (one solve per layer). A full CPU fallback for QEP does not materially improve speed. Calibration forwards may still use MPS. Details: README (macOS / MPS).</li>
+<li><strong>MPS inference</strong>: load saved quantized models on Mac with <code>QuantizedModelLoader</code> + Transformers <code>generate()</code> (GemLite/vLLM remain Linux + CUDA)</li>
+<li><strong>macOS <code>uv sync</code></strong>: added <code>darwin</code> to <code>tool.uv.environments</code>, <code>--extra mps</code> for MPS-enabled PyTorch from PyPI; <code>--extra cpu</code> is Linux-only (pytorch-cpu index); Linux-only markers on CUDA extras (<code>cu118</code>–<code>cu130</code>)</li>
+</ul>
+<h2 id="new-feature-dashboard">New Feature : Dashboard<a class="headerlink" href="#new-feature-dashboard" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Added <code>dashboard/</code>, a browser-based web app for OneCompression on <strong>SLURM-managed HPC GPU nodes without Docker</strong>: pick a Hugging Face model and quantization settings in the UI, run jobs on the GPU, deploy the quantized checkpoint, and validate inference via chat</li>
+<li><strong>Stack</strong>: React + Vite frontend (local PC), FastAPI API, Celery worker + user-built Redis, SQLite job DB, per-job output under <code>backend/tmp/quantized/</code>; CUDA quantization via <code>onecomp</code> and chat deploy via a separate <strong>vLLM</strong> subprocess from the same <code>backend/.venv</code> (<code>onecomp</code> + <code>vllm&gt;=0.21</code> in <code>pyproject.toml</code>)</li>
+<li><strong>Quantization methods exposed in the UI</strong>: <code>gptq</code>, <code>autobit</code>, <code>jointq</code>, and <code>auto_run</code> (VRAM-based bitwidth / group size); optional QEP (not with JointQ); fractional bit widths for <code>autobit</code> / <code>auto_run</code></li>
+</ul>
+<h3 id="new-feature-global-ptq-post-training-quantization">New Feature: Global PTQ (Post-Training Quantization)<a class="headerlink" href="#new-feature-global-ptq-post-training-quantization" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>GlobalPTQ</code> and <code>GlobalPTQDistributed</code> post-process classes for KL-distillation-based global optimisation of continuous quantization parameters (scales and zeros for GPTQ; scaling factors for DBF)</li>
+<li><code>GlobalPTQ</code>: Single-GPU implementation with cosine-warmup LR scheduling, early stopping, mixed-precision support, and gradient accumulation</li>
+<li><code>GlobalPTQDistributed</code>: Multi-GPU implementation using HuggingFace Trainer + DeepSpeed ZeRO-2, supporting KL divergence and/or NTP loss with automatic best-state rollback</li>
+</ul>
+<h3 id="evaluation">Evaluation:<a class="headerlink" href="#evaluation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>onecomp.eval</code> and the <code>onecomp-eval</code> CLI: one vLLM server, subprocess evaluators, aggregated <code>summary.json</code> / <code>summary.csv</code></li>
+<li>Added <code>mt_bench</code> (Japanese MT-Bench) and opt-in <code>throughput</code> (TTFT / decode tok/s) evaluators</li>
+</ul>
+<h3 id="for-developer-pre-commit">for Developer: pre-commit<a class="headerlink" href="#for-developer-pre-commit" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>.pre-commit-config.yaml</code> with <code>black</code>, <code>isort</code>, and local hooks (<code>no-japanese</code>, <code>copyright-header</code>, <code>no-email-address</code>); install with <code>uv sync --extra dev</code> then <code>pre-commit install</code> (see README)</li>
+</ul>
+<h3 id="onebitlinear-inference-layer-improvements">OneBitLinear Inference Layer Improvements<a class="headerlink" href="#onebitlinear-inference-layer-improvements" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>OneBitLinear.from_quantization_result()</code> class method: builds <code>OneBitLinear</code> from <code>OnebitResult</code> (mirrors the pattern used by <code>GPTQLinear</code> and <code>DoubleBinaryLinear</code>) (<code>onecomp/quantizer/onebit/onebit_layer.py</code>)</li>
+<li>Added <code>OneBitLinear.from_saved_state()</code> class method: reconstructs <code>OneBitLinear</code> from saved <code>state_dict</code> tensors (<code>a</code>, <code>b</code>, <code>sign_packed</code>, optional <code>bias</code>), using the same <code>cls.__new__</code> pattern as <code>DoubleBinaryLinear</code> (<code>onecomp/quantizer/onebit/onebit_layer.py</code>)</li>
+<li>Removed <code>preunpack</code> parameter from <code>OneBitLinear.__init__()</code> and <code>replace_linear_with_onebit_layer()</code>: sign matrix is now always stored as packed <code>uint8</code> and unpacked on demand during <code>forward()</code>, matching the DBF inference layer pattern (<code>onecomp/quantizer/onebit/onebit_layer.py</code>)</li>
+<li>Normalized buffers to FP16 with <code>detach()</code> in <code>OneBitLinear.__init__()</code> to drop autograd graph</li>
+<li>Added <code>_load_from_state_dict()</code> override to clear <code>sign_matrix</code> cache when loading from checkpoint</li>
+<li>Extracted <code>_unpack_sign_matrix()</code> helper for sign matrix unpacking logic</li>
+<li>Removed unreferenced functions <code>replace_linear_with_onebit_layer()</code> and <code>extract_onebit_weights_for_save()</code> from <code>onebit_layer.py</code>: layer construction is now handled by <code>OneBitLinear.from_quantization_result()</code> / <code>OneBitLinear.from_saved_state()</code>, and save-time weight extraction is covered by the unified <code>create_inference_layer()</code> / <code>state_dict()</code> path (<code>onecomp/quantizer/onebit/onebit_layer.py</code>)</li>
+</ul>
+<h3 id="quantizedmodelloader-onebit-support">QuantizedModelLoader: OneBit Support<a class="headerlink" href="#quantizedmodelloader-onebit-support" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>QuantizedModelLoader</code> now supports <code>quant_method="onebit"</code> (<code>onecomp/quantized_model_loader.py</code>)</li>
+<li>Added <code>OneBitLinear</code> to import and layer replacement logic</li>
+<li>Added <code>OneBitLinear.from_saved_state()</code> call path for creating empty OneBit layers during model loading</li>
+<li>Hadamard hook registration now recognizes <code>OneBitLinear</code> as a quantized layer class</li>
+</ul>
+<h3 id="blockwiseptq-cbq-onebit-optimizer-compatibility">BlockWisePTQ / CBQ OneBit Optimizer Compatibility<a class="headerlink" href="#blockwiseptq-cbq-onebit-optimizer-compatibility" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Updated OneBit block-wise and cross-block quantization (CBQ) optimizers to work with packed-only <code>OneBitLinear</code> (<code>onecomp/post_process/_blockwise/onebit_block_optimizer.py</code>, <code>onecomp/post_process/_blockwise/onebit_cbq_optimizer.py</code>)</li>
+<li>Reads current sign matrices from <code>sign_packed</code> via <code>my_unpack()</code> when <code>sign_matrix</code> is not present, while still allowing <code>sign_matrix</code> as a temporary optimization override</li>
+<li>Writes sign updates back to <code>sign_packed</code> with <code>my_pack()</code> and clears <code>sign_matrix</code> so packed signs remain the single source of truth after hard evaluation, best-state restore, and final updates</li>
+<li>Hoisted <code>my_pack</code> / <code>my_unpack</code> imports in the OneBit CBQ optimizer</li>
+<li>Clarified <code>OneBitLinear.sign_matrix</code> as a non-persistent temporary override used by optimization flows such as BlockWisePTQ and CBQ (<code>onecomp/quantizer/onebit/onebit_layer.py</code>)</li>
+</ul>
+<h3 id="bug-fix_4">Bug Fix<a class="headerlink" href="#bug-fix_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fixed <code>GPTQLinear.from_saved_state()</code>: <code>_weight_is_packed</code> now defaults to <code>False</code> when <code>wbits == 1</code> (JointQ <code>wbits=1</code> checkpoints are saved with <code>pack_weights=False</code> because GPTQLinear packing does not support 1-bit) (<code>onecomp/quantizer/gptq/gptq_layer.py</code>)</li>
+<li>Fixed redundant symmetric shift in RTN inference layer (<code>onecomp/quantizer/rtn/_rtn.py</code>)</li>
+<li>Fixed <code>run_onebit()</code> returning <code>False</code> on NaN/Inf detection; now raises <code>ValueError</code> with proper GPU tensor cleanup to prevent OOM cascading (<code>onecomp/quantizer/onebit/onebit_impl.py</code>)</li>
+<li>Removed pre-computed <code>dequantized_weight</code> from <code>run_onebit()</code> return dict and <code>OnebitResult</code>; dequantized weight is now computed on demand via <code>compute_dequantized_weight()</code> (<code>onecomp/quantizer/onebit/onebit_impl.py</code>, <code>onecomp/quantizer/onebit/_onebit.py</code>)</li>
+<li><code>QuantizedModelLoader._cast_fp16_to_target_dtype()</code> now skips <code>OneBitLinear</code> in addition to <code>GPTQLinear</code> and <code>DoubleBinaryLinear</code>, so OneBit's fp16 scaling buffers (<code>a</code>, <code>b</code>, <code>bias</code>) are preserved when loading a OneBit-quantized model that requires <code>bfloat16</code> (e.g. Gemma 3 / Gemma 4 detected via <code>needs_bfloat16</code>). Without this, the post-load safety-net cast rewrote OneBit's stored fp16 metadata to <code>bfloat16</code>, breaking the dtype contract that <code>OneBitLinear.forward</code> relies on (<code>self.a.to(x.dtype)</code> / <code>self.b.to(x.dtype)</code> casts to the activation dtype at compute time). Updated the function's docstring to list <code>OneBitLinear</code> alongside the other quantized layer types whose fp16 metadata is intentionally retained (<code>onecomp/quantized_model_loader.py</code>).</li>
+</ul>
+<h3 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Enabled inherited <code>test_forward_error</code> tests for JointQ, OneBit, and RTN (previously skipped with <code>"does not support create_inference_layer"</code>) (<code>tests/onecomp/quantizer/jointq/test_jointq.py</code>, <code>tests/onecomp/quantizer/onebit/test_onebit.py</code>, <code>tests/onecomp/quantizer/rtn/test_rtn.py</code>)</li>
+<li>Added <code>_forward_error_features</code> class attribute to <code>BaseQuantizeSpec</code> for parameterizing layer size in <code>test_forward_error</code>; JointQ overrides to <code>32</code> (requires <code>in_features</code> divisible by <code>pack_factor = 32 // wbits</code>) (<code>tests/onecomp/quantizer/test_module.py</code>)</li>
+<li>Changed JointQ test default <code>bits</code> from <code>1</code> to <code>2</code> to match GPTQLinear packing constraints (<code>tests/onecomp/quantizer/jointq/test_jointq.py</code>)</li>
+<li>Updated <code>check_equal_results</code> in RTN and OneBit tests to use <code>compute_dequantized_weight()</code> instead of direct <code>dequantized_weight</code> attribute access</li>
+<li>Updated <code>apply_quantized_weights</code> in RTN and OneBit tests to use <code>compute_dequantized_weight()</code> with proper dtype preservation</li>
+<li>Tightened GPTQ unit test tolerances in <code>tests/onecomp/quantizer/gptq/test_gptq.py</code> so regressions in dequantized-weight error are detected earlier (<code>error &lt; 0.4</code>, <code>max_error &lt; 1.71</code>; previously <code>0.6</code> / <code>2.5</code>) (<code>tests/onecomp/quantizer/gptq/test_gptq.py</code>)</li>
+<li>Fixed <code>tests/onecomp/quantizer/test_module.py</code> to feed <code>y_replaced</code> consistently into <code>q_proj</code> / <code>k_proj</code> / <code>v_proj</code> after quantized weights are applied, aligning the replacement-path forward test with the intended residual update flow</li>
+<li>Extracted the duplicated attention+MLP forward loop in <code>test_quantize_error</code> into <code>TestModel.forward()</code> (<code>tests/onecomp/quantizer/test_module.py</code>); both the pre-quantization and post-quantization inference paths now call <code>model(inp)</code> directly, eliminating 34 duplicate lines</li>
+</ul>
+<h3 id="dependencies">Dependencies<a class="headerlink" href="#dependencies" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Pinned the <code>vllm</code> optional dependency to <code>vllm&gt;=0.10,&lt;0.22</code> in <code>pyproject.toml</code> (and regenerated <code>uv.lock</code>). vLLM 0.22.0 removed the legacy Exllama GPTQ kernel that OneComp's GPTQ serving uses for low bit-widths (2-/3-bit, and 4-/8-bit models that are asymmetric or use <code>desc_act</code>), so <strong>vLLM 0.22 and later are not supported</strong> — serving affected models on 0.22+ fails at runtime. Documented in <code>docs/user-guide/vllm-inference.md</code> and <code>docs/getting-started/installation.md</code>.</li>
+</ul>
+<h3 id="documentation_1">Documentation<a class="headerlink" href="#documentation_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Documented save/load and vLLM compatibility for the newly-supported <strong>JointQ</strong>, <strong>RTN</strong>, and <strong>OneBit</strong> quantizers across the docs:</li>
+<li><code>docs/api/quantizers/base.md</code>: moved <code>JointQ</code>, <code>RTN</code>, and <code>Onebit</code> into the supported rows of the "Quantizer Feature Support" table (<code>get_quant_config</code> / <code>create_inference_layer</code> / Save / Quantized PPL/ACC all Yes), and added a new "Saved <code>quant_method</code> and vLLM compatibility" table mapping each quantizer to its emitted <code>quant_method</code> (<code>gptq</code> / <code>mixed_gptq</code> / <code>dbf</code> / <code>onebit</code>) and serving path</li>
+<li><code>docs/user-guide/basic-usage.md</code>: updated the quantized-model evaluation note and the "Quantizer feature support" table to include JointQ/RTN/OneBit, added a <code>quant_method</code> column, and clarified which saved models are vLLM-servable</li>
+<li><code>docs/user-guide/vllm-inference.md</code>: rewrote the "Supported Quantization Methods" table to distinguish vLLM's <strong>built-in</strong> GPTQ plugin (used for <code>gptq</code>: GPTQ uniform bits, JointQ, RTN) from the <strong>OneComp</strong> plugins (<code>mixed_gptq</code>, <code>dbf</code>), added a note that <code>Onebit</code> is not vLLM-servable, and listed the GPTQ/JointQ/AutoBit end-to-end examples; split the <code>gptq</code> row so GPTQ/RTN (<code>wbits</code> in {2, 3, 4, 8}) and JointQ (<code>bits</code> in {2, 3, 4}; <code>bits=1</code> is OneComp load-only with <code>pack_weights=False</code>) document their distinct supported bit-widths</li>
+<li><code>docs/algorithms/jointq.md</code>: added a "Save and Load" section (emits <code>quant_method="gptq"</code>, served by vLLM's built-in GPTQ plugin), a note that JointQ <code>bits</code> is limited to {2, 3, 4} for vLLM (the JointQ core quantizer rejects <code>bits &gt; 4</code>) while <code>bits=1</code> requires an explicit <code>runner.save_quantized_model(..., pack_weights=False)</code> and is OneComp load-only / not vLLM-servable, and clarified that JointQ does not support QEP (<code>qep=False</code>)</li>
+<li><code>docs/algorithms/rtn.md</code>: added a "Save and Load" section, a note that vLLM serving uses <code>wbits</code> in {2, 3, 4, 8} (RTN itself accepts a wider range, but GPTQ-compatible bit packing and vLLM serving are limited to these), and a warning that rotation-preprocessed RTN models cannot be served with vLLM (no online Hadamard transform), though they remain loadable with <code>load_quantized_model()</code></li>
+<li><code>docs/getting-started/quickstart.md</code>, <code>docs/index.md</code>, <code>README.md</code>: updated quantized-model evaluation and vLLM integration descriptions to include JointQ/RTN/OneBit and reference the GPTQ built-in plugin path</li>
+</ul>
+<h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>example/vllm_inference/example_jointq_vllm_inference.py</code>: end-to-end JointQ quantization (4-bit, <code>group_size=128</code>) → save → vLLM offline inference. Mirrors the GPTQ vLLM example, uses <code>qep=False</code> (JointQ does not support QEP), and documents the <code>bits &gt;= 2</code> requirement for vLLM bit-packing. Registered in the README example table.</li>
+</ul>
+<h2 id="v111-2026-05-21">[v1.1.1] 2026-05-21<a class="headerlink" href="#v111-2026-05-21" title="Permanent link">&para;</a></h2>
+<h3 id="new-feature-quantization-progress-logging">New Feature: Quantization progress logging<a class="headerlink" href="#new-feature-quantization-progress-logging" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>QuantizationProgressTracker</code> (<code>onecomp/utils/quantization_progress.py</code>) that emits a single <code>[progress]</code> INFO line per completed step with done/total, percentage, elapsed time, and a linear ETA estimate; supports an optional <code>thread_safe=True</code> mode for multi-GPU quantization</li>
+<li>Added <code>report_progress: bool = True</code> flag to <code>Runner.__init__</code> (<code>onecomp/runner.py</code>) and to the underlying entry points <code>run_chunked_quantization</code> (<code>onecomp/runner_methods/chunked_quantization.py</code>), <code>run_multi_gpu_quantization</code> / <code>run_quantization_phase</code> (<code>onecomp/runner_methods/multi_gpu_quantization.py</code>), <code>run_quantize_with_qep</code> (<code>onecomp/qep/_quantize_with_qep.py</code>), and <code>run_quantize_with_qep_arch</code> (<code>onecomp/qep/_quantize_with_qep_arch.py</code>) so long quantization runs (calibration, chunked, multi-GPU, QEP) report progress by default; pass <code>report_progress=False</code> for quiet runs</li>
+<li>Demoted some INFO-level per-layer / per-chunk logs to DEBUG to avoid duplication with the new <code>[progress]</code> line (still available via <code>logging.basicConfig(level=logging.DEBUG)</code> for deep debugging)</li>
+</ul>
+<h3 id="bug-fixes-qep-jointq-validation">Bug fixes: QEP + JointQ validation<a class="headerlink" href="#bug-fixes-qep-jointq-validation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Raise a clear error when <code>Runner</code> is configured with <code>qep=True</code> and a quantizer that does not support QEP (currently <code>JointQ</code>). Previously the run failed deep inside <code>quantize_with_qep</code> / <code>adjust_weight</code> with a confusing low-level error. <code>Runner.check()</code> now reports e.g. "Quantizer 'JointQ' (or one of its candidate quantizers) does not support QEP (Quantization Error Propagation). Set qep=False, or use a QEP-compatible quantizer (e.g., GPTQ, DBF, AutoBitQuantizer with QEP-compatible candidates)." Implementation: added <code>flag_qep_supported</code> (default <code>True</code>) on <code>Quantizer</code>, set to <code>False</code> on <code>JointQ</code>, and propagated via <code>AutoBitQuantizer._sync_flags</code> (only <code>True</code> when <em>all</em> candidate quantizers support QEP) (<code>quantizer/_quantizer.py</code>, <code>quantizer/jointq/_jointq.py</code>, <code>quantizer/autobit/_autobit.py</code>, <code>runner.py</code>).</li>
+</ul>
+<h3 id="bug-fixes-vlm-save-load">Bug fixes: VLM save / load<a class="headerlink" href="#bug-fixes-vlm-save-load" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Runner.save_quantized_model()</code> now copies all auxiliary <code>*.json</code> and <code>*.jinja</code> files (e.g. <code>preprocessor_config.json</code>, <code>processor_config.json</code>, <code>special_tokens_map.json</code>, <code>chat_template.jinja</code>) from the original model directory to the save directory, so the quantized model is fully self-contained for VLM / multimodal inference. Weight tensors (<code>*.safetensors</code>, <code>*.bin</code>, <code>*.pt</code>, <code>*.pth</code>), weight index files, <code>config.json</code> and <code>generation_config.json</code> are skipped, and any file already written by <code>model.save_pretrained</code> / <code>tokenizer.save_pretrained</code> is preserved (<code>runner.py</code>).</li>
+<li>Source-model directory resolution (incl. <code>huggingface_hub.snapshot_download</code> fallback for Hub IDs) was extracted into a private helper <code>Runner._resolve_source_model_dir()</code> (<code>runner.py</code>).</li>
+<li><code>load_quantized_model()</code> now re-establishes the <code>lm_head</code> &lt;-&gt; <code>embed_tokens</code> weight tie for models with <code>tie_word_embeddings=True</code>. <code>load_state_dict(..., assign=True)</code> would otherwise leave <code>lm_head.weight</code> as the freshly initialised tensor (typically <code>float16</code>) while <code>embed_tokens.weight</code> got replaced with the checkpoint tensor (typically <code>bfloat16</code>), causing <code>RuntimeError: expected mat1 and mat2 to have the same dtype</code> at the final <code>lm_head</code> matmul during generation. The re-tie is gated on <code>lm_head</code> still being an <code>nn.Linear</code> so it does not interfere when <code>lm_head</code> itself was quantized (<code>quantized_model_loader.py</code>).</li>
+<li><code>load_quantized_model()</code> now reads <code>torch_dtype</code> from <code>config.json</code> when no explicit <code>torch_dtype</code> is passed by the caller, so the empty model is built in the same dtype as the saved checkpoint. Previously it always defaulted to <code>torch.float16</code>, which left non-quantized VLM submodules (e.g. <code>multi_modal_projector</code> in Cohere2Vision) at fp16 whenever <code>load_state_dict(..., assign=True)</code> could not find their key in the state_dict (<code>quantized_model_loader.py</code>).</li>
+<li><code>load_quantized_model()</code> now casts any leftover <code>float16</code> parameters and buffers of non-quantized modules to <code>model.config.torch_dtype</code> after the <code>lm_head</code> re-tie step. Quantized layers (<code>GPTQLinear</code>, <code>DoubleBinaryLinear</code>) and <code>float32</code> params (e.g. fp32 LayerNorm in mixed-precision models) are deliberately untouched. This generalises the existing <code>lm_head</code> re-tie to any non-quantized module and fixes the dtype mismatch reported in issue 64-3 (<code>RuntimeError: ... c10::Half != c10::BFloat16</code> on VLM image features) (<code>quantized_model_loader.py</code>).</li>
+<li>Added regression tests <code>tests/onecomp/runner/test_save_quantized_aux_files.py</code> (auxiliary-file copy whitelist), <code>tests/onecomp/runner/test_load_tied_embeddings.py</code> (tied-embedding dtype round-trip) and <code>tests/onecomp/runner/test_load_excluded_module_dtype.py</code> (non-quantized module dtype handling, including config-based empty-model dtype default, fp16 safety-net cast, fp32 preservation, and quantized-layer skip).</li>
+<li>Loosened <code>test_save_load_pipeline_tinyllama.py</code> and <code>test_save_load_pipeline_qwen3.py</code> save/load round-trip threshold from absolute <code>1e-3</code> to relative <code>1%</code> of the per-tensor logits magnitude (<code>tests/onecomp/pre_process/test_save_load_pipeline_*.py</code>). The original absolute bound was below fp16's representable precision once accumulated through the 22-28 decoder layers of TinyLlama / Qwen3, causing the <code>gptq + save_dequantized</code> cases to fail on aarch64 + Blackwell (GB200) where cuBLAS picks slightly different reduction kernels than reference x86_64 / Hopper hosts. The save/load equivalence intent is preserved via the relative comparison, which is robust to platform-specific fp16 rounding noise.</li>
+<li>Set <code>gpu_memory_utilization=0.78</code> explicitly when constructing <code>LLM(...)</code> in <code>example/vllm_inference/example_autobit_vllm_inference.py</code> and <code>example/vllm_inference/example_gptq_vllm_inference.py</code>. The vLLM default <code>0.92</code> cgroup-OOMs on UMA hosts (e.g. DGX Spark / GB200, 121.7 GiB UMA) because vLLM's startup memory check fails: the residual quantizer process leaves only ~106 GiB free, which is below <code>0.92 * 121.7 = 111.96 GiB</code>. <code>0.78</code> matches the value already used in <code>tests/vllm_plugins/gptq/test_mixed_gptq_e2e.py</code> and is documented in the workspace <code>slurm-submit.mdc</code> rule.</li>
+</ul>
+<h3 id="logging-observability-tweaks">Logging / observability tweaks<a class="headerlink" href="#logging-observability-tweaks" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Runner._copy_auxiliary_files()</code> now emits a matter-of-fact <code>INFO</code>-level log when an auxiliary file from the original model directory is <em>not</em> copied because the destination already contains a file of the same name (typically because <code>tokenizer.save_pretrained</code> wrote it just before, or a previous <code>save_quantized_model</code> call did). The new line is symmetrical to the existing <code>Copied %s to save directory</code> entry so the auxiliary-copy step can be audited end-to-end (<code>runner.py</code>).</li>
+<li><code>QuantizedModelLoader._cast_fp16_to_target_dtype()</code> now returns the list of fully-qualified parameter / buffer names whose dtype was actually converted instead of a plain count. The post-load <code>INFO</code> log in <code>load_quantized_model()</code> includes those names so it is obvious which non-quantized submodules were normalised by the safety-net cast (e.g. <code>multi_modal_projector.linear_*</code> in Cohere2Vision). Existing tests are updated accordingly and a new test pins the buffer-name reporting (<code>quantized_model_loader.py</code>, <code>tests/onecomp/runner/test_load_excluded_module_dtype.py</code>, <code>tests/onecomp/runner/test_save_quantized_aux_files.py</code>).</li>
+<li><code>QuantizedModelLoader.load_quantized_model()</code> now detects <code>tie_word_embeddings=True</code> even when the flag is nested in a sub-config (e.g. <code>model.config.text_config.tie_word_embeddings</code> in Llama 3.2-Vision and other torchtune-derived VLMs) by walking one level of sub-configs. Previously the flag was only read from the top-level <code>model.config</code>, so VLMs that placed it in <code>text_config</code> skipped the post-load re-tie; with HF deduplicating <code>lm_head.weight</code> for tied checkpoints, that left <code>lm_head.weight</code> at the empty-model random initial values rather than re-pointing to <code>embed_tokens.weight</code> (<code>quantized_model_loader.py</code>).</li>
+</ul>
+<h3 id="tests_1">Tests<a class="headerlink" href="#tests_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added regression tests for the save/load fixes above: <code>tests/onecomp/runner/test_save_quantized_aux_files.py</code> (auxiliary-file copy whitelist), <code>tests/onecomp/runner/test_load_tied_embeddings.py</code> (tied-embedding dtype round-trip), and <code>tests/onecomp/runner/test_load_excluded_module_dtype.py</code> (non-quantized module dtype handling, including config-based empty-model dtype default, fp16 safety-net cast, fp32 preservation, and quantized-layer skip).</li>
+<li>Added <code>tests/onecomp/test_runner_check.py</code> for the new <code>qep=True</code> validation path: JointQ + qep=True raises a clear <code>ValueError</code>, while JointQ + qep=False and GPTQ + qep=True both pass <code>Runner.check()</code>.</li>
+<li>Added <code>tests/onecomp/runner/test_load_tied_embeddings.py::test_should_retie_word_embeddings_*</code> unit tests covering top-level, nested-text-config, all-False and unrelated-sub-attribute shapes.</li>
+</ul>
+<h3 id="new-contributors_1">New Contributors<a class="headerlink" href="#new-contributors_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><a href="https://github.com/sotanengel">@sotanengel</a> made their first contribution in <a href="https://github.com/FujitsuResearch/OneCompression/pull/13">#13</a></li>
+</ul>
+<h2 id="v110-2026-04-16">[v1.1.0] 2026-04-16<a class="headerlink" href="#v110-2026-04-16" title="Permanent link">&para;</a></h2>
+<h3 id="gemma-3-gemma-4-vlm-support">Gemma 3 / Gemma 4 &amp; VLM Support<a class="headerlink" href="#gemma-3-gemma-4-vlm-support" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Auto-detect <code>language_model</code> / <code>text_model</code> sub-modules in <code>setup()</code> so only the language model is quantized; <code>vision_tower</code>, <code>audio_tower</code>, etc. are automatically excluded (<code>quantizer/_quantizer.py</code>)</li>
+<li>Added <code>unfuse_moe.py</code>: MoE models (e.g. Gemma 4) store all expert weights as fused 3D <code>nn.Parameter</code> tensors (<code>gate_up_proj [E, 2*inter, hidden]</code>, <code>down_proj [E, hidden, inter]</code>), but GPTQ and other layer-wise PTQ methods require 2D <code>nn.Linear</code> layers. <code>unfuse_moe_experts()</code> splits the fused tensors into per-expert modules, producing paths like <code>experts.0.gate_proj</code>, <code>experts.0.up_proj</code>, <code>experts.0.down_proj</code> (<code>utils/unfuse_moe.py</code>)</li>
+<li>Set <code>quant_method</code> to <code>mixed_gptq</code> for MoE models during save, enabling vLLM to handle a mix of quantized and unquantized expert layers via <code>UnquantizedFusedMoEMethod</code> (<code>runner.py</code>)</li>
+<li>Introduced <code>prepare_block_kwargs</code> to reproduce Gemma 4-specific additional inputs during block-wise forward (<code>runner_methods/chunked_quantization.py</code>, <code>qep/_quantize_with_qep_arch.py</code>)</li>
+<li><code>_per_layer_inputs</code>: pre-compute per-layer embeddings for all calibration samples</li>
+<li><code>_position_embeddings_map</code>: hook into <code>rotary_emb</code> to capture position embeddings per layer type</li>
+<li><code>_attention_mask_map</code>: pre-compute masks per layer type via <code>create_causal_mask</code> / <code>create_sliding_window_causal_mask</code></li>
+<li>Updated <code>Catcher.forward</code> to accept <code>*args</code> (Gemma 4 passes <code>per_layer_input</code> as a positional argument)</li>
+<li>Added a guard to safely skip KV-shared layers where <code>k_proj</code> / <code>v_proj</code> are never called during forward and X^TX is not accumulated (<code>runner_methods/chunked_quantization.py</code>)</li>
+<li>Added <code>token_type_ids</code> (<code>mm_token_type_ids</code>) required by Gemma 4 to calibration data and PPL computation (<code>utils/calibration.py</code>, <code>utils/perplexity.py</code>)</li>
+<li>Added <code>model</code> argument to <code>prepare_calibration_dataset</code>; model-specific inputs are appended via <code>add_model_specific_inputs()</code></li>
+<li>Changed <code>model.device</code> to <code>next(model.parameters()).device</code> to support VLM <code>device_map="auto"</code></li>
+<li>Fixed MoE block partitioning (<code>down_proj</code> and <code>router.proj</code> were incorrectly placed in the same block) and relaxed Hessian input shape assertion for 2D tensors after router dispatch</li>
+<li>Added layer-suffix fallback lookup for Gemma 3's shared sub-modules where <code>named_modules()</code> paths differ from <code>state_dict()</code> keys (<code>quantized_model_loader.py</code>)</li>
+<li><code>save_quantized_model()</code> now copies <code>processor_config.json</code> from the source model so the quantized model directory is self-contained for multi-modal inference (<code>runner.py</code>)</li>
+<li>Added skip logic in vLLM plugin to prevent vision / audio encoder layers from being incorrectly matched to language model quantization configs (<code>vllm_plugins/utils/module.py</code>)</li>
+<li>Override <code>ModelConfig</code> <code>dtype</code> to <code>bfloat16</code> for Gemma 3/4 models whose values exceed the float16 range, preventing performance degradation (<code>model_config.py</code>)</li>
+<li>Fixed an issue where non-language-model layers in multi-modal models were included in AutoBit bit allocation</li>
+<li>Bumped <code>transformers</code> requirement from <code>&gt;= 5.3.0</code> to <code>&gt;= 5.5.0</code> (<code>pyproject.toml</code>)</li>
+<li>Gemma 4's <code>model_type: gemma4</code> is registered in <code>CONFIG_MAPPING</code> starting from 5.5.0 (released 2026-04-02); 5.3.0 fails to load it</li>
+<li>Added <code>cu130</code> extra for the validation environment (NVIDIA B200, CUDA 13.0); under <code>cu128</code>, torch (cu130) and torchvision (cu128) had a CUDA version mismatch</li>
+</ul>
+<h3 id="new-feature-lpcd-layer-projected-coordinate-descent">New Feature: LPCD (Layer-Projected Coordinate Descent)<a class="headerlink" href="#new-feature-lpcd-layer-projected-coordinate-descent" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>onecomp/lpcd/</code> sub-package implementing the LPCD unified framework (arXiv:2512.01546) that extends layer-wise PTQ by jointly optimising sub-module groups (QK / VO / MLP / residual) with closed-form and gradient-based solvers</li>
+<li>Added <code>benchmark/llama3-8b-lpcd-gptq/</code>: Llama-3-8B LPCD+GPTQ SLURM array benchmark (Hydra config <code>conf/benchmark_llama3-8b.yaml</code>, <code>quant_benchmark.py</code>, <code>README.md</code> with WikiText-2 PPL / lm-eval-harness accuracy / quantization time for 4-bit and 3-bit × {q_proj·k_proj, v_proj·o_proj, up_proj·down_proj, all, residual} on NVIDIA B200)</li>
+<li>Added <code>example/example_lpcd_gptq.py</code>: TinyLlama GPTQ 3-bit (groupsize=128) + QEP + LPCD end-to-end example with residual-only closed-form refinement (<code>enable_residual=True</code>, <code>use_closed_form=True</code>) and original / dequantized / quantized perplexity reporting</li>
+<li>Updated <code>README.md</code>: added LPCD to Features, Examples, and Citation sections</li>
+</ul>
+<h3 id="new-feature-blockwiseptq">New Feature: BlockWisePTQ<a class="headerlink" href="#new-feature-blockwiseptq" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Implemented <code>BlockWisePTQ.run()</code> pipeline (<code>onecomp/post_process/blockwise_ptq.py</code>)</li>
+<li>Phase 1: per-block distillation with teacher model (GPTQ / DBF / OneBit / Generic)</li>
+<li>Phase 2: Cross-Block Quantisation (CBQ) sliding-window optimisation (K=2)</li>
+<li>Teacher model loaded via <code>model_config.load_model(device_map="cpu")</code></li>
+<li>Calibration inputs collected via Catcher hook on first transformer block</li>
+<li>Added <code>onecomp/post_process/_blockwise/</code> sub-package (9 modules)</li>
+<li><code>helpers.py</code>: <code>collect_layer_inputs</code>, <code>auto_detect_quantization_strategy</code>, <code>get_transformer_layers</code>, <code>layer_kwargs_to_device</code>, etc.</li>
+<li>Phase 1 optimisers: <code>gptq_block_optimizer.py</code>, <code>dbf_block_optimizer.py</code>, <code>onebit_block_optimizer.py</code>, <code>generic_block_optimizer.py</code></li>
+<li>Phase 2 CBQ optimisers: <code>gptq_cbq_optimizer.py</code>, <code>dbf_cbq_optimizer.py</code>, <code>onebit_cbq_optimizer.py</code></li>
+<li>All optimisers use float32 promotion, best-state tracking with rollback, and hard MSE evaluation</li>
+<li>Set <code>use_gemlite=False</code> in <code>Runner.run_post_processes()</code> (<code>onecomp/runner.py</code>) to avoid GemLite fp16-only Triton kernel incompatibility with float32 block optimisation</li>
+<li>Added VLM support for BlockWisePTQ (Qwen3-VL, Qwen2.5-VL, etc.)</li>
+<li><code>helpers.py</code>: <code>get_transformer_layers</code> / <code>_get_language_model_backbone</code> handle <code>model.model.language_model.*</code> path</li>
+<li><code>model_config.py</code>: <code>load_model()</code> falls back to <code>AutoModelForImageTextToText</code> for VLM configs</li>
+<li>Fixed <code>Quantizer.calculate_hessian</code> / <code>calculate_delta_hatX</code> (<code>onecomp/quantizer/_quantizer.py</code>): handle 2D activations from OPT-style architectures</li>
+</ul>
+<h3 id="quantizer-unification">Quantizer Unification<a class="headerlink" href="#quantizer-unification" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Unified scale/zero/integer logic across <code>WeightQuantizer</code>, <code>RTN</code>, and <code>GPTQExcecutor</code> for both symmetric and asymmetric quantisation</li>
+<li><code>WeightQuantizer.configure</code> / <code>find_params</code> / <code>quantize</code> (<code>quant_models.py</code>), <code>STEQuantize.forward</code> (<code>quant_models.py</code>), <code>pseudo_quantize_tensor</code> / <code>quantize</code> (<code>rtn/quantizer.py</code>), <code>GPTQExcecutor.configure</code> / <code>find_params</code> (<code>gptq/_gptq.py</code>)</li>
+<li>Added optional MSE grid search (<code>mse</code>, <code>norm</code>, <code>grid</code>) to <code>WeightQuantizer</code>, <code>RTN</code>, and <code>prepare_rotated_model</code></li>
+<li><code>WeightQuantizer.configure</code> / <code>find_params</code> (<code>quant_models.py</code>), <code>pseudo_quantize_tensor</code> (<code>rtn/quantizer.py</code>), <code>run_rtn</code> (<code>rtn/rtn_impl.py</code>), <code>RTN</code> dataclass / <code>validate_params</code> (<code>rtn/_rtn.py</code>), <code>prepare_rotated_model</code> (<code>prepare_rotated_model.py</code>), <code>apply_preprocess_train</code> / <code>_insert_weight_quantizer</code> (<code>train_rotation.py</code>)</li>
+<li>Removed <code>perchannel</code> and <code>maxshrink</code> from public APIs; <code>perchannel=True</code> is now always used internally</li>
+<li>Removed from <code>RTN</code> dataclass (<code>rtn/_rtn.py</code>) and <code>prepare_rotated_model</code> (<code>prepare_rotated_model.py</code>). Internally, <code>run_rtn</code> (<code>rtn/rtn_impl.py</code>) and <code>_insert_weight_quantizer</code> (<code>train_rotation.py</code>) pass <code>perchannel=True</code> unconditionally. Low-level APIs <code>pseudo_quantize_tensor</code> (<code>rtn/quantizer.py</code>) and <code>WeightQuantizer.configure</code> (<code>quant_models.py</code>) still accept the parameters</li>
+</ul>
+<h3 id="rotation-preprocessing-improvements">Rotation Preprocessing Improvements<a class="headerlink" href="#rotation-preprocessing-improvements" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>"random_hadamard"</code> and <code>"hadamard"</code> rotation modes (existing: <code>"random"</code>, <code>"identity"</code>)</li>
+<li><code>PreprocessManager._ortho</code> (<code>train_rotation.py</code>), <code>_VALID_ROTATION_MODES</code> (<code>prepare_rotated_model.py</code>)</li>
+<li>Changed <code>prepare_rotated_model</code> defaults: <code>rotation_mode</code> → <code>"random_hadamard"</code>, <code>num_calibration_samples</code> → <code>512</code></li>
+<li><code>prepare_rotated_model</code> (<code>prepare_rotated_model.py</code>), <code>PreprocessManager.__init__</code> (<code>train_rotation.py</code>)</li>
+<li>Added input validation (<code>_validate_prepare_rotated_model_params</code>) for all <code>prepare_rotated_model</code> parameters</li>
+<li><code>_validate_prepare_rotated_model_params</code> (<code>prepare_rotated_model.py</code>)</li>
+<li>Added per-step and total execution time logging to <code>prepare_rotated_model</code></li>
+<li><code>prepare_rotated_model</code> (<code>prepare_rotated_model.py</code>): timed sections for model load, calibration prep, training, reload, <code>apply_preprocess_eval</code>, and save</li>
+<li>Added explicit <code>gradient_accumulation_steps=1</code> to <code>TrainingArguments</code> defaults</li>
+<li><code>TrainingArguments.gradient_accumulation_steps</code> (<code>preprocess_args.py</code>)</li>
+</ul>
+<h3 id="autobit-per-quantizer-groupsize-support">AutoBit: per-quantizer groupsize support<a class="headerlink" href="#autobit-per-quantizer-groupsize-support" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>AutoBitQuantizer</code> supports each candidate quantizer's <code>groupsize</code> individually, enabling mixed group-size configurations (<code>onecomp/quantizer/autobit/_autobit.py</code>)</li>
+<li>RTN error evaluation uses per-quantizer grouped quantisation (<code>onecomp/quantizer/autobit/ilp.py</code>)</li>
+<li>Added test for mixed group-size autobit (<code>tests/onecomp/quantizer/autobit/test_autobit.py</code>)</li>
+<li>Remove default quantizer from AutoBit; a quantizer must be explicitly provided. (<code>onecomp/quantizer/autobit/_autobit.py</code>)</li>
+</ul>
+<h3 id="calibrationconfig-unified-calibration-configuration">CalibrationConfig: unified calibration configuration<a class="headerlink" href="#calibrationconfig-unified-calibration-configuration" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Breaking change:</strong> Introduced <code>CalibrationConfig</code> dataclass (<code>onecomp/calibration/calibration_config.py</code>) to consolidate all calibration-related parameters</li>
+<li><code>Runner.__init__</code> now accepts <code>calibration_config: CalibrationConfig</code> instead of individual parameters (<code>calibration_dataset</code>, <code>max_length</code>, <code>num_calibration_samples</code>, <code>calibration_strategy</code>, <code>calibration_seed</code>, <code>calibration_batch_size</code>, <code>num_layers_per_group</code>)</li>
+<li><code>AutoBitQuantizer</code> now accepts <code>calibration_config: CalibrationConfig</code> instead of <code>num_calib_samples</code>, <code>calib_seqlen</code>, <code>calibration_dataset</code></li>
+<li><code>prepare_rotated_model()</code> now accepts <code>calibration_config: CalibrationConfig</code> instead of <code>calibration_dataset</code>, <code>max_length</code>, <code>num_calibration_samples</code>, <code>calibration_strategy</code></li>
+<li><code>BlockWisePTQ</code> now accepts <code>calibration_config: CalibrationConfig</code> instead of <code>num_calibration_samples</code>, <code>max_length</code>, <code>calibration_strategy</code>, <code>calibration_seed</code></li>
+<li>When <code>calibration_config=None</code>, default values are created automatically (<code>calibration_dataset="c4"</code>, <code>max_length=2048</code>, <code>num_calibration_samples=512</code>)</li>
+<li>New user-configurable parameters exposed via <code>CalibrationConfig</code>: <code>text_key</code>, <code>use_quality_filter</code>, <code>max_documents</code> (previously hard-coded in <code>calibration_data_loader.py</code>)</li>
+<li>Added cross-validation in <code>Runner.check()</code>: if both Runner and AutoBitQuantizer specify <code>calibration_dataset</code>, they must match</li>
+<li>Removed backward-compatibility re-exports from <code>onecomp/utils/__init__.py</code> (<code>prepare_calibration_dataset</code>, <code>load_c4_for_aligned_chunks</code>, <code>load_c4_for_n_samples_min_length</code>); import from <code>onecomp.calibration</code> instead</li>
+<li>Added unit tests for calibration module (<code>tests/onecomp/calibration/</code>)</li>
+<li>Internal functions now accept <code>CalibrationConfig</code> directly instead of individual parameters:</li>
+<li><code>prepare_calibration_dataset()</code> (<code>calibration_data_loader.py</code>): replaced 8 individual parameters with <code>calibration_config: CalibrationConfig</code> (required argument)</li>
+<li><code>run_chunked_quantization()</code> (<code>runner_methods/chunked_quantization.py</code>): <code>calibration_dataset</code>, <code>max_length</code>, <code>num_calibration_samples</code>, <code>calibration_strategy</code>, <code>calibration_seed</code>, <code>calibration_batch_size</code>, <code>num_layers_per_group</code> replaced by <code>calibration_config</code></li>
+<li><code>run_multi_gpu_quantization()</code>, <code>run_capture_phase()</code>, <code>get_calibration_config_dict()</code> (<code>runner_methods/multi_gpu_quantization.py</code>): same consolidation</li>
+<li><code>run_quantize_with_qep()</code> (<code>qep/_quantize_with_qep.py</code>), <code>run_quantize_with_qep_arch()</code> (<code>qep/_quantize_with_qep_arch.py</code>): same consolidation</li>
+<li><code>collect_activation_stats_blockwise()</code> (<code>quantizer/autobit/activation_stats.py</code>): <code>num_samples</code>, <code>seqlen</code>, <code>calibration_dataset</code> replaced by <code>calibration_config</code></li>
+<li>Code quality improvements:</li>
+<li><code>CalibrationConfig.calibration_dataset</code> defaults to <code>"c4"</code> instead of <code>None</code> (no more implicit fallback)</li>
+<li>Removed implicit dataset inheritance from quantizer to Runner; use explicit <code>CalibrationConfig</code> instead</li>
+<li>Cross-validation uses <code>isinstance(quantizer, AutoBitQuantizer)</code> instead of duck typing</li>
+<li>Consolidated <code>from .calibration import CalibrationConfig, prepare_calibration_dataset</code> into single import</li>
+<li>Added missing <code>"concat_rand"</code> strategy to <code>prepare_calibration_dataset()</code> docstring</li>
+<li>Documented <code>batch_size</code> and <code>num_layers_per_group</code> in <code>CalibrationConfig</code> as chunked-quantization-only parameters</li>
+</ul>
+<h3 id="calibration-data-support-wikitext-2-custom-datasets-and-c4-quality-filtering">Calibration data: support WikiText-2, custom datasets, and C4 quality filtering<a class="headerlink" href="#calibration-data-support-wikitext-2-custom-datasets-and-c4-quality-filtering" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Refactored <code>onecomp/utils/calibration.py</code> into <code>onecomp/calibration/</code> folder with submodules</li>
+<li><code>calibration_data_loader.py</code>: unified entry point <code>prepare_calibration_dataset()</code> that dispatches by dataset name or file path</li>
+<li><code>c4.py</code>: C4 dataset loader with optional quality filtering (<code>check_text_quality()</code>)</li>
+<li><code>wikitext.py</code>: WikiText-2 dataset loader (new; loads from <code>Salesforce/wikitext</code>)</li>
+<li><code>custom.py</code>: custom dataset loader supporting <code>.txt</code>, <code>.json</code>, <code>.jsonl</code>, <code>.csv</code>, <code>.tsv</code>, <code>.parquet</code>, <code>.arrow</code>, and HuggingFace Dataset directories</li>
+<li><code>chunking.py</code>: shared chunking strategies (<code>concat_chunk</code>, <code>concat_chunk_align</code>, <code>concat_rand</code>, <code>drop_head</code>, <code>drop_rand</code>) extracted as reusable helpers</li>
+<li>Added <code>calibration_dataset</code> parameter to <code>AutoBitQuantizer</code> to specify the calibration data source (<code>onecomp/quantizer/autobit/_autobit.py</code>)</li>
+</ul>
+<h3 id="jointq">JointQ:<a class="headerlink" href="#jointq" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>incremental_lambda</code> regularization mode (<code>lambda_mode="incremental_lambda"</code>): for each layer, tries increasing lambda values from <code>lambda_list</code> with warm start, accepting candidates that improve weight error without substantially degrading output error. Stops at the first rejection. Controlled by <code>lambda_list</code>, <code>incremental_eps_y</code>, <code>incremental_eps_w</code> parameters</li>
+<li>Added <code>incremental_initial_skip_ew_threshold</code> to skip an unstable initial <code>lambda=0.0</code> candidate when its relative weight error is excessively large</li>
+<li>Added <code>accepted_lambda</code> field to <code>JointQResult</code> to record the per-layer lambda chosen in incremental mode</li>
+<li>Added <code>execute_post_processing</code> override to log accepted lambda statistics (mean, median, min, max, per-value counts) after all layers are quantized</li>
+<li>Added <code>regularization_mode</code> parameter: <code>"identity"</code> (standard Tikhonov λI) or <code>"diagonal"</code> (default, importance-aware λ·diag(a) where a_i scales with activation magnitude). Diagonal mode reduces over-regularization of less important columns. Only supported with <code>fixed_lambda</code> mode</li>
+<li>Added <code>regularization_gamma</code> parameter (default 0.5): exponent for diagonal weights in <code>"diagonal"</code> mode; smaller values reduce the spread between weak and strong columns</li>
+<li>Added initialization strategy control: <code>enable_clip_optimize</code>, <code>enable_clip_optimize_ep</code>, <code>enable_gptq</code> parameters to <code>JointQ</code> class</li>
+<li>Added <code>gptq</code> attribute (<code>GPTQ</code> instance) to <code>JointQ</code> class for customizing GPTQ parameters (<code>blocksize</code>, <code>percdamp</code>, <code>mse</code>, <code>q_grid</code>, <code>q_norm</code>). Default GPTQ is auto-created from <code>bits</code>/<code>group_size</code>/<code>symmetric</code></li>
+<li>Replaced JointQ internal GPTQ module (<code>jointq/core/gptq.py</code>) with OneComp GPTQ (<code>onecomp.quantizer.gptq.GPTQ</code>); GPTQ initial solution is now generated via the shared GPTQ implementation</li>
+<li>Improved numerical stability of scale optimization for ill-conditioned matrices</li>
+<li>Fixed potential division-by-zero in scale computation</li>
+</ul>
+<h3 id="breaking-changes_1">Breaking Changes<a class="headerlink" href="#breaking-changes_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>AutoBitQuantizer.enable_fused_groups</code> now defaults to <code>True</code></strong> (<code>onecomp/quantizer/autobit/_autobit.py</code>)</li>
+<li>Ensures that vLLM fused layers (qkv_proj, gate_up_proj) are assigned the same quantizer (same bits and groupsize), which is required for vLLM inference.</li>
+<li>Previously defaulted to <code>False</code>, which could cause vLLM to reject the model at load time when fused-layer constituents had mismatched configurations.</li>
+<li><code>Runner.auto_run()</code> already set <code>enable_fused_groups=True</code>, so this change has no effect on <code>auto_run</code> users.</li>
+<li><strong>Migration:</strong> If you use <code>AutoBitQuantizer</code> with candidate bit-widths not supported by vLLM (e.g. <code>wbits=5</code>), pass <code>enable_fused_groups=False</code> explicitly.</li>
+<li>Quantisation levels unified to unsigned <code>[0, 2^b − 1]</code> (symmetric uses centred zero point); rounding order changed from <code>round(x/s + z)</code> to <code>round(x/s) + z</code>. Outputs are not bit-exact with prior RTN versions</li>
+<li>Changed <code>prepare_rotated_model</code> defaults: <code>rotation_mode</code> <code>"random"</code> → <code>"random_hadamard"</code>, <code>num_calibration_samples</code> <code>128</code> → <code>512</code></li>
+<li>Introduced <code>CalibrationConfig</code> dataclass; see CalibrationConfig section above for migration details</li>
+<li><code>JointQ</code> class: removed <code>batch_size</code> parameter (use <code>onecomp.quantizer.jointq.core.quantize()</code> directly if batch processing is needed)</li>
+<li><code>JointQ</code>: GPTQ initial solution is now generated via OneComp GPTQ instead of the internal implementation. Quantization results are not bit-exact with prior versions (quality is equivalent or improved)</li>
+<li><strong><code>JointQ</code> regularization defaults changed</strong> (<code>onecomp/quantizer/jointq/_jointq.py</code>)</li>
+<li><code>regularization_lambda</code>: <code>0.2</code> → <code>0.1</code></li>
+<li><code>regularization_mode</code>: <code>"identity"</code> → <code>"diagonal"</code></li>
+<li>Quantization results are not bit-exact with prior versions.</li>
+<li><strong>Migration:</strong> to reproduce the previous behavior, pass
+    <code>JointQ(..., regularization_lambda=0.2, regularization_mode="identity")</code> explicitly.</li>
+</ul>
+<h3 id="bug-fix_5">Bug Fix<a class="headerlink" href="#bug-fix_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fixed <code>model_config.py</code>: <code>load_model()</code> VLM fallback did not trigger for models raising <code>"Unrecognized configuration class"</code> (e.g. Cohere2VisionForConditionalGeneration). Added the error pattern to <code>_vlm_hints</code></li>
+<li>Fixed <code>gptq/_gptq.py</code>: Cholesky decomposition in <code>run_gptq</code> could fail with <code>LinAlgError</code> on ill-conditioned Hessians (observed on large VLMs at deeper layers). Extracted <code>_compute_inverse_hessian()</code> with progressive damping fallback (up to 5 retries, 10x damping increase per retry). No impact on normal operation</li>
+<li>Fixed <code>TypeError</code> in <code>QuantLinear.forward</code> when <code>S_qk</code> scaling was applied to MLP layers (<code>onecomp/pre_process/quant_models.py</code>)</li>
+<li>Fixed <code>JointQ</code> <code>group_size=None</code> (per-channel quantization) raising <code>TypeError</code></li>
+<li>Fixed wrong module grouping in <code>make_grouped_module</code> where GC-driven <code>id()</code> reuse caused attention projections (q/k/v) and MLP projections (gate/up) to be merged into the same group.  (<code>qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Fixed silent weight corruption in <code>GPTQLinear</code> when <code>qzero=0</code> was stored through the GPTQ v1 zero-point path (<code>onecomp/quantizer/gptq/gptq_layer.py</code>)</li>
+<li>Root cause: AutoGPTQ v1 stores <code>raw_zero - 1</code>, so <code>qzero=0</code> becomes <code>-1</code>; without masking, its sign-extended bits corrupted neighboring packed slots</li>
+<li>Pack-side fix (<code>_pack_rows</code>): mask each value with <code>(1 &lt;&lt; wbits) - 1</code> before shift/OR (2/4/8-bit and 3-bit paths)</li>
+<li>Forward-side fix (<code>GPTQLinear.forward</code>): apply <code>&amp; wbits_mask</code> after the v1 <code>+1</code> restoration so stored <code>2^wbits - 1</code> wraps back to <code>0</code>; the <code>gptq_v2</code> path remains unchanged</li>
+<li>Added regression tests for per-slot pack corruption, packed/unpacked forward paths, the <code>gptq_v2</code> branch, and the <code>from_saved_state</code> path for GPTQ v1 tensors</li>
+<li><strong>NOTE</strong>: If you have GPTQ models quantized with previous versions, please re-quantize them with this release, as they may contain corrupted internal data.</li>
+</ul>
+<h3 id="examples_1">Examples<a class="headerlink" href="#examples_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>example/example_custom_calibration.py</code>: Demonstrates <code>CalibrationConfig</code> with a custom calibration dataset (Python code snippets in <code>example/data/python_calibration.txt</code>).  Quantizes TinyLlama with GPTQ 3-bit using both default C4 and custom Python-code calibration, then compares inference outputs across multiple prompts to show how calibration data choice affects quantization quality.</li>
+<li>Added <code>example/post_process/example_blockwise_ptq.py</code>: GPTQ 4-bit quantization + BlockWisePTQ (Phase 1 greedy + Phase 2 CBQ) with PPL comparison</li>
+<li>Added <code>example/example_lpcd_gptq.py</code>: TinyLlama GPTQ 3-bit (groupsize=128) + QEP + LPCD end-to-end example (residual-only closed-form refinement, original / dequantized / quantized perplexity reporting)</li>
+<li>Updated <code>example/vllm_inference/example_gptq_vllm_inference.py</code>: changed model to <code>TinyLlama-1.1B-Chat-v1.0</code> (chat model), disabled QEP, added <code>CalibrationConfig(num_calibration_samples=128, max_length=512)</code></li>
+<li>Added <code>NOTE</code> comments across all <code>example/</code> scripts (<code>example_gptq.py</code>, <code>example_qep_gptq.py</code>, <code>example_jointq.py</code>, <code>example_autobit.py</code>, <code>example_save_load.py</code>, <code>example_lpcd_gptq.py</code>, <code>example_custom_calibration.py</code>, <code>post_process/example_blockwise_ptq.py</code>, <code>post_process/example_lora_sft.py</code>, <code>post_process/example_lora_sft_knowledge.py</code>, <code>pre_process/example_preprocess_save_load.py</code>, <code>vllm_inference/example_gptq_vllm_inference.py</code>) clarifying that the compact <code>CalibrationConfig(max_length=512, num_calibration_samples=128)</code> settings are demo-only and recommending the <code>CalibrationConfig()</code> defaults (<code>max_length=2048</code>, <code>num_calibration_samples=512</code>) for real quantisation; <code>qep=False</code> examples additionally recommend setting <code>batch_size</code> so that <code>Runner.quantize_with_calibration_chunked</code> is used with large calibration data</li>
+</ul>
+<h3 id="documentation_2">Documentation<a class="headerlink" href="#documentation_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Updated <code>docs/algorithms/jointq.md</code>: added incremental lambda mode description, acceptance criteria, diagonal regularization mode, new parameters (<code>lambda_mode</code>, <code>lambda_list</code>, <code>incremental_eps_y</code>, <code>incremental_eps_w</code>, <code>incremental_initial_skip_ew_threshold</code>, <code>regularization_mode</code>, <code>regularization_gamma</code>), and usage examples</li>
+<li>Added <code>docs/algorithms/lpcd.md</code>: LPCD overview, motivation, supported submodule groups, usage examples, QEP relationship, parameters, and current support</li>
+<li>Added <code>docs/api/lpcd_config.md</code> and updated <code>mkdocs.yml</code> navigation to include LPCD in the Algorithms and API Reference sections</li>
+<li>Updated LPCD references across docs: <code>docs/index.md</code>, <code>docs/algorithms/overview.md</code>, <code>docs/user-guide/basic-usage.md</code>, <code>docs/user-guide/configuration.md</code>, <code>docs/user-guide/examples.md</code>, and <code>docs/getting-started/quickstart.md</code></li>
+<li>Updated <code>docs/algorithms/rtn.md</code>: corrected defaults, added MSE parameters, updated algorithm description</li>
+<li>Updated <code>docs/user-guide/pre-process.md</code>: expanded key parameters table, added validation note</li>
+<li>Added "Chat with Open WebUI" section to <code>docs/user-guide/vllm-inference.md</code>: step-by-step guide for connecting Open WebUI to a vLLM server (Docker / pip install with dedicated venv, connection settings, chat usage)</li>
+<li>Added Open WebUI mention to <code>README.md</code> Features and vLLM Inference sections, and <code>docs/index.md</code> Key Features</li>
+<li>Fixed broken <code>example/example1.py</code> references in <code>README.md</code> and <code>docs/getting-started/installation.md</code> (replaced with <code>example/example_gptq.py</code>)</li>
+<li>Added <code>example/example_custom_calibration.py</code> to <code>README.md</code> Examples table under new "Calibration" category</li>
+<li>Removed scratch files from <code>example/</code>: <code>buf.py</code>, <code>buf2.py</code>, <code>run_example.sh</code></li>
+<li>Fixed outdated install command in <code>docs/user-guide/cli.md</code> (<code>git+URL</code> → <code>pip install onecomp</code>) and added PyTorch prerequisite with link to installation guide</li>
+<li>Removed duplicate "Chunked Calibration" section (was a copy of JointQ section) in <code>docs/user-guide/examples.md</code></li>
+<li>Added missing <code>CalibrationConfig</code> import to Block-wise PTQ code snippet in <code>docs/user-guide/examples.md</code></li>
+<li>Fixed eval support note in <code>docs/getting-started/quickstart.md</code> to include AutoBitQuantizer (was "GPTQ and DBF only")</li>
+<li>Added algorithm pages: <code>docs/algorithms/autobit.md</code> (ILP-based mixed-precision) and <code>docs/algorithms/jointq.md</code> (joint optimization)</li>
+<li>Added AutoBit and JointQ with links to <code>docs/algorithms/overview.md</code> Available Algorithms table</li>
+<li>Added <code>docs/api/quantizers/onebit.md</code> (OneBit API reference)</li>
+<li>Updated <code>mkdocs.yml</code> nav: added AutoBit/JointQ algorithm pages, OneBit API page; renamed Post-Process nav title to include Block-wise PTQ</li>
+<li>Added example script links to <code>docs/user-guide/pre-process.md</code></li>
+<li>Updated <code>docs/algorithms/jointq.md</code>: added initialization strategy parameters, GPTQ customization examples, removed <code>batch_size</code> from parameter table, added <code>group_size=None</code> per-channel documentation</li>
+<li>Added a Troubleshooting section to <code>docs/user-guide/vllm-inference.md</code> describing how to bypass the unconditional DeepGEMM (FP8) kernel warmup for non-FP8 quantization (GPTQ / DBF / Mixed-GPTQ) by setting <code>VLLM_USE_DEEP_GEMM=0</code> and <code>VLLM_DEEP_GEMM_WARMUP=skip</code></li>
+</ul>
+<h3 id="tests_2">Tests<a class="headerlink" href="#tests_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Updated <code>test_jointq.py</code>: added <code>incremental_lambda</code> boundary parameters (<code>lambda_mode</code>, <code>lambda_list</code>, <code>incremental_eps_y</code>, <code>incremental_eps_w</code>, <code>incremental_initial_skip_ew_threshold</code>), abnormal parameter cases (invalid mode, empty list, negative values), GPU integration tests (<code>test_incremental_lambda_basic</code>, <code>test_incremental_lambda_single_step</code>), <code>_accept_candidate</code> unit tests covering all acceptance rules and edge cases; removed <code>batch_size</code> from boundary/abnormal parameter tests</li>
+<li>Added <code>test_prepare_rotated_model.py</code>: validation, E2E pipeline, output threshold (80 combinations), save/load round-trip</li>
+<li>Added <code>test_weight_quantizer.py</code>: RTN/GPTQ consistency, symmetric/asymmetric, group-wise, MSE, STE</li>
+<li>Expanded <code>test_rtn.py</code>: MSE boundary/abnormal parameters</li>
+<li>Added vLLM mixed group-size tests (<code>tests/vllm_plugins/gptq/test_mixed_gptq.py</code>, <code>tests/vllm_plugins/gptq/test_mixed_gptq_e2e.py</code>)</li>
+<li>Updated <code>regression_quantize_helper.py</code>: updated <code>EXPECTED_MSE</code> baseline for OneComp GPTQ integration</li>
+</ul>
+<h3 id="benchmarking">Benchmarking<a class="headerlink" href="#benchmarking" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Updated all benchmark directories for v1.1.0</li>
+<li><strong>Results will be added after benchmark runs complete.</strong></li>
+</ul>
+<h3 id="dependencies_1">Dependencies<a class="headerlink" href="#dependencies_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Updated <code>pyproject.toml</code> and <code>uv.lock</code>: added <code>hydra-core</code> to <code>dev</code> optional dependencies</li>
+<li>Added LPCD tests (<code>tests/onecomp/lpcd/</code>, 25 cases)</li>
+<li><code>test_lpcd_config.py</code>: <code>LPCDConfig</code> default / custom values, dataclass field set, top-level <code>from onecomp import LPCDConfig</code> (CPU only)</li>
+<li><code>test_lpcd_metrics.py</code>: <code>make_lpcd_metrics()</code> dispatch on synthetic Llama / Qwen3 blocks for every <code>enable_*</code> flag combination, <code>NotImplementedError</code> for unsupported architectures, <code>LpcdMetricGroup.mark_as_ready</code> / <code>is_refineable</code> state transitions (CPU only, no weight download)</li>
+<li><code>test_lpcd_runner.py</code>: end-to-end GPTQ + QEP + LPCD on the first TinyLlama decoder block — smoke (<code>Runner.run()</code> completes, all linear layers quantized, dequantized weights finite), QEP + LPCD combination with explicit <code>QEPConfig</code>, behavioural checks (residual-only LPCD modifies <code>o_proj</code> / <code>down_proj</code> beyond the QEP-only baseline while pre-attention <code>q/k/v_proj</code> match the baseline bit-for-bit); auto-skipped on non-CUDA hosts via <code>pytest.mark.skipif</code></li>
+</ul>
+<h3 id="model-validation">Model Validation<a class="headerlink" href="#model-validation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>model_validation/README.md</code>: parent overview of the operational validation suite that exercises OneComp's end-to-end quantize → save → load → inference workflow across multiple architectures and sizes. Provides cross-recipe At-a-Glance status tables (per-model × per-recipe quantization status, and per-model × per-recipe <code>(save, transformers inference, vllm inference)</code> status), per-recipe result tables, and a Summary section that explicitly cautions against cross-recipe PPL comparison (PPL is reported only as a per-recipe sanity check; the compact calibration in use sits below typical research settings, partly because the calibration size has to fit the DGX Spark 128 GB UMA budget for 7–8B models with QEP on).</li>
+<li>Added <code>model_validation/gptq/</code>: Hydra-driven GPTQ (<code>wbits=4</code>, <code>groupsize=128</code>, <code>qep=False</code>) end-to-end validation across three phases:</li>
+<li>Phase 1 — quantize + save (<code>validate_gptq.py</code>, <code>conf/validate.yaml</code>): <code>CalibrationConfig(max_length=512, num_calibration_samples=128)</code>, saved via <code>runner.save_quantized_model(...)</code>, reports original / quantized PPL on <code>wikitext-2-raw-v1</code>.</li>
+<li>Phase 2 — load + greedy generation (<code>validate_load.py</code>, <code>conf/validate_load.yaml</code>): reloads each saved directory via <code>load_quantized_model</code> and runs <code>"Fujitsu is"</code> with <code>max_new_tokens=32</code>. <code>torch_dtype</code> is overridable (<code>float16</code> / <code>bfloat16</code> / <code>float32</code> / <code>null</code>); gemma-4-E2B requires <code>bfloat16</code> because the loader's default <code>float16</code> triggers a <code>Half</code> / <code>BFloat16</code> mismatch at <code>lm_head</code>.</li>
+<li>Phase 3 — vLLM offline inference (<code>validate_vllm.py</code>, <code>conf/validate_vllm.yaml</code>): reloads each saved directory via vLLM's offline <code>LLM</code> interface (OneComp's vLLM plugin is auto-registered, so no explicit <code>quantization=</code> argument is required) and runs <code>"Fujitsu is"</code> with <code>temperature=0.0</code>, <code>max_tokens=32</code>, <code>enforce_eager=True</code>, <code>max_model_len=512</code>. <code>LLM(...)</code> and <code>llm.generate(...)</code> are kept inside <code>main()</code> behind <code>if __name__ == "__main__":</code> so vLLM worker subprocess re-imports do not recursively spawn new engines. Currently <code>pending</code> for all five models.</li>
+<li>Added <code>model_validation/qep_gptq/</code>: Hydra-driven GPTQ (<code>wbits=4</code>, <code>groupsize=128</code>, <code>qep=True</code>) end-to-end validation script (<code>validate_gptq.py</code>, <code>conf/validate.yaml</code>, <code>README.md</code>). Calibration: <code>max_length=1024</code>, <code>num_calibration_samples=128</code> (reduced from defaults to keep 7–8B models within the DGX Spark 128 GB UMA budget with QEP on). Quantize + save only; load / inference is not exercised in this subdirectory yet.</li>
+<li>Added <code>model_validation/autobit/</code>: Hydra-driven AutoBit (<code>target_bit=4</code>, <code>qep=False</code>) end-to-end validation script (<code>validate_autobit.py</code>, <code>conf/validate.yaml</code>, <code>README.md</code>). Candidates <code>GPTQ(wbits=b, groupsize=128) for b in (2, 3, 4, 8)</code>, <code>assignment_strategy="activation_aware"</code>, <code>CalibrationConfig(max_length=512, num_calibration_samples=128)</code>. Quantize + save only.</li>
+<li>Updated <code>model_validation/autobit_qep/</code>: AutoBit (<code>target_bit=4</code>, <code>qep=True</code>) validation. Reduced calibration to <code>max_length=1024</code>, <code>num_calibration_samples=128</code> to keep 7–8B models within the DGX Spark 128 GB UMA budget. README expanded with per-model bit-assignment counts (<code>GPTQ_&lt;b&gt;_gs128: &lt;count&gt; layers</code>) for TinyLlama-1.1B, Llama-2-7B, Llama-3-8B, Qwen3-8B, and gemma-4-E2B; documents the bimodal 8-bit / 2-bit ILP collapse on gemma-4-E2B (every module in the first 15 transformer blocks → 8-bit, remaining 20 blocks → 2-bit; quantized PPL diverges to ~10^14, reproduced after reducing calibration from <code>max_length=2048, num_calibration_samples=512</code>) and lists candidate follow-ups (restrict candidate set, disable QEP, switch <code>assignment_strategy</code>).</li>
+<li>Added <code>model_validation/jointq/</code>: Hydra-driven JointQ (<code>bits=4</code>, <code>group_size=128</code>, <code>symmetric=True</code>, <code>qep=False</code>) end-to-end validation script (<code>validate_jointq.py</code>, <code>conf/validate.yaml</code>, <code>README.md</code>). Calibration: <code>CalibrationConfig(max_length=512, num_calibration_samples=128)</code>. JointQ does not currently expose a quantized-inference layer (no <code>save_quantized_model</code> / <code>create_quantized_model</code> path), so quality is sanity-checked on the dequantized model (weights reconstructed from JointQ's quantization parameters); save / inference are reported as <code>n/a</code> in the parent At-a-Glance table.</li>
+<li>All five recipes share the same model selection contract: a single model selected via either <code>model_id</code> (Hugging Face Hub) or <code>model_path</code> (local directory), with any field in <code>conf/validate*.yaml</code> overridable on the command line. Default validation set across all recipes is TinyLlama-1.1B, gemma-4-E2B (base), Llama-2-7B, Llama-3-8B, and Qwen3-8B.</li>
+</ul>
+<h3 id="packaging">Packaging<a class="headerlink" href="#packaging" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Bumped minimum <code>transformers</code> requirement from <code>&gt;=5.3.0</code> to <code>&gt;=5.5.0</code> (<code>pyproject.toml</code>)</li>
+<li>Added <code>cu130</code> optional-dependency extra and the <code>pytorch-cu130</code> wheel index (<code>https://download.pytorch.org/whl/cu130</code>) for CUDA 13 hosts (e.g. NVIDIA B200) (<code>pyproject.toml</code>)</li>
+<li>Pinned the <code>vllm</code> extra to <code>vllm&gt;=0.10</code> to prevent uv from falling back to legacy versions whose source build requires <code>CUDA_HOME</code> (<code>pyproject.toml</code>)</li>
+<li>Added uv <code>conflicts</code> declarations between the <code>vllm</code> extra and the <code>cpu</code> / <code>cu118</code> / <code>cu121</code> / <code>cu124</code> / <code>cu126</code> / <code>cu128</code> extras: vLLM <code>&gt;=0.20</code> requires <code>torch&gt;=2.10</code>, which is only published for <code>cu130</code>. This forces <code>vllm</code> to be installed only with <code>--extra cu130</code> and prevents silent fallback to a <code>vllm</code> version incompatible with <code>transformers&gt;=5</code> at runtime (<code>pyproject.toml</code>)</li>
+<li>Restricted <code>tool.uv.environments</code> to <code>sys_platform == 'linux'</code> and <code>python_full_version &gt;= '3.12', &lt; '3.14'</code> to skip lock splits for unused Windows and out-of-range Python versions (<code>pyproject.toml</code>)</li>
+<li>Added <code>hydra</code> extra to <code>pyproject.toml</code> so <code>hydra-core</code> (used by <code>example/example_autobit.py</code> and the <code>model_validation/{gptq,qep_gptq,autobit,autobit_qep,jointq}/validate_*.py</code> scripts) installs in one step via <code>uv sync --extra &lt;cuXXX&gt; --extra hydra</code> or <code>pip install "onecomp[hydra]"</code>, instead of a separate <code>pip install hydra-core</code> after sync. Documented the new extra in <code>README.md</code> and the <code>model_validation/*/README.md</code> files. The <code>model_validation/gptq/</code> Phase 3 (vLLM inference) additionally requires the <code>vllm</code> extra (<code>uv sync --extra &lt;cuXXX&gt; --extra hydra --extra vllm</code> or <code>pip install "onecomp[hydra]" vllm</code>).</li>
+</ul>
+<h2 id="v102-2026-03-31">[v1.0.2] 2026-03-31<a class="headerlink" href="#v102-2026-03-31" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fix_6">Bug Fix<a class="headerlink" href="#bug-fix_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fixed <code>ImportError</code> when running <code>onecomp</code> CLI without matplotlib installed; <code>AutoBitQuantizer._visualize()</code> now catches the import error and logs a warning instead of crashing</li>
+</ul>
+<h2 id="v101-2026-03-31">[v1.0.1] 2026-03-31<a class="headerlink" href="#v101-2026-03-31" title="Permanent link">&para;</a></h2>
+<h3 id="packaging_1">Packaging<a class="headerlink" href="#packaging_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Moved <code>matplotlib</code> from <code>dev</code> extra to new <code>visualize</code> extra in <code>pyproject.toml</code></li>
+<li>Made <code>visualize_bit_assignment</code> import lazy in <code>onecomp/quantizer/autobit/__init__.py</code> to avoid requiring matplotlib at import time</li>
+<li>Updated installation instructions in <code>README.md</code> and <code>docs/getting-started/installation.md</code> to reflect the new <code>visualize</code> extra</li>
+<li>Updated <code>uv.lock</code></li>
+</ul>
+<h2 id="v100-2026-03-31">[v1.0.0] 2026-03-31<a class="headerlink" href="#v100-2026-03-31" title="Permanent link">&para;</a></h2>
+<h3 id="pypi-publishing-setup">PyPI Publishing Setup<a class="headerlink" href="#pypi-publishing-setup" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added PyPI metadata to <code>pyproject.toml</code>: <code>keywords</code>, <code>classifiers</code>, and <code>project.urls</code> (Homepage, Documentation, Repository, Bug Tracker, Changelog)</li>
+<li>Removed <code>gemlite</code> optional-dependency extra that used direct git URLs (PEP 440 violation); equivalent packages are already in main <code>dependencies</code></li>
+<li>Added <code>.github/workflows/publish.yml</code>: automated PyPI publishing via Trusted Publishers (OIDC) on GitHub Release</li>
+<li>Updated <code>README.md</code>: installation command changed from <code>pip install git+&lt;URL&gt;</code> to <code>pip install onecomp</code></li>
+<li>Added <code>dist/</code> and <code>build/</code> to <code>.gitignore</code></li>
+<li>Updated <code>uv.lock</code></li>
+</ul>
+<h3 id="default-parameter-changes">Default Parameter Changes<a class="headerlink" href="#default-parameter-changes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Changed <code>Runner.__init__</code> default values for calibration parameters:</li>
+<li><code>max_length</code>: <code>512</code> → <code>2048</code></li>
+<li><code>num_calibration_samples</code>: <code>128</code> → <code>512</code></li>
+<li>Pinned old default values explicitly in all <code>example/</code> and <code>tests/</code> files that previously relied on the defaults</li>
+</ul>
+<h3 id="documentation_3">Documentation<a class="headerlink" href="#documentation_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Updated <code>docs/user-guide/configuration.md</code> to reflect the new default values for <code>max_length</code> and <code>num_calibration_samples</code></li>
+<li>Added quantizer feature support table to <code>docs/user-guide/basic-usage.md</code> and <code>docs/api/quantizers/base.md</code></li>
+<li>Documents which quantizers support <code>save_quantized_model()</code> / <code>create_quantized_model()</code> and quantized-model PPL/ACC evaluation</li>
+<li>Currently supported: <strong>GPTQ</strong>, <strong>DBF</strong>, <strong>AutoBitQuantizer</strong> (requires <code>get_quant_config()</code> and <code>create_inference_layer()</code>)</li>
+<li>Unsupported quantizers (RTN, JointQ, QUIP, CQ, ARB, QBB, Onebit): PPL/ACC evaluation automatically falls back to the dequantized (FP16) model</li>
+<li>Updated the perplexity/accuracy evaluation note in <code>basic-usage.md</code> to reflect AutoBitQuantizer support and fallback behavior</li>
+</ul>
+<h2 id="v050-2026-03-30">[v0.5.0] 2026-03-30<a class="headerlink" href="#v050-2026-03-30" title="Permanent link">&para;</a></h2>
+<h3 id="new-feature-post-quantization-workflow">New Feature: Post-quantization Workflow<a class="headerlink" href="#new-feature-post-quantization-workflow" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>PostQuantizationProcess</code> abstract base class (<code>onecomp/post_process/_base.py</code>)</li>
+<li>Defines the interface for post-quantization operations (e.g. block-wise PTQ, fine-tuning)</li>
+<li>Added <code>post_processes</code> parameter to <code>Runner.__init__</code></li>
+<li>Accepts a list of <code>PostQuantizationProcess</code> instances</li>
+<li>After quantization, builds a quantized model on CPU and executes each process in order</li>
+<li>The processed model is stored as <code>self.quantized_model</code></li>
+<li>Updated <code>Runner.calculate_perplexity</code> and <code>Runner.calculate_accuracy</code> to use <code>self.quantized_model</code> if available (GPU transfer is handled automatically; <code>device="auto"</code> is resolved to <code>"cuda"</code>)</li>
+<li>Added LoRA SFT post-process implementation (<code>onecomp/post_process/post_process_lora_sft.py</code>)</li>
+<li>Provides learning-based post-quantization fine-tuning for GPTQ-quantized models</li>
+<li>Public API is exposed as <code>PostProcessLoraSFT</code></li>
+</ul>
+<h3 id="new-feature-rotation-preprocessing-pipeline-onecomppre_process">New Feature: Rotation Preprocessing Pipeline (<code>onecomp/pre_process/</code>)<a class="headerlink" href="#new-feature-rotation-preprocessing-pipeline-onecomppre_process" title="Permanent link">&para;</a></h3>
+<p>SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Supports Llama and Qwen3 architectures.</p>
+<ul>
+<li>Added <code>prepare_rotated_model()</code> (<code>onecomp/pre_process/prepare_rotated_model.py</code>): End-to-end pipeline — model loading → rotation/scaling training → rotation application → saving</li>
+<li>Memory-optimized: moves model between CPU/GPU to reduce peak memory (e.g. Qwen3-32B: ~128GB → ~64GB)</li>
+<li>Added <code>RotatedModelConfig</code> (<code>onecomp/rotated_model_config.py</code>): <code>ModelConfig</code> subclass that automatically registers Hadamard hooks on <code>down_proj</code> layers during <code>load_model()</code></li>
+<li>Added <code>onecomp/pre_process/</code> package:</li>
+<li><code>train_rotation.py</code>: Training pipeline with <code>PreprocessManager</code> (R1/R2/S_* tensor management), HF <code>Trainer</code> subclass, <code>apply_preprocess_train</code> / <code>apply_preprocess_eval</code></li>
+<li><code>optimizer.py</code>: <code>SGDG</code> — SGD on the Stiefel manifold with Cayley-retraction orthogonal updates (ported from SpinQuant)</li>
+<li><code>quant_models.py</code>: <code>WeightQuantizer</code> (RTN proxy) with per-channel / per-tensor / group-wise quantization; quantized decoder layers for Llama and Qwen3</li>
+<li><code>rotation_utils.py</code>: <code>fuse_layer_norms</code>, <code>rotate_model</code>, <code>register_online_hadamard_hooks</code></li>
+<li><code>hadamard_utils.py</code>: Hadamard transform utilities and pre-computed matrices (ported from QuIP#)</li>
+<li><code>modeling_llama.py</code> / <code>modeling_qwen3.py</code>: Custom <code>ForCausalLM</code> classes that propagate R1 through the forward pass during training</li>
+<li><code>preprocess_args.py</code>: <code>TrainingArguments</code> subclass with SGDG-specific LR/momentum fields</li>
+<li>Fixed <code>_PreprocessTrainer</code> to override <code>create_optimizer()</code> instead of <code>create_optimizer_and_scheduler()</code> for transformers &gt;= 5.x compatibility (SGDG optimizer was silently replaced by AdamW)</li>
+<li>Updated <code>Runner.save_dequantized_model()</code> and <code>Runner.save_quantized_model()</code> to warn when saving models loaded with additional preprocessing (e.g., Hadamard hooks)</li>
+</ul>
+<h3 id="added-jointq-quantizer">Added JointQ Quantizer<a class="headerlink" href="#added-jointq-quantizer" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Added new <code>JointQ</code> quantizer (<code>onecomp/quantizer/jointq/</code>)</strong></li>
+<li>Local-search-based post-training quantization method that minimizes ||Y - hat{W} X^T||_F^2</li>
+<li>Supports both symmetric and asymmetric quantization (1–4 bits)</li>
+<li>Group-wise quantization with configurable group size</li>
+<li>Tikhonov regularization for over-fitting (X^T X + nλI)</li>
+<li>Three initialization strategies: Clip-Optimize, Clip-Optimize with Error Propagation, and GPTQ</li>
+</ul>
+<h3 id="autobitquantizer-vllm-compatible-quantization_config">AutoBitQuantizer vLLM-compatible quantization_config<a class="headerlink" href="#autobitquantizer-vllm-compatible-quantization_config" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>AutoBitQuantizer</code> now emits <code>mixed_gptq</code>-compatible <code>quantization_config</code> (<code>onecomp/quantizer/autobit/_autobit.py</code>)</li>
+<li>ILP solver now enforces fused-layer equality constraints (<code>onecomp/quantizer/autobit/ilp.py</code>)</li>
+<li>vLLM fuses q/k/v → <code>qkv_proj</code> and gate/up → <code>gate_up_proj</code></li>
+</ul>
+<h3 id="api-changes">API changes<a class="headerlink" href="#api-changes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Made <code>Runner.create_quantized_model()</code> a public method (renamed from <code>_create_quantized_model</code>)</li>
+<li>Builds a quantized model with quantized inference layers from <code>quantizer.results</code></li>
+<li>Returns <code>(model, tokenizer)</code> for use in evaluation, saving, and post-process workflows</li>
+<li>Added <code>Runner.save_quantized_model_pt()</code> for saving post-processed models (e.g. LoRA-applied) as PyTorch <code>.pt</code> files</li>
+<li>Uses <code>torch.save</code> to preserve custom module types such as <code>LoRAGPTQLinear</code></li>
+<li>Saves tokenizer files alongside the model</li>
+<li>Added <code>QuantizedModelLoader.load_quantized_model_pt()</code> for loading <code>.pt</code>-format models</li>
+<li>Counterpart to <code>save_quantized_model_pt</code>; uses <code>torch.load</code> to restore models with custom modules</li>
+<li>Also available as <code>onecomp.load_quantized_model_pt()</code> convenience alias</li>
+</ul>
+<h3 id="bug-fix-onebit-quantizer">Bug Fix: Onebit Quantizer<a class="headerlink" href="#bug-fix-onebit-quantizer" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fixed <code>Onebit</code> to declare <code>flag_calibration=True</code> and <code>flag_hessian=True</code> (<code>onecomp/quantizer/onebit/_onebit.py</code>)</li>
+<li>Previously, Onebit computed the Hessian internally from <code>input</code> despite declaring all flags as <code>False</code>, causing a crash when used through <code>quantize_without_calibration</code> or chunked quantization paths</li>
+<li>Now uses the Hessian provided by the Runner, consistent with other calibration-based quantizers (GPTQ, DBF, QUIP)</li>
+</ul>
+<h3 id="quantizer-signature-consistency">Quantizer Signature Consistency<a class="headerlink" href="#quantizer-signature-consistency" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>input=None</code> default to <code>quantize_layer</code> in <code>RTN</code>, <code>CQ</code>, <code>QBB</code> (<code>onecomp/quantizer/{rtn,cq,qbb}/</code>)</li>
+<li>Aligns with the base <code>Quantizer.quantize_layer(self, module, input=None, hessian=None)</code> signature</li>
+<li>Enables these quantizers to be used in <code>Runner(quantizers=[...])</code> via the chunked quantization path</li>
+<li>Added <code>input=None, hessian=None</code> defaults to <code>Onebit.quantize_layer</code> for the same reason</li>
+</ul>
+<h3 id="examples_2">Examples<a class="headerlink" href="#examples_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>example/post_process/example_lora_sft.py</code>: End-to-end demo — GPTQ 4-bit quantization + LoRA SFT (WikiText-2) + PPL evaluation + save/load with <code>save_quantized_model_pt</code> / <code>load_quantized_model_pt</code></li>
+<li>Added <code>example/post_process/example_lora_sft_knowledge.py</code>: Knowledge injection demo — teaches the quantized model about "OneCompression" via LoRA SFT and compares generation before/after</li>
+<li>Added <code>example/post_process/onecomp_knowledge.jsonl</code>: Training data describing OneCompression for the knowledge injection example</li>
+<li>Added <code>example/example_jointq.py</code>: JointQ 4-bit (groupsize=128) quantization example with dequantized model PPL evaluation</li>
+<li>Added <code>example/pre_process/example_llama_preprocess_rtn.py</code>: Rotation preprocessing + RTN quantization (TinyLlama-1.1B)</li>
+<li>Added <code>example/pre_process/example_preprocess_save_load.py</code>: Rotation preprocessing + GPTQ quantization → save → load → PPL verification</li>
+<li>Added <code>example/vllm_inference/example_gptq_vllm_inference.py</code>: GPTQ + QEP quantization and vLLM inference end-to-end example</li>
+<li>Added <code>example/vllm_inference/example_autobit_vllm_inference.py</code>: AutoBit mixed-precision quantization and vLLM inference example</li>
+</ul>
+<h3 id="documentation_4">Documentation<a class="headerlink" href="#documentation_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>docs/user-guide/post-process.md</code>: LoRA SFT user guide covering accuracy recovery, knowledge injection, save/load, key parameters, teacher distillation, intermediate block alignment, and vLLM limitations</li>
+<li>Added <code>docs/api/post_process.md</code>: API reference for <code>PostQuantizationProcess</code>, <code>PostProcessLoraSFT</code>, and convenience variants</li>
+<li>Updated <code>docs/user-guide/examples.md</code> with LoRA SFT code examples (accuracy recovery, knowledge injection, save/load)</li>
+<li>Updated <code>docs/api/runner.md</code> to include <code>create_quantized_model</code> and <code>save_quantized_model_pt</code></li>
+<li>Updated <code>docs/api/quantized_model_loader.md</code> to include <code>load_quantized_model_pt</code></li>
+<li>Updated <code>mkdocs.yml</code> navigation with new post-process pages</li>
+<li>Added <code>docs/user-guide/pre-process.md</code>: Rotation preprocessing user guide covering workflow, key parameters, save/load, and limitations</li>
+<li>Added <code>docs/api/pre_process.md</code>: API reference for <code>prepare_rotated_model</code> and <code>RotatedModelConfig</code></li>
+<li>Updated <code>docs/user-guide/examples.md</code> with rotation preprocessing code examples (RTN, GPTQ with save/load)</li>
+<li>Updated <code>docs/api/index.md</code> with <code>RotatedModelConfig</code>, <code>prepare_rotated_model</code>, and <code>pre_process/</code> module structure</li>
+<li>Updated <code>docs/index.md</code> Key Features with rotation preprocessing</li>
+</ul>
+<h3 id="tests_3">Tests<a class="headerlink" href="#tests_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added smoke test for <code>PostProcessLoraSFT</code> (<code>tests/onecomp/post_process/test_post_process_lora_sft.py</code>)</li>
+<li>Verifies that <code>PostProcessLoraSFT.run()</code> completes without error on TinyLlama with minimal settings</li>
+<li>Checks LoRA layer injection, CPU placement, and eval mode after run</li>
+<li>Includes Runner end-to-end integration test with <code>post_processes</code> parameter</li>
+<li>Expanded and updated unit tests for DBF quantizer (<code>tests/onecomp/quantizer/dbf/test_dbf.py</code>)</li>
+<li>Extended boundary and abnormal parameter cases; aligned with <code>BaseQuantizeSpec</code> and current DBF API</li>
+<li>Expanded and updated unit tests for GPTQ quantizer (<code>tests/onecomp/quantizer/gptq/test_gptq.py</code>)</li>
+<li>Extended boundary and abnormal parameter cases; aligned with <code>BaseQuantizeSpec</code> and current GPTQ API</li>
+<li>Adjusted DBF and GPTQ quantizer implementations for test compatibility and consistency (<code>onecomp/quantizer/dbf/_dbf.py</code>, <code>onecomp/quantizer/gptq/_gptq.py</code>)</li>
+<li>Fixed and improved JointQ unit tests (<code>tests/onecomp/quantizer/jointq/test_jointq.py</code>)</li>
+<li>Use <code>compute_dequantized_weight()</code> instead of direct <code>dequantized_weight</code> access</li>
+<li>Override boundary test to use CUDA with 128×128 layers for group_size compatibility</li>
+<li>Skip CPU-only tests (JointQ is GPU-based)</li>
+<li>Fix <code>batch_size</code> validation: <code>&gt;= 0</code> → <code>&gt;= 1</code> (<code>onecomp/quantizer/jointq/_jointq.py</code>)</li>
+<li>Improved JointQ regression test (<code>tests/onecomp/quantizer/jointq/test_quantize_regression.py</code>)</li>
+<li>Replaced exact tensor match with MSE-based quality check for environment portability</li>
+<li>Hardcoded expected MSE in helper; removed <code>.pth</code> baseline file</li>
+</ul>
+<h2 id="v043-2026-03-26">[v0.4.3] 2026-03-26<a class="headerlink" href="#v043-2026-03-26" title="Permanent link">&para;</a></h2>
+<h3 id="implement-autobit-to-automatically-determine-bit-allocation">Implement AutoBit to automatically determine bit-allocation<a class="headerlink" href="#implement-autobit-to-automatically-determine-bit-allocation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add <code>AutoBitQuantizer</code> (<code>onecomp/quantizer/autobit/_autobit.py</code>) that automatically assigns optimal bit-width per module using ILP with considering activation-aware error (<code>onecomp/quantizer/autobit/ilp.py</code>)  and DBF fallback (<code>onecomp/quantizer/autobit/dbf_fallback.py</code>) for ultra-low-bit targets ( &lt;= target bit 2bit) </li>
+<li><a href="https://www.scipopt.org">SCIP</a> solver was utilized to solve ILP (<code>onecomp/quantizer/autobit/ilp.py</code>)</li>
+<li>Sequentially load and forward each layer to collect activation and curvature statistics (<code>onecomp/quantizer/autobit/activation_stats.py</code>, <code>onecomp/utils/blockwise.py</code>)</li>
+<li>Usage example is shown in (<code>example/example3.py</code>)</li>
+<li>Add VRAM auto-estimation utility to derive target bit-width from available GPU memory (<code>onecomp/utils/vram_estimator.py</code>)</li>
+</ul>
+<h3 id="vlm-and-multi-architecture-support-for-architecture-aware-qep">VLM and Multi-Architecture Support for Architecture-aware QEP<a class="headerlink" href="#vlm-and-multi-architecture-support-for-architecture-aware-qep" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Extended <code>_get_blocks</code> to detect <code>language_model</code> sub-module and restrict block search to the text decoder (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>VLMs (Qwen3-VL, Gemma3, etc.) no longer return vision-encoder blocks</li>
+<li>CausalLM behaviour is unchanged (falls back to full-model search)</li>
+<li>Added <code>__getattr__</code> proxy to <code>Catcher</code> to forward attribute access to the wrapped module (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Prevents <code>AttributeError</code> when model code reads decoder-layer attributes (e.g. <code>attention_type</code>) before <code>forward()</code></li>
+<li>Changed <code>get_blocks_and_inputs</code> to capture block-level kwargs with batch=1 (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Internally generated kwargs (position_embeddings, attention_mask, etc.) are now batch-size-independent</li>
+<li>Avoids shape mismatches when reused with varying batch sizes in downstream functions</li>
+<li>Added <code>expand_kwargs_batch</code> helper to expand batch=1 kwargs via <code>Tensor.expand</code> (zero-copy view) (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Used in <code>compute_hessian_and_crossterm</code> and <code>forward_input</code> before each block forward call</li>
+<li>Resolves failures on models requiring exact batch-dimension matching (e.g. Gemma3 sliding-window attention)</li>
+<li>Added early termination and group skipping to <code>run_quantize_with_qep_arch</code> (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Groups with no quantization targets are skipped (avoids unnecessary Hessian/cross-term computation)</li>
+<li>Block loop exits once all target layers are quantized</li>
+</ul>
+<h3 id="end-to-end-cli-tests">End-to-end CLI tests<a class="headerlink" href="#end-to-end-cli-tests" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>tests/onecomp/test_cli.py</code>: end-to-end tests that verify <code>onecomp TinyLlama/...</code> CLI runs without errors</li>
+<li><code>test_default_full_run</code>: full default pipeline (AutoBit + QEP + eval + save) on GPU</li>
+<li>Variant tests for individual options (<code>--wbits</code>, <code>--no-qep</code>, <code>--total-vram-gb</code>, <code>--groupsize</code>, <code>--save-dir</code>, etc.) on CPU</li>
+<li>Variant tests are skipped by default; enable with <code>RUN_CLI_VARIANT_TESTS=1</code></li>
+<li>Uses <code>python -m onecomp</code> to avoid implicit <code>uv sync</code> that could modify the environment</li>
+</ul>
+<h3 id="fixes">Fixes<a class="headerlink" href="#fixes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fixed crash when DBF quantization fails with NaN/Inf (<code>onecomp/quantizer/dbf/_dbf.py</code>, <code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li><code>_quantize_with_qep_arch.py</code>: Catch <code>ValueError</code>/<code>NotImplementedError</code> from <code>compute_dequantized_weight()</code>, log the error, and keep QEP-adjusted weights for the failed layer</li>
+<li>Fixed GemLite import crash when PyTorch version is incompatible (<code>onecomp/quantizer/gemlite.py</code>)</li>
+<li>Broadened <code>except ImportError</code> to <code>except (ImportError, AttributeError)</code> so that GemLite gracefully falls back when <code>torch</code> lacks newer dtypes (e.g. <code>float8_e8m0fnu</code>)</li>
+<li>Fixed <code>test_dbf_gemlite.py</code> to skip when GemLite is unavailable instead of crashing (<code>tests/vllm_plugins/dbf/test_dbf_gemlite.py</code>)</li>
+</ul>
+<h3 id="dependency-and-documentation-updates">Dependency and documentation updates<a class="headerlink" href="#dependency-and-documentation-updates" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>vllm</code> as an optional dependency (<code>--extra vllm</code>) in <code>pyproject.toml</code></li>
+<li>Prevents environment corruption caused by <code>uv pip install vllm</code> being overwritten by subsequent <code>uv sync</code>/<code>uv run</code></li>
+<li>Added <code>torchvision</code> to CUDA extras and <code>[tool.uv.sources]</code> in <code>pyproject.toml</code> to prevent CUDA version mismatch</li>
+<li>Updated installation docs to reflect new extras (<code>README.md</code>, <code>docs/getting-started/installation.md</code>, <code>docs/user-guide/vllm-inference.md</code>)</li>
+<li>Updated <code>uv.lock</code></li>
+</ul>
+<h2 id="v042-2026-03-25">[v0.4.2] 2026-03-25<a class="headerlink" href="#v042-2026-03-25" title="Permanent link">&para;</a></h2>
+<h3 id="unit-tests-for-additional-quantizers">Unit tests for additional quantizers<a class="headerlink" href="#unit-tests-for-additional-quantizers" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Added unit tests for QBB, RTN, QUIP, ONEBIT, CQ, ARB, and JOINTQ</strong></li>
+<li>New test modules under <code>tests/onecomp/quantizer/</code>: <code>test_qbb.py</code>, <code>test_rtn.py</code>, <code>test_quip.py</code>, <code>test_onebit.py</code>, <code>test_cq.py</code>, <code>test_arb.py</code>, <code>test_jointq.py</code></li>
+<li>Shared test base and helpers updated in <code>tests/onecomp/quantizer/test_module.py</code></li>
+<li>Quantizer implementations adjusted for test compatibility: <code>onecomp/quantizer/qbb/</code>, <code>onecomp/quantizer/rtn/</code>, <code>onecomp/quantizer/quip/</code>, <code>onecomp/quantizer/onebit/</code>, <code>onecomp/quantizer/arb/</code>, <code>onecomp/quantizer/jointq/</code> (and related <code>*_impl.py</code>); minor updates in <code>onecomp/quantizer/dbf/_dbf.py</code>, <code>onecomp/quantizer/gptq/_gptq.py</code></li>
+</ul>
+<h3 id="vllm-plugin-integration-dbf-mixed-gptq">vLLM plugin integration (DBF, Mixed-GPTQ)<a class="headerlink" href="#vllm-plugin-integration-dbf-mixed-gptq" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Added vLLM plugin implementation for DBF and Mixed-GPTQ</strong></li>
+<li>New <code>vllm_plugins</code> package: <code>vllm_plugins/__init__.py</code>, DBF and GPTQ plugin entry points (<code>vllm_plugins/dbf/</code>, <code>vllm_plugins/gptq/</code>)</li>
+<li>DBF: <code>vllm_plugins/dbf/vllm_plugin.py</code> and modules (<code>vllm_plugins/dbf/modules/gemlite_linear.py</code>, <code>vllm_plugins/dbf/modules/naive.py</code>); shared utilities in <code>vllm_plugins/utils/module.py</code></li>
+<li>GPTQ: <code>vllm_plugins/gptq/vllm_plugin.py</code> for Mixed-GPTQ inference</li>
+<li>Tests: <code>tests/vllm_plugins/dbf/test_dbf_gemlite.py</code>, <code>tests/vllm_plugins/dbf/test_dbf_naive.py</code></li>
+<li>Package and dependency wiring in <code>pyproject.toml</code></li>
+</ul>
+<h3 id="fixes_1">Fixes<a class="headerlink" href="#fixes_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Mixed-GPTQ:</strong> raise an error when quantization bit widths differ within the same shard (align with DBF behavior) (<code>vllm_plugins/gptq/vllm_plugin.py</code>)</li>
+</ul>
+<h2 id="v041-2026-03-19">[v0.4.1] 2026-03-19<a class="headerlink" href="#v041-2026-03-19" title="Permanent link">&para;</a></h2>
+<h3 id="mixed-gptqdbf-saveload">Mixed GPTQ/DBF Save/Load<a class="headerlink" href="#mixed-gptqdbf-saveload" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Extended Save/Load for mixed GPTQ and mixed DBF</strong></li>
+<li><code>QuantizedModelLoader</code> now loads models with <code>quant_method</code> <code>mixed_gptq</code> or <code>mixed_dbf</code> (<code>onecomp/quantized_model_loader.py</code>)</li>
+<li><code>effective_method</code> treats mixed_* as the same tensor format as the base method (gptq/dbf) and resolves per-layer bit-width via <code>quantization_bits</code></li>
+<li>Load validates <code>quant_method</code>, <code>quantization_bits</code>, and <code>modules_in_block_to_quantize</code> from <code>config.json</code>'s <code>quantization_config</code></li>
+<li><strong>GPTQ</strong></li>
+<li>Added <code>get_quant_config()</code> to return save-time <code>quantization_config</code> with vLLM-compatible keys (<code>onecomp/quantizer/gptq/_gptq.py</code>)</li>
+<li>Sets <code>quant_method</code> to <code>mixed_gptq</code> when <code>module_wbits</code> or <code>mlp_wbits</code> is present</li>
+<li>New <code>onecomp/quantizer/gptq/config.py</code>: <code>resolve_gptq_layer_wbits()</code> resolves per-layer bit-width from <code>quantization_config</code> (priority: quantization_bits → module_wbits → mlp_wbits → bits/wbits)</li>
+<li><code>GPTQLinear</code>: extended to accept bit-width when restoring from saved state (<code>onecomp/quantizer/gptq/gptq_layer.py</code>)</li>
+<li><strong>DBF</strong></li>
+<li>Added <code>get_quant_config()</code> to return save-time <code>quantization_config</code> (<code>onecomp/quantizer/dbf/_dbf.py</code>)</li>
+<li>New <code>onecomp/quantizer/dbf/config.py</code>: <code>resolve_dbf_layer_bits()</code> resolves per-layer bit-width from <code>quantization_config</code> (priority: quantization_bits → module_target_bits → mlp_target_bits → bits)</li>
+<li><code>DoubleBinaryLinear</code>: added argument for target bit-width (for mixed_dbf) (<code>onecomp/quantizer/dbf/dbf_layer.py</code>)</li>
+<li><strong>Shared</strong></li>
+<li><code>onecomp/utils/quant_config.py</code>: added common helper <code>get_quant_param()</code> for <code>quantization_config</code> schema (fetch params by alias keys)</li>
+<li><code>Quantizer.finalize_quant_config_for_save()</code> hook added; subclasses (GPTQ/DBF) inject method-specific metadata (<code>onecomp/quantizer/_quantizer.py</code>)</li>
+<li><code>runner</code>: set <code>quantization_config</code> when saving (<code>onecomp/runner.py</code>)</li>
+</ul>
+<h3 id="evaluation-and-benchmark-runner-and-accuracy-utils">Evaluation and benchmark (Runner and accuracy utils)<a class="headerlink" href="#evaluation-and-benchmark-runner-and-accuracy-utils" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Runner:</strong> unified perplexity/accuracy evaluation via <code>_calculate_evaluation()</code> and added optional <code>dequantized_model</code> evaluation (<code>onecomp/runner.py</code>)</li>
+<li><strong>BREAKING: <code>calculate_perplexity()</code> / <code>calculate_accuracy()</code> now return a 3-tuple <code>(original, dequantized, quantized)</code> instead of 2-tuple <code>(original, quantized)</code>.</strong> Existing code using <code>orig, quant = runner.calculate_perplexity()</code> must be updated to unpack three values. (<code>onecomp/runner.py</code>)</li>
+<li><strong>BREAKING: <code>calculate_perplexity()</code> / <code>calculate_accuracy()</code> default for <code>original_model</code> changed from <code>True</code> to <code>False</code>.</strong> To evaluate the original model, pass <code>original_model=True</code> explicitly. (<code>onecomp/runner.py</code>)</li>
+<li><strong>Benchmark:</strong> <code>benchmark_perplexity()</code> / <code>benchmark_accuracy()</code> now accept <code>dequantized_model</code> and <code>quantized_model</code> arguments. When <code>dequantized_model=True</code>, the result dict includes <code>"{name}_dequantized"</code> keys. (<code>onecomp/runner.py</code>)</li>
+<li><strong>lm_eval:</strong> added helper to create <code>HFLM</code> while temporarily disabling <code>model.config.quantization_config</code> for compatibility (<code>onecomp/utils/accuracy.py</code>)</li>
+</ul>
+<h3 id="dequantized-weight-api-and-compatibility-fixes">Dequantized-weight API and compatibility fixes<a class="headerlink" href="#dequantized-weight-api-and-compatibility-fixes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Implemented <code>compute_dequantized_weight()</code> for GPTQ and DBF quantizers (<code>onecomp/quantizer/gptq/_gptq.py</code>, <code>onecomp/quantizer/dbf/_dbf.py</code>)</li>
+<li>Removed <code>dequantized_weight</code> from Result classes and switched call sites to compute it via <code>compute_dequantized_weight()</code> (<code>onecomp/quantizer/_quantizer.py</code>, <code>onecomp/runner_methods/*</code>)</li>
+<li>Fixed compatibility for quantization methods other than DBF/GPTQ in runner and QEP paths (<code>onecomp/runner.py</code>, <code>onecomp/qep/_quantize_with_qep*.py</code>)</li>
+<li>Updated unit tests accordingly (<code>tests/onecomp/test_qep_general_consistency.py</code>)</li>
+</ul>
+<h3 id="auto_run-cli-improvements"><code>auto_run</code> / CLI improvements<a class="headerlink" href="#auto_run-cli-improvements" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>Runner.auto_run()</code>:</strong> added <code>eval_original_model</code> parameter to optionally evaluate the original (unquantized) model's perplexity and accuracy (default: <code>False</code>) (<code>onecomp/runner.py</code>)</li>
+<li><strong><code>Runner.auto_run()</code>:</strong> evaluation now only computes quantized model metrics by default; pass <code>eval_original_model=True</code> to include original model metrics</li>
+<li><strong>CLI:</strong> added <code>--eval-original</code> flag to <code>onecomp</code> command (<code>onecomp/cli.py</code>)</li>
+</ul>
+<h3 id="gpu-memory-optimization-for-model-saving">GPU memory optimization for model saving<a class="headerlink" href="#gpu-memory-optimization-for-model-saving" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>save_quantized_model()</code> / <code>save_dequantized_model()</code></strong> now load the base model on CPU (<code>device_map="cpu"</code>) instead of GPU when building the save artifact (<code>onecomp/runner.py</code>). Previously the full original model was loaded onto GPU, which was unnecessary for saving and could cause OOM on memory-constrained setups.</li>
+</ul>
+<h3 id="bug-fix-architecture-aware-qep-group-alignment">Bug fix: Architecture-aware QEP group alignment<a class="headerlink" href="#bug-fix-architecture-aware-qep-group-alignment" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Fixed non-deterministic crash in <code>compute_hessian_and_crossterm</code> caused by <code>groups_q</code> and <code>groups_f</code> being ordered differently (<code>onecomp/qep/_quantize_with_qep_arch.py</code>). <code>make_grouped_module</code> groups modules by tensor identity (<code>id()</code> + <code>data_ptr()</code>), but after <code>copy.deepcopy</code> the CUDA memory allocator can assign different addresses, causing group misalignment between the quantized and full-precision blocks. Now <code>groups_f</code> is derived from <code>groups_q</code> by module name lookup instead of independent grouping.</li>
+</ul>
+<h3 id="other-fixes-in-this-release">Other fixes in this release<a class="headerlink" href="#other-fixes-in-this-release" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Refactored runner evaluation paths and fixed benchmark-based evaluation behavior (<code>onecomp/runner.py</code>, <code>onecomp/utils/accuracy.py</code>)</li>
+<li>Examples: updated to pass <code>original_model=True</code> and <code>quantized_model=True</code> explicitly, and to unpack the new triple return value (<code>example/example1.py</code>, <code>example/example2.py</code>)</li>
+</ul>
+<h2 id="v040-2026-03-20">[v0.4.0] 2026-03-20<a class="headerlink" href="#v040-2026-03-20" title="Permanent link">&para;</a></h2>
+<h3 id="new-feature-runnerauto_run-classmethod">New Feature: <code>Runner.auto_run()</code> Classmethod<a class="headerlink" href="#new-feature-runnerauto_run-classmethod" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>Runner.auto_run()</code> classmethod for one-liner quantization (<code>onecomp/runner.py</code>)</li>
+<li>Handles model loading, GPTQ quantization with QEP, evaluation (perplexity + accuracy), and model saving in a single call</li>
+<li>Parameters: <code>model_id</code>, <code>wbits</code> (default: 4), <code>groupsize</code> (default: 128), <code>device</code>, <code>qep</code> (default: True), <code>evaluate</code> (default: True), <code>save_dir</code> (default: "auto")</li>
+<li>Returns the configured <code>Runner</code> instance for further analysis</li>
+<li>Made <code>model_config</code> parameter optional in <code>Runner.__init__()</code> (default: <code>None</code>) to allow <code>Runner()</code> without arguments</li>
+</ul>
+<h3 id="new-feature-onecomp-cli-command">New Feature: <code>onecomp</code> CLI Command<a class="headerlink" href="#new-feature-onecomp-cli-command" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>onecomp</code> CLI command for terminal-based quantization (<code>onecomp/cli.py</code>)</li>
+<li>Usage: <code>onecomp &lt;model_id&gt; [--wbits N] [--groupsize N] [--device DEV] [--no-qep] [--no-eval] [--save-dir DIR]</code></li>
+<li>Thin wrapper around <code>Runner.auto_run()</code></li>
+<li>Added <code>onecomp/__main__.py</code> for <code>python -m onecomp</code> support</li>
+<li>Registered <code>console_scripts</code> entry point in <code>pyproject.toml</code></li>
+</ul>
+<h3 id="new-example">New Example<a class="headerlink" href="#new-example" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>example/example_auto_run.py</code> demonstrating one-liner quantization with <code>Runner.auto_run()</code></li>
+</ul>
+<h3 id="documentation_5">Documentation<a class="headerlink" href="#documentation_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Updated <code>docs/index.md</code>: Quick Example now shows <code>auto_run</code> and CLI with tabbed view</li>
+<li>Restructured <code>docs/getting-started/quickstart.md</code>: <code>auto_run</code> / CLI as the fastest path, step-by-step workflow below</li>
+<li>Updated <code>docs/getting-started/installation.md</code>: Added <code>onecomp</code> command examples to Running Commands section</li>
+<li>Updated <code>docs/user-guide/basic-usage.md</code>: Added "Quick Path: <code>Runner.auto_run()</code>" section</li>
+<li>Updated <code>docs/user-guide/examples.md</code>: Added <code>auto_run</code> and CLI examples at the top</li>
+<li>Added <code>docs/user-guide/cli.md</code>: Full CLI reference with all options and usage examples</li>
+<li>Updated <code>docs/api/runner.md</code>: Added <code>auto_run</code> to mkdocstrings members</li>
+<li>Updated <code>docs/api/index.md</code>: Added <code>cli.py</code> and <code>__main__.py</code> to Module Structure</li>
+<li>Updated <code>mkdocs.yml</code>: Added CLI page to navigation</li>
+<li>Added "Building Documentation Locally" section to <code>README.md</code></li>
+</ul>
+<h3 id="python-version-constraint">Python Version Constraint<a class="headerlink" href="#python-version-constraint" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Restricted <code>requires-python</code> to <code>"&gt;=3.12, &lt;3.14"</code> in <code>pyproject.toml</code></li>
+<li>PyTorch does not yet provide wheels for Python 3.14, causing <code>uv sync</code> to fail when uv auto-selects CPython 3.14</li>
+<li>Updated <code>uv.lock</code> to reflect the new Python version constraint</li>
+</ul>
+<h2 id="v037-2026-03-16">[v0.3.7] 2026-03-16<a class="headerlink" href="#v037-2026-03-16" title="Permanent link">&para;</a></h2>
+<h3 id="gpu-memory-optimization-for-architecture-aware-qep">GPU Memory Optimization for Architecture-aware QEP<a class="headerlink" href="#gpu-memory-optimization-for-architecture-aware-qep" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>device</code> field to <code>QEPConfig</code> (<code>onecomp/qep/_qep_config.py</code>)</li>
+<li>Specifies the GPU device for block-wise QEP computation (default: <code>"cuda:0"</code>)</li>
+<li>Eliminates dependency on <code>model_config.device</code> and supports multi-GPU environments</li>
+<li>Added <code>device_map</code> parameter to <code>ModelConfig.load_model()</code> (<code>onecomp/model_config.py</code>)</li>
+<li>Allows overriding the device placement at load time without affecting existing callers</li>
+<li>Optimized <code>run_quantize_with_qep_arch</code> to avoid loading the entire model onto GPU (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Model is now loaded on CPU via <code>load_model(device_map="cpu")</code></li>
+<li>Calibration data is prepared on CPU</li>
+<li>Only individual transformer blocks are moved to GPU during processing</li>
+<li>Added <code>StopForward</code> exception and modified <code>Catcher</code> to halt the forward pass immediately after capturing first-block inputs, avoiding unnecessary computation through remaining layers (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Added <code>move_kwargs_to_device</code> helper to recursively move keyword arguments to the target device (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Fixed <code>UnboundLocalError</code> when a module in a group is not registered in <code>quantizer.module_to_name</code> (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+</ul>
+<h2 id="v036-2026-03-12">[v0.3.6] 2026-03-12<a class="headerlink" href="#v036-2026-03-12" title="Permanent link">&para;</a></h2>
+<h3 id="completion-of-saveload-pipeline">Completion of Save/Load Pipeline<a class="headerlink" href="#completion-of-saveload-pipeline" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Added new <code>QuantizedModelLoader</code> class (<code>quantized_model_loader.py</code>)</strong></li>
+<li>Automatically detects quantization config (GPTQ/DBF) from <code>config.json</code> and loads the model</li>
+<li>Reads state_dict from safetensors, replaces layers with quantized layers, and loads into an empty model</li>
+<li>Supports automatic device placement via <code>accelerate</code></li>
+<li>Top-level API: exported as <code>onecomp.load_quantized_model()</code></li>
+<li>Added <code>GPTQLinear.from_saved_state()</code> (reconstructs layer from safetensors state_dict)</li>
+<li>Added <code>DoubleBinaryLinear.from_saved_state()</code> (same as above)</li>
+<li>Revised <code>config.json</code> output format to enable direct inference with vLLM</li>
+<li>Added list of quantized layer names to <code>modules_in_block_to_quantize</code></li>
+</ul>
+<h3 id="forward-implementation-for-doublebinarylinear-and-gptqlinear">Forward Implementation for <code>DoubleBinaryLinear</code> and <code>GPTQLinear</code><a class="headerlink" href="#forward-implementation-for-doublebinarylinear-and-gptqlinear" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>GPTQLinear.forward()</code>: Unpacks bit-packed weights → dequantizes → infers via <code>F.linear()</code> (fast path when using GemLite)</li>
+<li><code>DoubleBinaryLinear.forward()</code>: Implements 5-stage pipeline (scaling0 → binary_B → scaling2 → binary_A → scaling4) (GemLite compatible)</li>
+</ul>
+<h3 id="expansion-of-unit-tests">Expansion of Unit Tests<a class="headerlink" href="#expansion-of-unit-tests" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added new common test base class <code>BaseQuantizeSpec</code> (<code>test_module.py</code>)</li>
+<li><code>test_quantize_layer_returns</code>: Validates type, shape, device, and dtype of quantization results (CPU/CUDA)</li>
+<li><code>test_quantize_layer_reproducibility</code>: Validates reproducibility with the same seed</li>
+<li><code>test_parameters_boundary</code>: Confirms correct behavior with boundary parameter values</li>
+<li><code>test_parameters_abnormal_values_raise</code>: Confirms exceptions are raised for abnormal parameters</li>
+<li><code>test_cpu_gpu_output_match</code>: Validates that CPU/GPU quantization results match</li>
+<li><code>test_quantize_error</code>: Validates quantization error is within tolerance on a 2-layer model</li>
+<li><code>test_forward_error</code>: Validates forward accuracy of inference layer (dequantized output vs inference layer output)</li>
+<li>Added dedicated test classes for GPTQ and DBF (<code>test_gptq.py</code>, <code>test_dbf.py</code>)</li>
+</ul>
+<h3 id="fixes-to-dbf-and-gptq-quantizers">Fixes to <code>DBF</code> and <code>GPTQ</code> Quantizers<a class="headerlink" href="#fixes-to-dbf-and-gptq-quantizers" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added parameter validation mechanism via <code>validate_params()</code> during <code>setup()</code> for <code>DBF</code> and <code>GPTQ</code></li>
+<li>Unified and revised dtype (FP16/INT32) and device (CPU) of quantization results</li>
+</ul>
+<h3 id="build-system-updates">Build System Updates<a class="headerlink" href="#build-system-updates" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Migrated package and project management to <code>uv</code> and <code>pyproject.toml</code>.</strong></li>
+<li>Applied <code>black</code> linter to scripts.</li>
+</ul>
+<h3 id="qep-module-refactoring">QEP Module Refactoring<a class="headerlink" href="#qep-module-refactoring" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Added <code>QEPConfig</code> dataclass (<code>onecomp/qep/_qep_config.py</code>)</li>
+<li>Extracted <code>quantize_with_qep</code> logic into standalone function (<code>onecomp/qep/_quantize_with_qep.py</code>)</li>
+<li>Added <code>general</code> flag to <code>QEPConfig</code> for dispatching between generic and architecture-aware implementations</li>
+<li>Added stub for architecture-aware QEP quantization (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Implemented architecture-aware QEP quantization with block-wise sequential pipeline (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Added helper functions: <code>_get_blocks</code>, <code>get_blocks_and_inputs</code>, <code>make_grouped_module</code>, <code>compute_hessian_and_crossterm</code>, <code>forward_input</code></li>
+<li>Added <code>Catcher</code> class for capturing input activations of transformer blocks</li>
+<li>Groups layers sharing the same input activations for efficient Hessian/cross-term computation</li>
+<li>Extended <code>Quantizer.quantize_with_qep()</code> and <code>adjust_weight()</code> to accept precomputed <code>hessian</code> and <code>delta_hatX</code> (<code>onecomp/quantizer/_quantizer.py</code>)</li>
+<li>Fixed <code>_record_quantization_error</code> to handle <code>quant_input_activation=None</code> for architecture-aware QEP (<code>onecomp/quantizer/_quantizer.py</code>)</li>
+<li>Fixed architecture-aware QEP to respect <code>num_layers</code> and layer selection by checking <code>quantizer.module_to_name</code> (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Fixed architecture-aware QEP to support <code>exclude_layer_keywords</code>: excluded layers are quantized without weight correction (<code>onecomp/qep/_quantize_with_qep_arch.py</code>)</li>
+<li>Added consistency test between generic and architecture-aware QEP implementations (<code>tests/onecomp/test_qep_general_consistency.py</code>)</li>
+<li><strong>BREAKING: Changed <code>QEPConfig.general</code> default from <code>True</code> to <code>False</code> (architecture-aware implementation is now the default)</strong></li>
+</ul>
+<h3 id="gptq-refactoring-onecompquantizergptq_gptqpy">GPTQ Refactoring (<code>onecomp/quantizer/gptq/_gptq.py</code>)<a class="headerlink" href="#gptq-refactoring-onecompquantizergptq_gptqpy" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>BREAKING: Changed default <code>sym</code> from <code>False</code> to <code>True</code> (symmetric quantization) for both <code>GPTQ</code> class and <code>run_gptq()</code> function. Code relying on the previous asymmetric default must now explicitly pass <code>sym=False</code>.</strong></li>
+<li>Expanded <code>GPTQ</code> class docstring with full attribute descriptions and usage examples</li>
+<li>Renamed <code>H</code> parameter to <code>hessian</code> in <code>run_gptq()</code> for clarity</li>
+<li>Renamed local variable <code>W</code> to <code>matrix_W</code> in <code>run_gptq()</code> for clarity</li>
+<li>Changed imports to <code>from</code> style (<code>from torch import nn</code>, <code>from transformers import Conv1D</code>)</li>
+<li>Refactored <code>GPTQExcecutor.__init__</code>: replaced <code>register_buffer</code> with explicit <code>None</code> initialization for all attributes</li>
+<li>Added docstrings to <code>GPTQExcecutor.quantize()</code>, <code>enabled()</code>, and <code>ready()</code> methods</li>
+<li>Updated <code>test_gptq.py</code> boundary/abnormal parameters to reflect new <code>sym=True</code> default</li>
+</ul>
+<h2 id="v035-2026-03-05">[v0.3.5] 2026-03-05<a class="headerlink" href="#v035-2026-03-05" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Based on v0.3.4 codebase</li>
+<li>Difference from v0.3.4: Changed comments to English</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.code.annotate", "navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
