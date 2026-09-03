@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from onecomp import CalibrationConfig, ModelConfig, Runner
+from onecomp import CalibrationConfig, ModelConfig, QEPConfig, Runner
 from onecomp.quantizer.autobit._autobit import AutoBitQuantizer
 from onecomp.quantizer.gptq import GPTQ
 from onecomp.utils import estimate_wbits_from_vram
@@ -54,6 +54,7 @@ def test_autobit_small_model_ilp_with_groupsize():
         quantizer=quantizer,
         calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=True,
+        qep_config=QEPConfig(device="cuda:0"),
     )
     runner.run()
 
@@ -73,6 +74,7 @@ def test_autobit_small_model_ilp():
         quantizer=quantizer,
         calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=True,
+        qep_config=QEPConfig(device="cuda:0"),
     )
     runner.run()
 
@@ -95,6 +97,7 @@ def test_autobit_small_model_dbf():
         quantizer=quantizer,
         calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=True,
+        qep_config=QEPConfig(device="cuda:0"),
     )
     runner.run()
 
@@ -121,6 +124,7 @@ def test_autobit_small_model_error():
         quantizer=quantizer,
         calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=True,
+        qep_config=QEPConfig(device="cuda:0"),
     )
     with pytest.raises(ValueError, match="target_bit=.* is below 1.0 bpw"):
         runner.run()
@@ -142,5 +146,6 @@ def test_autobit_large_model():
         quantizer=quantizer,
         calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
         qep=True,
+        qep_config=QEPConfig(device="cuda:0"),
     )
     runner.run()
