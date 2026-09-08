@@ -288,6 +288,7 @@ sast-gate:
 pages:
   image: python:3.11
   stage: deploy
+  needs: []
   script:
     - pip install mkdocs mkdocs-material mkdocstrings mkdocstrings-python
     - mkdocs build --site-dir public
