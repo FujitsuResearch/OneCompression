@@ -2,6 +2,11 @@
 
 ## [v1.4.0] 2026-08-dd
 
+### Breaking Changes
+
+- Remove Runner's layer-wise multi-GPU quantization feature. The `multi_gpu` and
+  `gpu_ids` options and the associated implementation have been removed.
+
 ### Enhancement
 
 - Support fine-tuning router after quantizing expert's of MoE, which can be used as the postprocess. see [GEMQ](https://arxiv.org/abs/2605.23078).

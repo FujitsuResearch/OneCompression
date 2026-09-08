@@ -126,7 +126,7 @@ Then install OneComp from PyPI (see step 2 below). GPTQ quantization and Hugging
 > - GPTQ (`run_gptq`): Hessian and weights are moved to CPU for the full column-wise loop (including inverse-Hessian Cholesky). If that loop stayed on MPS, `quantize()` would call `maxq.item()` once per column; each call triggers **per-column host sync** (wait for pending MPS ops, then read one scalar—not a full Hessian/weight copy every column)—often several times slower than CPU on Apple Silicon (e.g. ~4× in internal benchmarks with PyTorch 2.12). Keeping GPTQ on CPU avoids that overhead. With `mse=True`, `find_params` also calls `quantize()` in a grid loop and benefits from the same CPU placement.
 > - QEP weight correction (`adjust_weight`, when QEP correction runs—typically `qep=True` with error propagation enabled): Per-layer work stays on MPS (e.g. `weight @ delta_hatX`, diagonal damping). Only the Cholesky solve uses CPU via `_safe_cholesky_and_solve` (one solve per layer, not per column); moving all of QEP to CPU does not materially improve speed. The subsequent GPTQ step still uses the CPU path above.
 >
-> DBF-based AutoBit fallback and multi-GPU quantization are not supported on MPS.
+> DBF-based AutoBit fallback is not supported on MPS.
 
 #### 2. Install `onecomp`
 
@@ -136,7 +136,7 @@ Once PyTorch is installed, you can install `onecomp`:
 pip install onecomp
 ```
 
-To enable multi-GPU training features (DeepSpeed), install with the `distributed` extra:
+To enable multi-GPU training for Global PTQ (DeepSpeed), install with the `distributed` extra:
 
 ```bash
 pip install "onecomp[distributed]"
@@ -182,7 +182,7 @@ See the **MPS device placement (GPTQ vs QEP)** note under [macOS (MPS)](#macos-m
 
 Adding `--extra dev` installs development tools (black, pre-commit, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
-Adding `--extra distributed` installs DeepSpeed for multi-GPU training.
+Adding `--extra distributed` installs DeepSpeed for Global PTQ multi-GPU training.
 Adding `--extra hydra` installs `hydra-core` for the example scripts and `model_validation/` runners that use Hydra-based configuration.
 
 To use vLLM for serving quantized models on Linux, add `--extra vllm` together with `--extra cu130`:
