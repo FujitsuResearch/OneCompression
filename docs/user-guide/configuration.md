@@ -28,7 +28,7 @@ model_config = ModelConfig(
 
 !!! note "macOS (MPS)"
     On Apple Silicon, set `device="mps"` for GPTQ / AutoBit (GPTQ-only) quantization.
-    Only GPTQ quantizers are supported on MPS; DBF fallback and multi-GPU are not.
+    Only GPTQ quantizers are supported on MPS; DBF fallback is not.
     See the [macOS / MPS guide](mps.md) for details.
 
 ## Runner
@@ -64,13 +64,6 @@ runner = Runner(
 | `qep_config`                | `QEPConfig`         | QEP configuration                                | `None`           |
 | `lpcd`                      | `bool`              | Enable LPCD                                      | `False`          |
 | `lpcd_config`               | `LPCDConfig`        | LPCD configuration                               | `None`           |
-
-### Advanced Parameters
-
-| Parameter     | Type        | Description                                      | Default  |
-|---------------|-------------|--------------------------------------------------|----------|
-| `multi_gpu`   | `bool`      | Enable multi-GPU layer-wise parallel quantization| `False`  |
-| `gpu_ids`     | `list[int]` | Specific GPU IDs to use                          | `None`   |
 
 !!! note
     When `calibration_config` is `None`, a `CalibrationConfig()` with default values is created automatically.
@@ -124,13 +117,12 @@ calib_config = CalibrationConfig(
 
 ### Valid Parameter Combinations
 
-| `quantizers` | `qep`  | `multi_gpu` | `calibration_config.batch_size` |
-|:------------:|:------:|:-----------:|:-------------------------------:|
-| Specified    | False  | False       | Specified                       |
-| None         | True   | False       | None                            |
-| None         | False  | True        | None                            |
-| None         | False  | False       | Specified                       |
-| None         | False  | False       | None                            |
+| `quantizers` | `qep`  | `calibration_config.batch_size` |
+|:------------:|:------:|:-------------------------------:|
+| Specified    | False  | Specified                       |
+| None         | True   | None                            |
+| None         | False  | Specified                       |
+| None         | False  | None                            |
 
 ## QEPConfig
 
