@@ -33,6 +33,15 @@ from .gptq_adapter import (
     setup_gptq_forwards_only,
     write_back_gptq_params,
 )
+from .mdbf_adapter import (
+    load_mdbf_state,
+    restore_mdbf_original,
+    save_mdbf_state,
+    setup_mdbf_differentiable,
+    setup_mdbf_forwards_only,
+    write_back_mdbf_amp,
+    write_back_mdbf_binary,
+)
 from .helpers import (
     detect_quantization_method,
     disable_gradient_checkpointing,
@@ -157,6 +166,8 @@ def run_kl_distillation(
     epochs: int = 5,
     gptq_lr: float = 1e-5,
     dbf_lr: float = 5e-5,
+    optimize_binary: bool = False,
+    mdbf_ste_k: float = 2.0,
     temperature: float = 1.0,
     grad_clip: float = 1.0,
     calibration_config=None,
@@ -168,7 +179,7 @@ def run_kl_distillation(
     use_mixed_precision: bool = False,
     grad_accum_steps: int = 1,
 ) -> Dict:
-    """Run KL-distillation global PTQ on a GPTQ or DBF quantized model.
+    """Run KL-distillation global PTQ on a GPTQ, DBF, or MDBF model.
 
     The model is modified **in-place**.  Returns a results dict.
     """
@@ -182,7 +193,7 @@ def run_kl_distillation(
         logger.warning("No quantized layers detected — skipping global PTQ.")
         return {"global_executed": False, "reason": "not_quantized"}
 
-    if method not in ("gptq", "dbf"):
+    if method not in ("gptq", "dbf", "mdbf"):
         logger.info("Method '%s' detected — not supported.", method)
         return {"global_executed": False, "reason": f"unsupported_method_{method}"}
 
@@ -225,6 +236,7 @@ def run_kl_distillation(
 
     gptq_modules: list = []
     dbf_modules: list = []
+    mdbf_modules: list = []
     original_forwards: Dict[str, object] = {}
     param_groups: list = []
 
@@ -247,6 +259,20 @@ def run_kl_distillation(
 
         logger.info("Trainable: %d scaling", len(scaling_params))
 
+    elif method == "mdbf":
+        mdbf_modules = detected_modules
+        original_forwards, scaling_params, binary_params = setup_mdbf_differentiable(
+            mdbf_modules, optimize_binary=optimize_binary, ste_k=mdbf_ste_k
+        )
+        all_mdbf_params = list(scaling_params) + list(binary_params)
+        param_groups = [{"params": all_mdbf_params, "lr": dbf_lr}]
+        logger.info(
+            "Trainable: %d amplitudes%s across %d MDBF modules",
+            len(scaling_params),
+            f", {len(binary_params)} binary" if binary_params else "",
+            len(mdbf_modules),
+        )
+
     total_trainable = sum(len(pg["params"]) for pg in param_groups)
     if total_trainable == 0:
         logger.warning("No trainable parameters — skipping.")
@@ -254,6 +280,8 @@ def run_kl_distillation(
             restore_gptq_original(gptq_modules, original_forwards)
         elif method == "dbf":
             restore_dbf_original(dbf_modules, original_forwards)
+        elif method == "mdbf":
+            restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
         quantized_model.cpu()
         del teacher_model
         gc.collect()
@@ -313,9 +341,12 @@ def run_kl_distillation(
     if method == "gptq":
         initial_state = save_gptq_state(gptq_modules)
         restore_gptq_original(gptq_modules, original_forwards)
-    else:
+    elif method == "dbf":
         initial_state = save_dbf_state(dbf_modules)
         restore_dbf_original(dbf_modules, original_forwards)
+    else:
+        initial_state = save_mdbf_state(mdbf_modules)
+        restore_mdbf_original(mdbf_modules, original_forwards)
 
     initial_kl = eval_kl(quantized_model, teacher_model, dataloader, dev, temperature)
     logger.info("Initial KL = %.6f", initial_kl)
@@ -324,6 +355,8 @@ def run_kl_distillation(
         setup_gptq_forwards_only(gptq_modules, original_forwards)
     elif method == "dbf":
         setup_dbf_forwards_only(dbf_modules, original_forwards)
+    else:
+        setup_mdbf_forwards_only(mdbf_modules, original_forwards)
 
     # ------------------------------------------------------------------
     # 7. Training loop
@@ -388,6 +421,11 @@ def run_kl_distillation(
                 elif method == "dbf":
                     write_back_dbf_scaling(dbf_modules)
                     restore_dbf_original(dbf_modules, original_forwards)
+                else:
+                    write_back_mdbf_amp(mdbf_modules)
+                    if optimize_binary:
+                        write_back_mdbf_binary(mdbf_modules)
+                    restore_mdbf_original(mdbf_modules, original_forwards)
 
                 current_kl = eval_kl(quantized_model, teacher_model, dataloader, dev, temperature)
 
@@ -396,8 +434,10 @@ def run_kl_distillation(
                     patience_counter = 0
                     if method == "gptq":
                         best_state = save_gptq_state(gptq_modules)
-                    else:
+                    elif method == "dbf":
                         best_state = save_dbf_state(dbf_modules)
+                    else:
+                        best_state = save_mdbf_state(mdbf_modules)
                 else:
                     patience_counter += 1
 
@@ -405,6 +445,8 @@ def run_kl_distillation(
                     setup_gptq_forwards_only(gptq_modules, original_forwards)
                 elif method == "dbf":
                     setup_dbf_forwards_only(dbf_modules, original_forwards)
+                else:
+                    setup_mdbf_forwards_only(mdbf_modules, original_forwards)
 
                 logger.info(
                     "Epoch %d/%d: train_KL=%.6f | eval_KL=%.6f (best=%.6f)",
@@ -436,26 +478,36 @@ def run_kl_distillation(
     if best_state is not None and best_kl < initial_kl:
         if method == "gptq":
             load_gptq_state(gptq_modules, best_state)
-        else:
+        elif method == "dbf":
             load_dbf_state(dbf_modules, best_state)
+        else:
+            load_mdbf_state(mdbf_modules, best_state)
         logger.info("Loaded best state (KL=%.6f)", best_kl)
     elif best_kl >= initial_kl:
         logger.info("No improvement — rolling back to initial state.")
         if method == "gptq":
             load_gptq_state(gptq_modules, initial_state)
-        else:
+        elif method == "dbf":
             load_dbf_state(dbf_modules, initial_state)
+        else:
+            load_mdbf_state(mdbf_modules, initial_state)
         best_kl = initial_kl
     else:
         if method == "gptq":
             write_back_gptq_params(gptq_modules)
         elif method == "dbf":
             write_back_dbf_scaling(dbf_modules)
+        else:
+            write_back_mdbf_amp(mdbf_modules)
+            if optimize_binary:
+                write_back_mdbf_binary(mdbf_modules)
 
     if method == "gptq":
         restore_gptq_original(gptq_modules, original_forwards, cleanup=True)
     elif method == "dbf":
         restore_dbf_original(dbf_modules, original_forwards)
+    else:
+        restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
 
     # Final evaluation
     quantized_model.eval()

@@ -188,6 +188,8 @@ class TestEarlyStopping:
         assert g.early_stopping_patience == 0
         assert g.use_mixed_precision is False
         assert g.grad_accum_steps == 1
+        assert g.optimize_binary is False
+        assert g.mdbf_ste_k == 2.0
 
     def test_epochs_zero_raises(self):
         from onecomp.post_process.global_ptq import GlobalPTQ
@@ -233,7 +235,6 @@ class TestRemovedDiscreteFields:
         [
             ("gptq_optimize_intweight", True),
             ("gptq_intweight_lr", 1e-4),
-            ("optimize_binary", True),
             ("ste_k", 100.0),
         ],
     )
@@ -248,7 +249,6 @@ class TestRemovedDiscreteFields:
         [
             ("gptq_optimize_intweight", True),
             ("gptq_intweight_lr", 1e-4),
-            ("optimize_binary", True),
             ("ste_k", 100.0),
         ],
     )
@@ -287,7 +287,6 @@ class TestRemovedDiscreteFields:
         "symbol",
         [
             "smooth_ste_round",
-            "smooth_sign_ste",
             "SAMOptimizer",
             "EMATracker",
             "LookaheadOptimizer",
@@ -303,7 +302,6 @@ class TestRemovedDiscreteFields:
 
         mod_map = {
             "smooth_ste_round": "onecomp.post_process._global_ptq.helpers",
-            "smooth_sign_ste": "onecomp.post_process._global_ptq.helpers",
             "SAMOptimizer": "onecomp.post_process._global_ptq.core",
             "EMATracker": "onecomp.post_process._global_ptq.core",
             "LookaheadOptimizer": "onecomp.post_process._global_ptq.core",

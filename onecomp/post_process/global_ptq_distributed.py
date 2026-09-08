@@ -86,6 +86,11 @@ class GlobalPTQDistributed(PostQuantizationProcess):
         dbf_lr (float):
             Learning rate for DBF scaling parameters.
             Default is 5e-5.
+        optimize_binary (bool):
+            Whether to optimise MDBF binary factors via sign STE.
+            Default is False.
+        mdbf_ste_k (float):
+            Sharpness for MDBF binary sign STE. Default is 2.0.
         calibration_config (CalibrationConfig or None):
             Calibration data configuration.  When ``None`` (default),
             a :class:`CalibrationConfig` is created with
@@ -178,6 +183,8 @@ class GlobalPTQDistributed(PostQuantizationProcess):
 
     # --- DBF ---
     dbf_lr: float = 5e-5
+    optimize_binary: bool = False
+    mdbf_ste_k: float = 2.0
 
     # --- Calibration ---
     calibration_config: Optional[CalibrationConfig] = None
@@ -272,6 +279,14 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             setup_gptq_differentiable,
             write_back_gptq_params,
         )
+        from ._global_ptq.mdbf_adapter import (
+            load_mdbf_state,
+            restore_mdbf_original,
+            save_mdbf_state,
+            setup_mdbf_differentiable,
+            write_back_mdbf_amp,
+            write_back_mdbf_binary,
+        )
         from ._global_ptq.helpers import detect_quantization_method
         from ._global_ptq.trainer import _GlobalPTQTrainer, _KDDataset
 
@@ -289,7 +304,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
         if method is None:
             logger.warning("No quantized layers detected — skipping.")
             return {"global_executed": False, "reason": "not_quantized"}
-        if method not in ("gptq", "dbf"):
+        if method not in ("gptq", "dbf", "mdbf"):
             logger.info("Method '%s' not supported — skipping.", method)
             return {"global_executed": False, "reason": f"unsupported_method_{method}"}
 
@@ -325,6 +340,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
 
         gptq_modules = []
         dbf_modules = []
+        mdbf_modules = []
         original_forwards = {}
         param_groups = []
 
@@ -351,6 +367,18 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 "Trainable: %d scaling",
                 len(scaling_params),
             )
+        elif method == "mdbf":
+            mdbf_modules = detected_modules
+            original_forwards, scaling_params, binary_params = setup_mdbf_differentiable(
+                mdbf_modules,
+                optimize_binary=self.optimize_binary,
+                ste_k=self.mdbf_ste_k,
+            )
+            param_groups = [{
+                "params": list(scaling_params) + list(binary_params),
+                "lr": self.dbf_lr,
+                "weight_decay": 0.0,
+            }]
 
         # DeepSpeed ZeRO requires contiguous tensors for all-reduce.
         for pg in param_groups:
@@ -365,6 +393,8 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 restore_gptq_original(gptq_modules, original_forwards)
             elif method == "dbf":
                 restore_dbf_original(dbf_modules, original_forwards)
+            elif method == "mdbf":
+                restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
             quantized_model.cpu()
             return {"global_executed": False, "reason": "no_params"}
 
@@ -436,8 +466,10 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             # Save initial state for rollback if training degrades quality
             if method == "gptq":
                 _initial_state = save_gptq_state(gptq_modules)
-            else:
+            elif method == "dbf":
                 _initial_state = save_dbf_state(dbf_modules)
+            else:
+                _initial_state = save_mdbf_state(mdbf_modules)
 
             # ------------------------------------------------------------------
             # 7. Train (cf. core.py section 7)
@@ -448,6 +480,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 method=method,
                 gptq_modules=gptq_modules,
                 dbf_modules=dbf_modules,
+                mdbf_modules=mdbf_modules,
                 original_forwards=original_forwards,
                 temperature=self.temperature,
                 w_distill=self.w_distill,
@@ -479,8 +512,10 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 )
                 if method == "gptq":
                     load_gptq_state(gptq_modules, _initial_state)
-                else:
+                elif method == "dbf":
                     load_dbf_state(dbf_modules, _initial_state)
+                else:
+                    load_mdbf_state(mdbf_modules, _initial_state)
 
             if method == "gptq":
                 if not rollback_happened:
@@ -489,6 +524,11 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             elif method == "dbf":
                 write_back_dbf_scaling(dbf_modules)
                 restore_dbf_original(dbf_modules, original_forwards)
+            elif method == "mdbf":
+                write_back_mdbf_amp(mdbf_modules)
+                if self.optimize_binary:
+                    write_back_mdbf_binary(mdbf_modules)
+                restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
         finally:
             if original_use_cache is not None:
                 quantized_model.config.use_cache = original_use_cache

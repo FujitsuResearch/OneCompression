@@ -27,7 +27,7 @@ logger = getLogger(__name__)
 class GlobalPTQ(PostQuantizationProcess):
     """Global Post-Training Quantization via KL distillation.
 
-    After layer-wise PTQ (GPTQ / DBF) quantises each linear layer
+    After layer-wise PTQ (GPTQ / DBF / MDBF) quantises each linear layer
     independently, global PTQ minimises the KL divergence between an
     FP16 teacher model and the quantized student model across the
     entire sequence, fine-tuning continuous quantization parameters
@@ -47,6 +47,11 @@ class GlobalPTQ(PostQuantizationProcess):
         dbf_lr (float):
             Learning rate for DBF scaling parameters.
             Default is 5e-5.
+        optimize_binary (bool):
+            Whether to optimise MDBF binary factors via sign STE.
+            Default is False.
+        mdbf_ste_k (float):
+            Sharpness for MDBF binary sign STE. Default is 2.0.
         calibration_config (CalibrationConfig or None):
             Calibration data configuration.  When ``None`` (default),
             a :class:`CalibrationConfig` is created with
@@ -126,6 +131,8 @@ class GlobalPTQ(PostQuantizationProcess):
     temperature: float = 1.0
     grad_clip: float = 1.0
     dbf_lr: float = 5e-5
+    optimize_binary: bool = False
+    mdbf_ste_k: float = 2.0
     calibration_config: Optional[CalibrationConfig] = None
     warmup_ratio: float = 0.1
     min_lr_ratio: float = 0.01
@@ -189,6 +196,8 @@ class GlobalPTQ(PostQuantizationProcess):
                 epochs=self.epochs,
                 gptq_lr=self.gptq_lr,
                 dbf_lr=self.dbf_lr,
+                optimize_binary=self.optimize_binary,
+                mdbf_ste_k=self.mdbf_ste_k,
                 temperature=self.temperature,
                 grad_clip=self.grad_clip,
                 calibration_config=self.calibration_config,

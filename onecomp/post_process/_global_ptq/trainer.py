@@ -28,6 +28,11 @@ from .gptq_adapter import (
     setup_gptq_forwards_only,
     write_back_gptq_params,
 )
+from .mdbf_adapter import (
+    setup_mdbf_forwards_only,
+    write_back_mdbf_amp,
+    write_back_mdbf_binary,
+)
 from .helpers import get_logits
 from .losses import compute_kl_loss, compute_ntp_loss
 
@@ -84,6 +89,7 @@ class _GlobalPTQTrainer(Trainer):
         method: str,
         gptq_modules: list,
         dbf_modules: list,
+        mdbf_modules: list,
         original_forwards: dict,
         temperature: float,
         w_distill: float,
@@ -96,6 +102,7 @@ class _GlobalPTQTrainer(Trainer):
         self.method = method
         self.gptq_modules = gptq_modules
         self.dbf_modules = dbf_modules
+        self.mdbf_modules = mdbf_modules
         self.original_forwards = original_forwards
         self.temperature = temperature
         self.w_distill = w_distill
@@ -168,6 +175,9 @@ class _GlobalPTQTrainer(Trainer):
             restore_gptq_original(self.gptq_modules, self.original_forwards)
         elif self.method == "dbf":
             restore_dbf_original(self.dbf_modules, self.original_forwards)
+        elif self.method == "mdbf":
+            write_back_mdbf_amp(self.mdbf_modules)
+            write_back_mdbf_binary(self.mdbf_modules)
 
         result = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
 
@@ -181,5 +191,7 @@ class _GlobalPTQTrainer(Trainer):
                 self.dbf_modules,
                 self.original_forwards,
             )
+        elif self.method == "mdbf":
+            setup_mdbf_forwards_only(self.mdbf_modules, self.original_forwards)
 
         return result
