@@ -86,6 +86,7 @@ class _GlobalPTQTrainer(Trainer):
         self,
         *,
         teacher_model: nn.Module,
+        teacher_device=None,
         method: str,
         gptq_modules: list,
         dbf_modules: list,
@@ -99,6 +100,7 @@ class _GlobalPTQTrainer(Trainer):
     ):
         super().__init__(**kwargs)
         self.teacher_model = teacher_model
+        self.teacher_device = teacher_device
         self.method = method
         self.gptq_modules = gptq_modules
         self.dbf_modules = dbf_modules
@@ -146,7 +148,10 @@ class _GlobalPTQTrainer(Trainer):
         loss = torch.tensor(0.0, device=logits_s.device)
         if self.w_distill > 0 and self.teacher_model is not None:
             with torch.no_grad():
-                logits_t = get_logits(self.teacher_model(input_ids))
+                teacher_inputs = input_ids
+                if self.teacher_device is not None:
+                    teacher_inputs = input_ids.to(self.teacher_device)
+                logits_t = get_logits(self.teacher_model(teacher_inputs)).to(logits_s.device)
             loss = loss + self.w_distill * compute_kl_loss(
                 logits_t,
                 logits_s,

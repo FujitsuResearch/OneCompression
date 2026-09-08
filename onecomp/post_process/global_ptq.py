@@ -52,6 +52,12 @@ class GlobalPTQ(PostQuantizationProcess):
             Default is False.
         mdbf_ste_k (float):
             Sharpness for MDBF binary sign STE. Default is 2.0.
+        student_device (str or None):
+            Device for the quantized student model. Defaults to CUDA when
+            available, otherwise CPU.
+        teacher_device (str or None):
+            Optional device for the FP16 teacher model. Defaults to the
+            student device.
         calibration_config (CalibrationConfig or None):
             Calibration data configuration.  When ``None`` (default),
             a :class:`CalibrationConfig` is created with
@@ -133,6 +139,8 @@ class GlobalPTQ(PostQuantizationProcess):
     dbf_lr: float = 5e-5
     optimize_binary: bool = False
     mdbf_ste_k: float = 2.0
+    student_device: Optional[str] = None
+    teacher_device: Optional[str] = None
     calibration_config: Optional[CalibrationConfig] = None
     warmup_ratio: float = 0.1
     min_lr_ratio: float = 0.01
@@ -198,6 +206,8 @@ class GlobalPTQ(PostQuantizationProcess):
                 dbf_lr=self.dbf_lr,
                 optimize_binary=self.optimize_binary,
                 mdbf_ste_k=self.mdbf_ste_k,
+                student_device=self.student_device,
+                teacher_device=self.teacher_device,
                 temperature=self.temperature,
                 grad_clip=self.grad_clip,
                 calibration_config=self.calibration_config,

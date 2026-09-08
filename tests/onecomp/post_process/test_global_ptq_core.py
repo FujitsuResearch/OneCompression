@@ -190,6 +190,42 @@ class TestEarlyStopping:
         assert g.grad_accum_steps == 1
         assert g.optimize_binary is False
         assert g.mdbf_ste_k == 2.0
+        assert g.student_device is None
+        assert g.teacher_device is None
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+    def test_teacher_logits_can_run_on_separate_device(self):
+        from onecomp.post_process._global_ptq.core import _get_teacher_logits
+
+        class _Teacher(nn.Module):
+            def forward(self, input_ids):
+                assert input_ids.device.type == "cuda"
+                return (input_ids.float(),)
+
+        input_ids = torch.ones(2, 3)
+        logits = _get_teacher_logits(
+            _Teacher(),
+            input_ids,
+            torch.device("cuda"),
+            torch.device("cpu"),
+        )
+        assert logits.device.type == "cpu"
+
+    def test_device_options_are_forwarded(self, monkeypatch):
+        from onecomp.post_process._global_ptq import core
+        from onecomp.post_process.global_ptq import GlobalPTQ
+
+        captured = {}
+
+        def fake_run(_model, _config, **kwargs):
+            captured.update(kwargs)
+            return {"global_executed": False, "reason": "test"}
+
+        monkeypatch.setattr(core, "run_kl_distillation", fake_run)
+        GlobalPTQ(student_device="cuda:0", teacher_device="cpu")._run(nn.Linear(2, 2), object())
+
+        assert captured["student_device"] == "cuda:0"
+        assert captured["teacher_device"] == "cpu"
 
     def test_epochs_zero_raises(self):
         from onecomp.post_process.global_ptq import GlobalPTQ

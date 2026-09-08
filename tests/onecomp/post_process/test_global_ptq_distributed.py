@@ -136,6 +136,12 @@ class TestGlobalPTQDistributedSkipMetadata:
         assert entry["executed"] is False
         assert entry["reason"] == "not_quantized"
 
+    def test_teacher_device_default_and_configuration(self):
+        from onecomp.post_process.global_ptq_distributed import GlobalPTQDistributed
+
+        assert GlobalPTQDistributed().teacher_device is None
+        assert GlobalPTQDistributed(teacher_device="cpu").teacher_device == "cpu"
+
     def test_unsupported_method_skip_records_reason(self, monkeypatch):
         from onecomp.post_process._global_ptq import helpers
         from onecomp.post_process.global_ptq_distributed import GlobalPTQDistributed

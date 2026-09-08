@@ -6,6 +6,7 @@
 
 - Added MDBF support to `GlobalPTQ` and `GlobalPTQDistributed` for KL-distillation-based global optimization of MDBF amplitude parameters.
 - Added optional STE-based optimization of MDBF binary factors with state rollback and write-back support.
+- Added optional student/teacher device placement for GlobalPTQ, including CPU teacher fallback for distributed execution.
 - Added an MDBF GlobalPTQ example and adapter tests.
 
 ### Enhancement

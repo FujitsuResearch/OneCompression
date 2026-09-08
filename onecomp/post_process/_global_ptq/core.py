@@ -84,15 +84,17 @@ def eval_kl(
     dataloader: List[torch.Tensor],
     dev: torch.device,
     temperature: float = 1.0,
+    teacher_dev: Optional[torch.device] = None,
 ) -> float:
-    """Mean KL divergence over *dataloader* batches."""
+    """Mean KL divergence, optionally running teacher on another device."""
+    teacher_dev = teacher_dev or dev
     was_training = model.training
     model.eval()
     total, n = 0.0, 0
     for input_ids in dataloader:
         input_ids = input_ids.to(dev)
         logits_s = get_logits(model(input_ids))
-        logits_t = get_logits(teacher_model(input_ids))
+        logits_t = _get_teacher_logits(teacher_model, input_ids, teacher_dev, dev)
         total += compute_kl_loss(logits_t, logits_s, temperature).item()
         n += 1
     if was_training:
@@ -154,6 +156,18 @@ def _has_nan_grad(param_groups: list) -> bool:
     return False
 
 
+@torch.no_grad()
+def _get_teacher_logits(
+    teacher_model: nn.Module,
+    input_ids: torch.Tensor,
+    teacher_dev: torch.device,
+    student_dev: torch.device,
+) -> torch.Tensor:
+    """Run the teacher on its device and return logits on the student device."""
+    logits = get_logits(teacher_model(input_ids.to(teacher_dev)))
+    return logits if teacher_dev == student_dev else logits.to(student_dev)
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -168,6 +182,8 @@ def run_kl_distillation(
     dbf_lr: float = 5e-5,
     optimize_binary: bool = False,
     mdbf_ste_k: float = 2.0,
+    student_device: Optional[str] = None,
+    teacher_device: Optional[str] = None,
     temperature: float = 1.0,
     grad_clip: float = 1.0,
     calibration_config=None,
@@ -183,7 +199,8 @@ def run_kl_distillation(
 
     The model is modified **in-place**.  Returns a results dict.
     """
-    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev = torch.device(student_device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    teacher_dev = torch.device(teacher_device) if teacher_device else dev
 
     # ------------------------------------------------------------------
     # 1. Detect method
@@ -226,7 +243,9 @@ def run_kl_distillation(
     teacher_model.eval()
     for p in teacher_model.parameters():
         p.requires_grad = False
-    teacher_model.to(dev)
+    if teacher_dev.type != "cpu":
+        logger.info("Moving FP16 teacher model from CPU to %s.", teacher_dev)
+        teacher_model.to(teacher_dev)
 
     # ------------------------------------------------------------------
     # 4. Move student to GPU and set up differentiable parameters
@@ -348,7 +367,7 @@ def run_kl_distillation(
         initial_state = save_mdbf_state(mdbf_modules)
         restore_mdbf_original(mdbf_modules, original_forwards)
 
-    initial_kl = eval_kl(quantized_model, teacher_model, dataloader, dev, temperature)
+    initial_kl = eval_kl(quantized_model, teacher_model, dataloader, dev, temperature, teacher_dev)
     logger.info("Initial KL = %.6f", initial_kl)
 
     if method == "gptq":
@@ -386,7 +405,7 @@ def run_kl_distillation(
                 with amp_ctx:
                     logits_s = get_logits(quantized_model(input_ids))
                     with torch.no_grad():
-                        logits_t = get_logits(teacher_model(input_ids))
+                        logits_t = _get_teacher_logits(teacher_model, input_ids, teacher_dev, dev)
 
                 loss = compute_kl_loss(logits_t, logits_s, temperature)
 
@@ -427,7 +446,9 @@ def run_kl_distillation(
                         write_back_mdbf_binary(mdbf_modules)
                     restore_mdbf_original(mdbf_modules, original_forwards)
 
-                current_kl = eval_kl(quantized_model, teacher_model, dataloader, dev, temperature)
+                current_kl = eval_kl(
+                    quantized_model, teacher_model, dataloader, dev, temperature, teacher_dev
+                )
 
                 if current_kl < best_kl:
                     best_kl = current_kl
@@ -511,7 +532,7 @@ def run_kl_distillation(
 
     # Final evaluation
     quantized_model.eval()
-    final_kl = eval_kl(quantized_model, teacher_model, dataloader, dev, temperature)
+    final_kl = eval_kl(quantized_model, teacher_model, dataloader, dev, temperature, teacher_dev)
 
     # Cleanup
     del teacher_model

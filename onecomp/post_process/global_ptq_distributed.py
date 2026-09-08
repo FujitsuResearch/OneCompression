@@ -91,6 +91,10 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             Default is False.
         mdbf_ste_k (float):
             Sharpness for MDBF binary sign STE. Default is 2.0.
+        teacher_device (str or None):
+            Optional device for the FP16 teacher model. Defaults to the
+            student device for single-process execution and CPU when using
+            DeepSpeed or multiple processes.
         calibration_config (CalibrationConfig or None):
             Calibration data configuration.  When ``None`` (default),
             a :class:`CalibrationConfig` is created with
@@ -185,6 +189,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
     dbf_lr: float = 5e-5
     optimize_binary: bool = False
     mdbf_ste_k: float = 2.0
+    teacher_device: Optional[str] = None
 
     # --- Calibration ---
     calibration_config: Optional[CalibrationConfig] = None
@@ -413,12 +418,18 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             # ------------------------------------------------------------------
             need_teacher = self.w_distill > 0
             if need_teacher:
-                logger.info("Loading FP16 teacher model...")
+                world_size = int(os.environ.get("WORLD_SIZE", "1"))
+                resolved_teacher_device = self.teacher_device
+                if resolved_teacher_device is None and (self.deepspeed_config or world_size > 1):
+                    resolved_teacher_device = "cpu"
+                teacher_dev = torch.device(resolved_teacher_device or dev)
+                logger.info("Loading FP16 teacher model on %s...", teacher_dev)
                 teacher_model = model_config.load_model(device_map="cpu")
                 teacher_model.eval()
                 for p in teacher_model.parameters():
                     p.requires_grad = False
-                teacher_model.to(dev)
+                if teacher_dev.type != "cpu":
+                    teacher_model.to(teacher_dev)
             else:
                 logger.info("w_distill=0 — skipping teacher model load (pure QAT mode).")
             # ------------------------------------------------------------------
@@ -483,6 +494,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 gptq_modules=gptq_modules,
                 dbf_modules=dbf_modules,
                 mdbf_modules=mdbf_modules,
+                teacher_device=teacher_dev if need_teacher else None,
                 original_forwards=original_forwards,
                 temperature=self.temperature,
                 w_distill=self.w_distill,
