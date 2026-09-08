@@ -1,4 +1,8 @@
-"""Differentiable parameter management for MDBF global PTQ."""
+"""
+Differentiable parameter management for MDBF global PTQ.
+
+Copyright 2025-2026 Fujitsu Ltd.
+"""
 
 from types import MethodType
 from typing import Dict, List, Tuple
@@ -18,9 +22,7 @@ def find_mdbf_modules(model: nn.Module) -> List[Tuple[str, nn.Module]]:
     from ...quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
 
     return [
-        (name, mod)
-        for name, mod in model.named_modules()
-        if isinstance(mod, MultipathMDBFLinear)
+        (name, mod) for name, mod in model.named_modules() if isinstance(mod, MultipathMDBFLinear)
     ]
 
 
@@ -39,15 +41,15 @@ def _make_mdbf_differentiable_forward():
             if hasattr(path, "_opt_A_sign"):
                 a_sign = smooth_sign_ste(path._opt_A_sign, k=sharpness).to(dtype)
             else:
-                a_sign = unpack_binary(
-                    path._packed_sign("A", x.device), (path.n, path.r)
-                ).to(dtype)
+                a_sign = unpack_binary(path._packed_sign("A", x.device), (path.n, path.r)).to(
+                    dtype
+                )
             if hasattr(path, "_opt_B_sign"):
                 b_sign = smooth_sign_ste(path._opt_B_sign, k=sharpness).to(dtype)
             else:
-                b_sign = unpack_binary(
-                    path._packed_sign("B", x.device), (path.r, path.m)
-                ).to(dtype)
+                b_sign = unpack_binary(path._packed_sign("B", x.device), (path.r, path.m)).to(
+                    dtype
+                )
 
             factor_a = a_sign * (amplitudes["A_amp"] @ amplitudes["Q_U_amp"].T)
             factor_b = b_sign * (amplitudes["Q_V_amp"] @ amplitudes["B_amp"].T)
@@ -87,9 +89,9 @@ def setup_mdbf_differentiable(
                         packed = path._packed_cpu.get(sign)
                     if packed is None:
                         continue
-                    unpacked = unpack_binary(
-                        packed.to(path.A_amp.device), shape
-                    ).float().detach().clone()
+                    unpacked = (
+                        unpack_binary(packed.to(path.A_amp.device), shape).float().detach().clone()
+                    )
                     parameter = nn.Parameter(unpacked)
                     setattr(path, f"_opt_{sign}_sign", parameter)
                     binary_params.append(parameter)

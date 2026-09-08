@@ -68,9 +68,7 @@ def detect_quantization_method(
         (name, mod) for name, mod in model.named_modules() if isinstance(mod, DoubleBinaryLinear)
     ]
     mdbf_modules = [
-        (name, mod)
-        for name, mod in model.named_modules()
-        if isinstance(mod, MultipathMDBFLinear)
+        (name, mod) for name, mod in model.named_modules() if isinstance(mod, MultipathMDBFLinear)
     ]
 
     if gptq_modules and dbf_modules:
@@ -85,7 +83,9 @@ def detect_quantization_method(
         logger.warning(
             "Mixed quantization model detected (gptq=%d, dbf=%d, mdbf=%d). "
             "Global PTQ optimises the highest-priority method only.",
-            len(gptq_modules), len(dbf_modules), len(mdbf_modules),
+            len(gptq_modules),
+            len(dbf_modules),
+            len(mdbf_modules),
         )
     if gptq_modules:
         return "gptq", gptq_modules

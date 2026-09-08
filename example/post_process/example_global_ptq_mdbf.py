@@ -2,11 +2,13 @@
 
 Usage:
     python example/post_process/example_global_ptq_mdbf.py
+
+Copyright 2025-2026 Fujitsu Ltd.
 """
 
 import torch
 
-from onecomp import CalibrationConfig, GlobalPTQ, MDBF, ModelConfig, Runner, setup_logger
+from onecomp import MDBF, CalibrationConfig, GlobalPTQ, ModelConfig, Runner, setup_logger
 
 
 def main():

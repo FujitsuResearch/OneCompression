@@ -279,6 +279,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             setup_gptq_differentiable,
             write_back_gptq_params,
         )
+        from ._global_ptq.helpers import detect_quantization_method
         from ._global_ptq.mdbf_adapter import (
             load_mdbf_state,
             restore_mdbf_original,
@@ -287,7 +288,6 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             write_back_mdbf_amp,
             write_back_mdbf_binary,
         )
-        from ._global_ptq.helpers import detect_quantization_method
         from ._global_ptq.trainer import _GlobalPTQTrainer, _KDDataset
 
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
@@ -374,11 +374,13 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 optimize_binary=self.optimize_binary,
                 ste_k=self.mdbf_ste_k,
             )
-            param_groups = [{
-                "params": list(scaling_params) + list(binary_params),
-                "lr": self.dbf_lr,
-                "weight_decay": 0.0,
-            }]
+            param_groups = [
+                {
+                    "params": list(scaling_params) + list(binary_params),
+                    "lr": self.dbf_lr,
+                    "weight_decay": 0.0,
+                }
+            ]
 
         # DeepSpeed ZeRO requires contiguous tensors for all-reduce.
         for pg in param_groups:
