@@ -2,6 +2,12 @@
 
 ## [v1.4.0] 2026-08-dd
 
+### Support MDBF's GlobalPTQ
+
+- Added MDBF support to `GlobalPTQ` and `GlobalPTQDistributed` for KL-distillation-based global optimization of MDBF amplitude parameters.
+- Added optional STE-based optimization of MDBF binary factors with state rollback and write-back support.
+- Added an MDBF GlobalPTQ example and adapter tests.
+
 ### Enhancement
 
 - Support fine-tuning router after quantizing expert's of MoE, which can be used as the postprocess. see [GEMQ](https://arxiv.org/abs/2605.23078).
