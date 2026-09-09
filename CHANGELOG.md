@@ -2,6 +2,10 @@
 
 ## [v1.3.4] 2026-09-07
 
+### Bug Fix
+
+- Support `UserDict`-based shared KV states when QEP processes transformer blocks one at a time.
+
 ### Documentation
 
 - Clarified that OneComp is released under the MIT License and that licenses for dependency OSS may change when dependencies are updated.

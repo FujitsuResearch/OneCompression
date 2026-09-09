@@ -6,6 +6,7 @@ Author: Yudai Fujimoto, Akihiro Yoshida, Yuma Ichikawa
 
 """
 
+from collections import UserDict
 from logging import getLogger
 
 import torch
@@ -361,6 +362,8 @@ def move_kwargs_to_device(x, device):
         return [move_kwargs_to_device(v, device) for v in x]
     elif isinstance(x, tuple):
         return tuple(move_kwargs_to_device(v, device) for v in x)
+    elif isinstance(x, UserDict):
+        return {k: move_kwargs_to_device(v, device) for k, v in x.items()}
     else:
         return x
 
@@ -395,6 +398,8 @@ def expand_kwargs_batch(kwargs, batch_size):
         elif isinstance(v, list):
             return [_expand(t) for t in v]
         elif isinstance(v, dict):
+            return {k: _expand(val) for k, val in v.items()}
+        elif isinstance(v, UserDict):
             return {k: _expand(val) for k, val in v.items()}
         return v
 

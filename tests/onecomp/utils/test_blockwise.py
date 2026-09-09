@@ -9,6 +9,7 @@ layer types in ``get_blocks_and_inputs``.
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
+from collections import UserDict
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,7 +23,9 @@ from onecomp.utils.blockwise import (
     _compute_per_type_attention_masks,
     _create_linear_attention_mask,
     _get_block_layer_type,
+    expand_kwargs_batch,
     get_blocks_and_inputs,
+    move_kwargs_to_device,
 )
 
 # ---------------------------------------------------------------------------
@@ -326,3 +329,30 @@ def test_get_blocks_and_inputs_single_layer_type_has_no_mask_map():
 
     assert len(blocks) == 2
     assert _ATTN_MASK_MAP_KEY not in kwargs
+
+
+# ---------------------------------------------------------------------------
+# UserDict kwargs
+# ---------------------------------------------------------------------------
+
+
+def test_expand_kwargs_batch_expands_nested_user_dict():
+    shared_kv_states = UserDict(
+        {
+            "key": torch.zeros(1, 2, 4),
+            "value": torch.ones(1, 2, 4),
+        }
+    )
+
+    result = expand_kwargs_batch({"shared_kv_states": shared_kv_states}, batch_size=3)
+
+    assert result["shared_kv_states"]["key"].shape == (3, 2, 4)
+    assert result["shared_kv_states"]["value"].shape == (3, 2, 4)
+
+
+def test_move_kwargs_to_device_moves_nested_user_dict():
+    shared_kv_states = UserDict({"key": torch.zeros(1, 2, 4)})
+
+    result = move_kwargs_to_device(shared_kv_states, torch.device("cpu"))
+
+    assert result["key"].device == torch.device("cpu")
