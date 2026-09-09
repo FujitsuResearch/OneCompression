@@ -2,6 +2,10 @@
 
 ## [v1.3.4] 2026-09-07
 
+### Documentation
+
+- Clarified that OneComp is released under the MIT License and that licenses for dependency OSS may change when dependencies are updated.
+
 ## [v1.3.3] 2026-09-03
 
 ### Enhancement
