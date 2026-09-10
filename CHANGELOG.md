@@ -2,6 +2,19 @@
 
 ## [v1.3.4] 2026-09-07
 
+### Bug Fix
+
+- Make cluster CI use an explicitly prepared, content-verified C4 calibration
+  cache from shared storage. This removes its dependency on Hugging Face Hub
+  connectivity and generated config hashes, which previously caused C4 loading
+  to fail on offline compute nodes despite unrelated cached configs being
+  present. Add an intentional cache preparation/verification script and fail
+  fast when `ONECOMP_CALIB_CACHE/c4` is missing or invalid.
+- Fix parallel cluster test jobs racing on the shared repository's
+  `.git/config.lock`. The cluster test orchestrator now fetches directly from
+  the authenticated CI URL under the existing lock without temporarily
+  rewriting the `origin` remote.
+
 ### Documentation
 
 - Clarified that OneComp is released under the MIT License and that licenses for dependency OSS may change when dependencies are updated.
