@@ -11,10 +11,10 @@ onecomp/cpu/
 ├── export/            # GGUF export
 │   ├── blocks.py        lossless GPTQ-code -> GGUF legacy-block packing
 │   ├── checkpoint.py    read an OneComp GPTQ checkpoint -> GPTQLayer
-│   ├── dequantize.py    GPTQ checkpoint -> dense fp16 HF model
+│   ├── dequantize.py    GPTQ/DBF/MDBF checkpoint -> dense fp16 HF model
 │   ├── skeleton.py      build metadata/tokenizer skeleton GGUF + stitch tensors
 │   ├── direct.py        direct, lossless GPTQ -> GGUF  (preferred)
-│   └── fallback.py      dequantize -> llama-quantize   (universal, re-quantizes)
+│   └── fallback.py      dequantize -> llama-quantize   (re-quantizes)
 ├── eval/              # CPU-side evaluation
 │   ├── inspect_gguf.py  per-tensor quant types / size / effective bit-width
 │   ├── perplexity.py    CPU perplexity on text
@@ -73,9 +73,14 @@ convert_gptq_to_gguf("./model-gptq-4bit", "./model.gguf")
 ### 2. Dequantize → llama-quantize (fallback; re-quantizes)
 
 `export_via_dequantize` reconstructs fp16 weights and uses
-`convert_hf_to_gguf.py` + `llama-quantize`. Works for any GPTQ checkpoint but
-discards the GPTQ error correction (quality ≈ stock `Q4_K_M`). Needs the
-`llama-quantize` binary (`$LLAMA_QUANTIZE_BIN` / PATH).
+`convert_hf_to_gguf.py` + `llama-quantize`. It supports GPTQ, DBF, MDBF,
+AutoBit, and rotated checkpoints, but re-quantization does not preserve their
+original quantization. It needs the `llama-quantize` binary
+(`$LLAMA_QUANTIZE_BIN` / PATH).
+
+MDBF supports only this fallback path. Its 1–2-bit compression is not retained
+in GGUF; prefer `qtype=None` in Python to keep f16, or `Q8_0` to limit additional
+quantization error.
 
 ```python
 from onecomp.cpu import export_via_dequantize

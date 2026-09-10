@@ -90,9 +90,9 @@ export_to_gguf("./model", "./model.gguf")  # mode="auto" by default
 | `jointq`, `rtn`           | same AutoGPTQ layout           | direct   | yes |
 | `mixed_gptq`              | per-layer bit-widths           | mixed    | 4/8-bit yes, 2/3-bit no |
 | `dbf`, `autobit`          | binary factorization / mixed   | fallback | no (re-quantized) |
-| `gptq`/`mixed_gptq` + `rotated=true` | online Hadamard on down_proj | fallback | no (re-quantized) |
-| `onebit`                  | —                              | unsupported (by request) |
-| `mdbf`                    | —                              | unsupported (not implemented yet) |
+| `mdbf`                    | multi-path binary factorization | fallback | no (re-quantized) |
+| supported method + `rotated=true` | online Hadamard on down_proj | fallback | no (re-quantized) |
+| `onebit`                  | —                              | unsupported (by request) | — |
 
 **QEP** only changes the GPTQ *integer codes* (via pre-quantization weight
 adjustment), so QEP-corrected checkpoints export through the very same lossless
@@ -191,6 +191,16 @@ export_via_dequantize("./model", "./model.gguf", qtype="Q4_K_M")
 This **re-quantizes** the weights, so the GPTQ/QEP error correction is lost and
 quality is comparable to a stock `Q4_K_M` GGUF. It requires the
 `llama-quantize` binary (set `$LLAMA_QUANTIZE_BIN` or put it on `PATH`).
+
+MDBF uses only this fallback path, including rotated checkpoints. The exporter
+reconstructs dense weights and folds any online `down_proj` Hadamard into them,
+so stock llama.cpp needs no MDBF-specific kernel. The resulting GGUF does not
+retain MDBF's 1–2-bit compression.
+
+Re-quantizing MDBF weights to the default `Q4_K_M` adds another quantization
+step while producing a larger file than the original MDBF checkpoint. To carry
+the reconstructed weights with less added error, use `qtype=None` for f16
+(Python API only), or `Q8_0` with either Python or the CLI.
 
 ## Running inference
 

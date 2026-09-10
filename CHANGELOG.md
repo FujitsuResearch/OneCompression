@@ -1,5 +1,15 @@
 # Change log
 
+## [v1.4.0(WIP)+feature/mdbf-llamacpp-export] 2026-09-10
+
+### New Features
+
+- Added GGUF fallback export for plain and rotated MDBF checkpoints by reconstructing dense weights before llama.cpp conversion.
+
+### Bug Fixes
+
+- Reject forced `direct` and `mixed` GGUF modes for non-GPTQ layouts and rotated checkpoints instead of entering an incompatible exporter.
+
 ## [v1.4.0(WIP)+feature/openvino-2026.03] 2026-09-10
 
 ### Environment
