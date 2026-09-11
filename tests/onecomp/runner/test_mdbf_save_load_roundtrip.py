@@ -22,147 +22,17 @@ from unittest.mock import patch
 
 import pytest
 import torch
-from safetensors.torch import save_file
 
 from onecomp.pre_process.hadamard_utils import get_hadK, matmul_hadU_cuda
 from onecomp.quantized_model_loader import QuantizedModelLoader
 from onecomp.quantizer.mdbf.config import resolve_mdbf_paths
-from onecomp.quantizer.mdbf.initialize import MDBFParams
 from onecomp.quantizer.mdbf.mdbf_layer import MDBFLinear, MultipathMDBFLinear
-
-# Layers replaced by MDBF in the tiny test model (one attention, one MLP
-# projection) - enough to cover both square and rectangular weight shapes.
-TARGET_SUFFIXES = ("self_attn.q_proj", "mlp.down_proj")
-MDBF_RANK = 8
-MDBF_PATHS = 2
-
-
-def _make_params(n: int, m: int, r: int, l: int, seed: int) -> MDBFParams:
-    """Build deterministic, non-degenerate MDBF parameters for one path.
-
-    Args:
-        n: Output features.
-        m: Input features.
-        r: Decomposition rank.
-        l: Multi-scale amplitude rank.
-        seed: RNG seed making the tensors reproducible across runs.
-
-    Returns:
-        MDBFParams with +-1 sign matrices and strictly positive amplitudes.
-    """
-    g = torch.Generator().manual_seed(seed)
-
-    def _sign(*shape: int) -> torch.Tensor:
-        return torch.where(torch.randn(*shape, generator=g) > 0, 1.0, -1.0)
-
-    def _amp(*shape: int) -> torch.Tensor:
-        # Offset away from 0 so an "all-zero buffer" check cannot pass by luck.
-        return torch.rand(*shape, generator=g) + 0.5
-
-    return MDBFParams(
-        A_sign=_sign(n, r),
-        B_sign=_sign(r, m),
-        A_amp=_amp(n, l),
-        B_amp=_amp(m, l),
-        Q_U_amp=_amp(r, l),
-        Q_V_amp=_amp(r, l),
-    )
-
-
-def _build_mdbf_model(*, with_bias: bool) -> tuple[torch.nn.Module, Any, list[str]]:
-    """Build a tiny Llama whose target linears are MultipathMDBFLinear.
-
-    Args:
-        with_bias: Whether the replaced linears carry a bias buffer.
-
-    Returns:
-        (model, config, quantized_layer_names)
-    """
-    from transformers import LlamaConfig, LlamaForCausalLM
-
-    config = LlamaConfig(
-        hidden_size=16,
-        num_attention_heads=4,
-        num_hidden_layers=2,
-        num_key_value_heads=4,
-        intermediate_size=32,
-        max_position_embeddings=16,
-        vocab_size=32,
-        tie_word_embeddings=False,
-        attention_bias=with_bias,
-        mlp_bias=with_bias,
-    )
-    config.torch_dtype = torch.float16
-    model = LlamaForCausalLM(config).to(torch.float16).eval()
-
-    name_to_module = dict(model.named_modules())
-    quantized_names: list[str] = []
-    for layer_idx in range(config.num_hidden_layers):
-        for suffix in TARGET_SUFFIXES:
-            name = f"model.layers.{layer_idx}.{suffix}"
-            quantized_names.append(name)
-            parent_name, _, child_name = name.rpartition(".")
-            parent = name_to_module[parent_name]
-            linear = getattr(parent, child_name)
-            bias = linear.bias.detach().clone() if linear.bias is not None else None
-            params_list = [
-                _make_params(
-                    linear.out_features,
-                    linear.in_features,
-                    MDBF_RANK,
-                    1,
-                    seed=1000 * layer_idx + 7 * p + len(suffix),
-                )
-                for p in range(MDBF_PATHS)
-            ]
-            setattr(
-                parent,
-                child_name,
-                MultipathMDBFLinear(params_list, bias=bias, use_gemlite=False),
-            )
-
-    return model, config, quantized_names
-
-
-def _write_save_dir(
-    save_dir: Path,
-    config: Any,
-    state_dict: dict,
-    quantized_names: list[str],
-    *,
-    record_paths: bool = True,
-    rotated: bool = False,
-) -> None:
-    """Persist an MDBF checkpoint the loader can consume.
-
-    Args:
-        save_dir: Directory to write config.json and model.safetensors into.
-        config: The model's ``PretrainedConfig``.
-        state_dict: Tensors to save.
-        quantized_names: Layers recorded as MDBF-quantized.
-        record_paths: Whether to record ``P`` the way the quantizer does.
-            Set False to emulate a hand-written or partial config that omits it.
-        rotated: Mark the checkpoint as rotation-preprocessed, which makes the
-            loader register online Hadamard hooks on ``down_proj``.
-    """
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    cfg_dict = config.to_dict()
-    cfg_dict["torch_dtype"] = "float16"
-    cfg_dict["quantization_config"] = {
-        "quant_method": "mdbf",
-        "bits": 2.0,
-        "l": 1,
-        "modules_in_block_to_quantize": quantized_names,
-        "rotated": rotated,
-    }
-    if record_paths:
-        cfg_dict["quantization_config"]["P"] = MDBF_PATHS
-    (save_dir / "config.json").write_text(json.dumps(cfg_dict, indent=2), encoding="utf-8")
-    save_file(
-        {k: v.contiguous() for k, v in state_dict.items()},
-        str(save_dir / "model.safetensors"),
-    )
+from tests.onecomp.fixtures.mdbf_checkpoint import (
+    MDBF_PATHS,
+    build_mdbf_model,
+    make_mdbf_params,
+    write_mdbf_save_dir,
+)
 
 
 def _load(save_dir: Path) -> tuple[torch.nn.Module, Any]:
@@ -187,11 +57,12 @@ def test_mdbf_checkpoint_round_trips_through_loader(tmp_path: Path, with_bias: b
     nested tensor set, otherwise ``from_saved_state`` rebuilds an empty layer
     (or the loader fails outright).
     """
-    reference, config, quantized_names = _build_mdbf_model(with_bias=with_bias)
+    reference, config, quantized_names = build_mdbf_model(with_bias=with_bias)
     save_dir = tmp_path / "mdbf_model"
-    _write_save_dir(save_dir, config, reference.state_dict(), quantized_names)
+    write_mdbf_save_dir(save_dir, config, reference.state_dict(), quantized_names)
 
-    input_ids = torch.randint(0, config.vocab_size, (1, 8))
+    generator = torch.Generator().manual_seed(100)
+    input_ids = torch.randint(0, config.vocab_size, (1, 8), generator=generator)
     with torch.no_grad():
         expected_logits = reference(input_ids).logits.float()
 
@@ -233,9 +104,9 @@ def test_rotated_mdbf_checkpoint_loads_with_working_hadamard_hooks(tmp_path: Pat
     ``nn.ModuleList`` into ``layers_cls`` and *zero* hooks were registered,
     with no error, so only an assertion on the live model catches it.
     """
-    reference, config, quantized_names = _build_mdbf_model(with_bias=False)
+    reference, config, quantized_names = build_mdbf_model(with_bias=False)
     save_dir = tmp_path / "rotated_mdbf_model"
-    _write_save_dir(save_dir, config, reference.state_dict(), quantized_names, rotated=True)
+    write_mdbf_save_dir(save_dir, config, reference.state_dict(), quantized_names, rotated=True)
 
     model, _ = _load(save_dir)
     loaded_modules = dict(model.named_modules())
@@ -253,7 +124,8 @@ def test_rotated_mdbf_checkpoint_loads_with_working_hadamard_hooks(tmp_path: Pat
     # rotated weights were built against.  ``forward`` is called unbound to
     # bypass the hook and obtain the untransformed reference.
     down_proj = down_projs[0]
-    x = torch.randn(2, config.intermediate_size)
+    generator = torch.Generator().manual_seed(101)
+    x = torch.randn(2, config.intermediate_size, generator=generator)
     had_K, K = get_hadK(down_proj.in_features)
     y_hooked = down_proj(x)
     assert not torch.allclose(y_hooked, MultipathMDBFLinear.forward(down_proj, x))
@@ -271,7 +143,7 @@ def test_load_rejects_checkpoint_missing_a_whole_path(tmp_path: Path) -> None:
     with fewer passes - every remaining buffer is correctly populated, so no
     post-load buffer check can notice.  Only the config's recorded P can.
     """
-    reference, config, quantized_names = _build_mdbf_model(with_bias=False)
+    reference, config, quantized_names = build_mdbf_model(with_bias=False)
     victim = quantized_names[0]
     state_dict = {
         key: tensor
@@ -279,7 +151,7 @@ def test_load_rejects_checkpoint_missing_a_whole_path(tmp_path: Path) -> None:
         if not key.startswith(f"{victim}.paths.{MDBF_PATHS - 1}.")
     }
     save_dir = tmp_path / "mdbf_model"
-    _write_save_dir(save_dir, config, state_dict, quantized_names)
+    write_mdbf_save_dir(save_dir, config, state_dict, quantized_names)
 
     with pytest.raises(ValueError, match="Incomplete MDBF checkpoint"):
         _load(save_dir)
@@ -311,9 +183,15 @@ def test_load_accepts_complete_checkpoint_when_config_omits_p(tmp_path: Path) ->
     checkpoint in that case is deliberately not pinned here - the skip is a
     back-compat concession, not a promise to accept damaged tensors.
     """
-    reference, config, quantized_names = _build_mdbf_model(with_bias=False)
+    reference, config, quantized_names = build_mdbf_model(with_bias=False)
     save_dir = tmp_path / "mdbf_model"
-    _write_save_dir(save_dir, config, reference.state_dict(), quantized_names, record_paths=False)
+    write_mdbf_save_dir(
+        save_dir,
+        config,
+        reference.state_dict(),
+        quantized_names,
+        record_paths=False,
+    )
 
     model, _ = _load(save_dir)
 
@@ -329,13 +207,13 @@ def test_load_rejects_checkpoint_missing_bias(tmp_path: Path) -> None:
     bias" to ``from_saved_state``; the model's own ``nn.Linear`` is the only
     source of truth for which one it is.
     """
-    reference, config, quantized_names = _build_mdbf_model(with_bias=True)
+    reference, config, quantized_names = build_mdbf_model(with_bias=True)
     victim = quantized_names[0]
     state_dict = {
         key: tensor for key, tensor in reference.state_dict().items() if key != f"{victim}.bias"
     }
     save_dir = tmp_path / "mdbf_model"
-    _write_save_dir(save_dir, config, state_dict, quantized_names)
+    write_mdbf_save_dir(save_dir, config, state_dict, quantized_names)
 
     with pytest.raises(ValueError, match="bias mismatch"):
         _load(save_dir)
@@ -343,14 +221,14 @@ def test_load_rejects_checkpoint_missing_bias(tmp_path: Path) -> None:
 
 def test_load_rejects_unexpected_bias_in_checkpoint(tmp_path: Path) -> None:
     """A bias the model has no place for is a mismatch too, not a silent drop."""
-    reference, config, quantized_names = _build_mdbf_model(with_bias=False)
+    reference, config, quantized_names = build_mdbf_model(with_bias=False)
     victim = quantized_names[0]
     state_dict = dict(reference.state_dict())
     state_dict[f"{victim}.bias"] = torch.zeros(
         dict(reference.named_modules())[victim].n, dtype=torch.float16
     )
     save_dir = tmp_path / "mdbf_model"
-    _write_save_dir(save_dir, config, state_dict, quantized_names)
+    write_mdbf_save_dir(save_dir, config, state_dict, quantized_names)
 
     with pytest.raises(ValueError, match="bias mismatch"):
         _load(save_dir)
@@ -417,7 +295,9 @@ def _wrap_in_module(layer: torch.nn.Module) -> torch.nn.Module:
 
 def _saved_layer_state() -> dict:
     """Build the per-layer state_dict of a small MultipathMDBFLinear."""
-    params_list = [_make_params(6, 4, 3, 1, seed=10 + p) for p in range(MDBF_PATHS)]
+    params_list = [
+        make_mdbf_params(6, 4, 3, 1, seed=10 + path_index) for path_index in range(MDBF_PATHS)
+    ]
     return MultipathMDBFLinear(params_list, use_gemlite=False).state_dict()
 
 
@@ -464,7 +344,7 @@ def test_resolve_mdbf_layer_bits_uses_saved_layer_name(tmp_path: Path) -> None:
     reaches ``resolve_mdbf_layer_bits`` - the sibling GPTQ/DBF branches pass
     the same one.
     """
-    reference, config, model_names = _build_mdbf_model(with_bias=False)
+    reference, config, model_names = build_mdbf_model(with_bias=False)
     saved_names = {
         name: name.replace("model.layers.", "model.decoder.layers.") for name in model_names
     }
@@ -478,7 +358,7 @@ def test_resolve_mdbf_layer_bits_uses_saved_layer_name(tmp_path: Path) -> None:
         state_dict[key] = tensor
 
     save_dir = tmp_path / "mdbf_model"
-    _write_save_dir(save_dir, config, state_dict, sorted(saved_names.values()))
+    write_mdbf_save_dir(save_dir, config, state_dict, sorted(saved_names.values()))
 
     cfg_path = save_dir / "config.json"
     cfg_dict = json.loads(cfg_path.read_text(encoding="utf-8"))

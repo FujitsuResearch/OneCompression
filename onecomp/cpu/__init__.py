@@ -11,7 +11,7 @@ Public API:
     export_to_gguf        -- single entry: routes any supported checkpoint to GGUF
     convert_gptq_to_gguf  -- direct, lossless GPTQ -> GGUF (preserves QEP codes)
     export_via_dequantize -- fallback: dequantize -> convert -> llama-quantize
-    dequantize_to_hf      -- reconstruct a dense fp16 HF model (GPTQ/DBF/rotated)
+    dequantize_to_hf      -- reconstruct a dense HF model (GPTQ/DBF/MDBF/rotated)
     LlamaCppModel         -- CPU text generation on a GGUF model
     inspect_gguf          -- per-tensor quant types / size / effective bit-width
     perplexity            -- CPU perplexity of a GGUF model on text
