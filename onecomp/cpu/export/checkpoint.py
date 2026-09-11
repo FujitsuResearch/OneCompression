@@ -86,6 +86,10 @@ class QuantMeta:
 # (so iter_gptq_layers can read them): GPTQ, QEP (same codes), JointQ, RTN, mixed.
 _GPTQ_FAMILY = {"gptq", "mixed_gptq", "jointq", "rtn"}
 
+# quant_method values with no GGUF export at all. Lives here (not in ``auto``)
+# so the low-level ``dequantize_to_hf`` entry point rejects OneBit too.
+UNSUPPORTED_METHODS = {"onebit"}
+
 
 def configured_bit_widths(quant_config: dict) -> set:
     """All weight bit-widths in a checkpoint (default + per-layer ``quantization_bits``)."""
@@ -180,10 +184,11 @@ def _per_layer_overrides(quant_config: dict) -> Dict[str, Dict[str, int]]:
 
 
 def iter_gptq_layers(save_directory: str) -> Iterator[GPTQLayer]:
-    """Yield every GPTQ-quantized linear in a saved OneComp model, fully unpacked.
+    """Yield every AutoGPTQ-layout linear in a saved OneComp model, fully unpacked.
 
-    Only ``gptq`` / ``mixed_gptq`` checkpoints expose ``qweight`` tensors; other
-    methods (dbf/onebit) are skipped here and must use the dequantize path.
+    GPTQ-family checkpoints use ``qweight`` / ``qzeros`` / ``scales`` tensors.
+    Checkpoints without this layout yield no layers here. DBF and MDBF instead
+    use dedicated dense reconstruction helpers; OneBit is unsupported.
     """
     quant_config = load_quant_config(save_directory)
     state = _load_state_dict(save_directory)

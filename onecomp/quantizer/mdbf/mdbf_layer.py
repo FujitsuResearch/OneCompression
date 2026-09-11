@@ -21,6 +21,7 @@ Author: Yuma Ichikawa, Keiji Kimura
 
 """
 
+from collections.abc import Mapping
 from typing import List, Optional, Tuple
 
 import torch
@@ -40,6 +41,23 @@ except ImportError:
 # =============================================================================
 # Bit-packing/Unpacking
 # =============================================================================
+
+
+def mdbf_path_indices(layer_state_dict: Mapping[str, torch.Tensor]) -> set[int]:
+    """Return MDBF path indices found in a layer state dict.
+
+    Args:
+        layer_state_dict: State dict whose nested keys use ``paths.{p}.*``.
+
+    Returns:
+        Non-negative path indices present in the state dict.
+    """
+    path_indices = set()
+    for key in layer_state_dict:
+        parts = key.split(".")
+        if parts[0] == "paths" and len(parts) >= 2 and parts[1].isdigit():
+            path_indices.add(int(parts[1]))
+    return path_indices
 
 
 def pack_binary(x: torch.Tensor) -> Tuple[torch.Tensor, Tuple[int, ...]]:
@@ -472,11 +490,7 @@ class MultipathMDBFLinear(nn.Module):
             ValueError: If a path is missing, or bias presence disagrees with
                 the model being loaded into.
         """
-        path_indices = set()
-        for key in layer_state_dict:
-            parts = key.split(".")
-            if parts[0] == "paths" and len(parts) >= 2 and parts[1].isdigit():
-                path_indices.add(int(parts[1]))
+        path_indices = mdbf_path_indices(layer_state_dict)
 
         # Compared without building range(expected_paths): a corrupt config can
         # record an absurd P, and materializing it would exhaust memory before
@@ -542,12 +556,7 @@ class MultipathMDBFLinear(nn.Module):
             return torch.zeros_like(t) if empty else t
 
         # Detect P from state_dict keys
-        path_indices = set()
-        for key in layer_state_dict:
-            if key.startswith("paths."):
-                parts = key.split(".")
-                if len(parts) >= 2 and parts[1].isdigit():
-                    path_indices.add(int(parts[1]))
+        path_indices = mdbf_path_indices(layer_state_dict)
         if not path_indices:
             raise ValueError(
                 "MultipathMDBFLinear.from_saved_state: no `paths.{p}.*` keys "

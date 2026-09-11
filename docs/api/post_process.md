@@ -24,6 +24,12 @@ Post-quantization process classes for improving quantized model accuracy.
     options:
       show_source: false
 
+## Router Fine-Tuning
+
+::: onecomp.post_process.RouterFineTuning
+    options:
+      show_source: false
+
 ## LoRA SFT
 
 ::: onecomp.post_process.PostProcessLoraSFT

@@ -61,7 +61,7 @@ class Runner:
     """Runner class for model quantization
 
     Runner class for executing quantization.
-    Supports quantization using calibration data and parallel quantization on multiple GPUs.
+    Supports quantization using calibration data.
 
     Examples:
         Single GPU quantization (default):
@@ -73,27 +73,6 @@ class Runner:
         >>> runner = Runner(
         ...     model_config=model_config,
         ...     quantizer=quantizer,
-        ... )
-        >>> runner.run()
-
-        Multi-GPU quantization (layer-wise parallel):
-
-        >>> from onecomp.quantizer.jointq import JointQ
-        >>> quantizer = JointQ(bits=4, group_size=128)
-        >>> # Use all available GPUs
-        >>> runner = Runner(
-        ...     model_config=model_config,
-        ...     quantizer=quantizer,
-        ...     multi_gpu=True,
-        ... )
-        >>> runner.run()
-
-        >>> # Use specific GPUs (e.g., GPU 0, 2, 3)
-        >>> runner = Runner(
-        ...     model_config=model_config,
-        ...     quantizer=quantizer,
-        ...     multi_gpu=True,
-        ...     gpu_ids=[0, 2, 3],
         ... )
         >>> runner.run()
 
@@ -109,8 +88,6 @@ class Runner:
         qep_config=None,
         lpcd=False,
         lpcd_config=None,
-        multi_gpu=False,
-        gpu_ids=None,
         post_processes=None,
         report_progress=True,
         moe_quant_experts=False,
@@ -149,12 +126,6 @@ class Runner:
             lpcd_config (LPCDConfig or None):
                 Configuration for LPCD. If None and ``lpcd=True``,
                 a default ``LPCDConfig()`` is used.
-            multi_gpu (bool):
-                Whether to use multi-GPU for layer-wise parallel quantization.
-                Default is False.
-            gpu_ids (list[int]):
-                List of GPU IDs to use for multi-GPU quantization.
-                If None and multi_gpu is True, all available GPUs will be used.
             post_processes (list[PostQuantizationProcess] or None):
                 Optional list of post-quantization processes to execute
                 after the main quantization step.  Each process receives
@@ -167,8 +138,8 @@ class Runner:
             report_progress (bool):
                 When ``True`` (default), emit ``[progress]`` log lines with
                 completed steps, elapsed time, and a linear ETA estimate
-                during long quantization (calibration, chunked, multi-GPU,
-                QEP).  Set to ``False`` for quiet runs (e.g. CI).
+                during long quantization (calibration, chunked, QEP). Set to
+                ``False`` for quiet runs (e.g. CI).
             moe_quant_experts (bool):
                 When ``True``, MoE experts are kept as per-expert GPTQ INT4
                 tensors (``...experts.{i}.{gate,up,down}_proj.{qweight,...}``)
@@ -253,8 +224,6 @@ class Runner:
         self.calibration_config = calibration_config
 
         self.qep = qep
-        self.multi_gpu = multi_gpu
-        self.gpu_ids = gpu_ids
         self.post_processes = post_processes or []
         self.moe_quant_experts = moe_quant_experts
         self.quantized_model = None
@@ -280,23 +249,19 @@ class Runner:
         3. Type check for ``quantizer`` / ``quantizers`` (must be ``Quantizer`` instances)
         4. At least one of them must be specified
         5. Parameter combination consistency check (see table below)
-        6. When ``multi_gpu=True``, ``quantizer.flag_calibration=True`` must hold
 
         Valid parameter combinations:
 
-        ===========  ====  ==========  ================================
-        quantizers   qep   multi_gpu   calibration_config.batch_size
-        ===========  ====  ==========  ================================
-        Specified    False False       Specified
-        None         True  False       None
-        None         False True        None
-        None         False False       Specified
-        None         False False       None
-        ===========  ====  ==========  ================================
+        ===========  ====  ================================
+        quantizers   qep   calibration_config.batch_size
+        ===========  ====  ================================
+        Specified    False Specified
+        None         True  None
+        None         False Specified
+        None         False None
+        ===========  ====  ================================
 
         Note:
-            ``multi_gpu=True`` requires a quantizer with ``flag_calibration=True``.
-
             This method is intended to be called from the ``run()`` flow only.
             It is *not* designed to be used in the
             ``load_quantized_model() -> Runner.run_post_processes()`` flow, and
@@ -329,27 +294,17 @@ class Runner:
         # Parameter combination check
         batch_size = self.calibration_config.batch_size
         if self.quantizers is not None:
-            # quantizers mode: qep=False, multi_gpu=False, batch_size required
+            # quantizers mode: qep=False, batch_size required
             if self.qep:
                 raise ValueError("'quantizers' cannot be used with qep=True.")
-            if self.multi_gpu:
-                raise ValueError("'quantizers' cannot be used with multi_gpu=True.")
             if batch_size is None:
                 raise ValueError(
                     "'quantizers' requires 'calibration_config.batch_size' to be set."
                 )
         else:
             # Single quantizer mode: combination check
-            if self.qep and self.multi_gpu:
-                raise ValueError("'qep' and 'multi_gpu' cannot be used together.")
             if self.qep and batch_size is not None:
                 raise ValueError("'qep' cannot be used with 'calibration_config.batch_size'.")
-            if self.multi_gpu and batch_size is not None:
-                raise ValueError(
-                    "'multi_gpu' cannot be used with 'calibration_config.batch_size'."
-                )
-            if self.multi_gpu and not self.quantizer.flag_calibration:
-                raise ValueError("'multi_gpu' requires a quantizer with flag_calibration=True.")
             if self.qep and not self.quantizer.flag_qep_supported:
                 raise ValueError(
                     f"Quantizer '{type(self.quantizer).__name__}' "
@@ -377,8 +332,6 @@ class Runner:
         # candidates are all GPTQ, without DBF fallback) is supported on MPS
         device = self.model_config.get_device()
         if is_mps_device(device):
-            if self.multi_gpu:
-                raise ValueError("multi_gpu is not supported on MPS device.")
             all_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
             for i, q in enumerate(all_quantizers):
                 label = f"quantizers[{i}]" if self.quantizers else "quantizer"
@@ -658,9 +611,6 @@ class Runner:
         if self.quantizers is not None:
             # Multiple quantizers mode (chunked quantization)
             self.quantize_with_calibration_chunked()
-        elif self.multi_gpu:
-            # Multi-GPU quantization (flag_calibration=True is guaranteed by check())
-            self.quantize_with_calibration_on_multi_gpu()
         elif self.calibration_config.batch_size is not None:
             # Chunked quantization (single quantizer)
             self.quantize_with_calibration_chunked()
@@ -746,41 +696,6 @@ class Runner:
             calibration_config=self.calibration_config,
             report_progress=self.report_progress,
         )
-
-    def quantize_with_calibration_on_multi_gpu(self):
-        """Quantize the model with calibration using multiple GPUs
-
-        Quantizes each linear layer in parallel across multiple GPUs.
-
-        Processing flow:
-        1. Load the model and prepare calibration data
-        2. Capture input activations for all layers and save to CPU
-        3. Distribute layers to each GPU and execute quantization in parallel
-        4. Aggregate results
-
-        Note:
-            - Called from quantize() when multi_gpu=True
-            - Uses all available GPUs when gpu_ids is None
-
-        """
-        # Lazy import: load submodule only when needed
-        # pylint: disable-next=import-outside-toplevel
-        from .runner_methods.multi_gpu_quantization import run_multi_gpu_quantization
-
-        # Execute multi-GPU quantization
-        result = run_multi_gpu_quantization(
-            model_config=self.model_config,
-            quantizer=self.quantizer,
-            calibration_config=self.calibration_config,
-            gpu_ids=self.gpu_ids,
-            report_progress=self.report_progress,
-        )
-
-        # Store results in quantizer.results
-        self.quantizer.results = result["results"]
-
-        # Post-processing
-        self.quantizer.execute_post_processing()
 
     def quantize_without_calibration(self):
         """Quantize the model without calibration

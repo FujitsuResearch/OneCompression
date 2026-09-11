@@ -16,6 +16,7 @@ from .post_process_lora_sft import (
     PostProcessLoraTeacherOnlySFT,
     PostProcessLoraTeacherSFT,
 )
+from .router_fine_tuning import RouterFineTuning
 
 __all__ = [
     "PostQuantizationProcess",
@@ -25,4 +26,5 @@ __all__ = [
     "PostProcessLoraSFT",
     "PostProcessLoraTeacherOnlySFT",
     "PostProcessLoraTeacherSFT",
+    "RouterFineTuning",
 ]
