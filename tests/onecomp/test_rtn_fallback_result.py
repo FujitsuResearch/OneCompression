@@ -8,6 +8,7 @@ of skipped, and packaged as a ``GPTQResult`` so it flows through the same
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -84,18 +85,26 @@ class TestRtnFallbackResult:
         result = _rtn_fallback_result(module, quantizer, "mlp.experts.0.down_proj")
         assert result.dequantized_weight.shape == module.weight.data.shape
 
-    def test_compute_dequantized_weight_roundtrip(self):
+    @pytest.mark.parametrize("groupsize", [-1, 32])
+    def test_compute_dequantized_weight_roundtrip(self, groupsize):
         """The packaged qweight/scales/qzeros must reconstruct a weight
 
         consistent with the shapes GPTQResult.compute_dequantized_weight expects
         (this is what create_inference_layer / export relies on downstream).
         """
         module = _linear(in_features=32, out_features=16)
-        quantizer = GPTQ(wbits=4, groupsize=16, sym=True)
+        quantizer = GPTQ(wbits=4, groupsize=groupsize, sym=True)
         result = _rtn_fallback_result(module, quantizer, "mlp.experts.0.down_proj")
 
         reconstructed = result.compute_dequantized_weight()
+        expected = result.dequantized_weight.to(dtype=reconstructed.dtype)
         assert reconstructed.shape == module.weight.data.shape
+        torch.testing.assert_close(
+            reconstructed,
+            expected,
+            rtol=0,
+            atol=2e-4,
+        )
 
 
 class TestResolveGptqForRtnFallback:
