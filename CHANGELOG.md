@@ -4,6 +4,17 @@
 
 ### Bug Fix
 
+- Fix scale layout handling for `groupsize=-1` in RTN fallback. This fallback is used when an MoE expert receives no routed calibration tokens, because GPTQ cannot compute activation-based statistics for that expert. The fix keeps the fallback result compatible with GPTQ's per-channel dequantization path.
+- Fix MPS loading of large sharded checkpoints by loading weights on CPU before moving the model to MPS.
+- Reject chunked calibration (`CalibrationConfig(batch_size=...)`) on MPS, where it is not supported.
+
+### Documentation
+
+- Clarified that OneComp is released under the MIT License and that licenses for dependency OSS may change when dependencies are updated.
+- Clarify the confirmed Qwen3.6 `save_format="full_wrapper"` workflows, including vLLM serving and the current GGUF export workflow.
+
+### Tests (CI)
+
 - Make cluster CI use an explicitly prepared, content-verified C4 calibration
   cache from shared storage. This removes its dependency on Hugging Face Hub
   connectivity and generated config hashes, which previously caused C4 loading
@@ -14,10 +25,6 @@
   `.git/config.lock`. The cluster test orchestrator now fetches directly from
   the authenticated CI URL under the existing lock without temporarily
   rewriting the `origin` remote.
-
-### Documentation
-
-- Clarified that OneComp is released under the MIT License and that licenses for dependency OSS may change when dependencies are updated.
 
 ## [v1.3.3] 2026-09-03
 
