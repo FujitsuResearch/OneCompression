@@ -5,6 +5,8 @@
 ### Bug Fix
 
 - Fix scale layout handling for `groupsize=-1` in RTN fallback. This fallback is used when an MoE expert receives no routed calibration tokens, because GPTQ cannot compute activation-based statistics for that expert. The fix keeps the fallback result compatible with GPTQ's per-channel dequantization path.
+- Fix MPS loading of large sharded checkpoints by loading weights on CPU before moving the model to MPS.
+- Reject chunked calibration (`CalibrationConfig(batch_size=...)`) on MPS, where it is not supported.
 
 ### Documentation
 
