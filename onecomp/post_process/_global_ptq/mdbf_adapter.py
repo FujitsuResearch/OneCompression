@@ -74,30 +74,38 @@ def setup_mdbf_differentiable(
     original_forwards: Dict[str, object] = {}
     amplitude_params: List[torch.Tensor] = []
     binary_params: List[torch.Tensor] = []
-    for name, module in mdbf_modules:
-        for path in module.paths:
-            for attr in _AMP_ATTRS:
-                parameter = nn.Parameter(getattr(path, attr).data.detach().clone().float())
-                setattr(path, f"_opt_{attr}", parameter)
-                amplitude_params.append(parameter)
-            if optimize_binary:
-                for sign in _BINARY_SIGN_NAMES:
-                    shape = (path.n, path.r) if sign == "A" else (path.r, path.m)
-                    packed_key = f"{sign}_sign_packed"
-                    packed = path._buffers.get(packed_key)
-                    if packed is None:
-                        packed = path._packed_cpu.get(sign)
-                    if packed is None:
-                        continue
-                    unpacked = (
-                        unpack_binary(packed.to(path.A_amp.device), shape).float().detach().clone()
-                    )
-                    parameter = nn.Parameter(unpacked)
-                    setattr(path, f"_opt_{sign}_sign", parameter)
-                    binary_params.append(parameter)
-        original_forwards[name] = module.forward
-        module._binary_ste_k = ste_k
-        module.forward = MethodType(_make_mdbf_differentiable_forward(), module)
+    try:
+        for name, module in mdbf_modules:
+            original_forwards[name] = module.forward
+            module._global_ptq_original_forward = module.forward
+            for path in module.paths:
+                for attr in _AMP_ATTRS:
+                    parameter = nn.Parameter(getattr(path, attr).data.detach().clone().float())
+                    setattr(path, f"_opt_{attr}", parameter)
+                    amplitude_params.append(parameter)
+                if optimize_binary:
+                    for sign in _BINARY_SIGN_NAMES:
+                        shape = (path.n, path.r) if sign == "A" else (path.r, path.m)
+                        packed_key = f"{sign}_sign_packed"
+                        packed = path._buffers.get(packed_key)
+                        if packed is None:
+                            packed = path._packed_cpu.get(sign)
+                        if packed is None:
+                            continue
+                        unpacked = (
+                            unpack_binary(packed.to(path.A_amp.device), shape)
+                            .float()
+                            .detach()
+                            .clone()
+                        )
+                        parameter = nn.Parameter(unpacked)
+                        setattr(path, f"_opt_{sign}_sign", parameter)
+                        binary_params.append(parameter)
+            module._binary_ste_k = ste_k
+            module.forward = MethodType(_make_mdbf_differentiable_forward(), module)
+    except Exception:
+        restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
+        raise
     return original_forwards, amplitude_params, binary_params
 
 
@@ -108,12 +116,18 @@ def restore_mdbf_original(
 ) -> None:
     """Restore original forwards and optionally remove optimisation parameters."""
     for name, module in mdbf_modules:
-        if name in original_forwards:
+        original_forward = original_forwards.get(
+            name,
+            getattr(module, "_global_ptq_original_forward", None),
+        )
+        if original_forward is not None:
             module.__dict__.pop("forward", None)
-            module.forward = original_forwards[name]
+            module.forward = original_forward
         if cleanup:
             if hasattr(module, "_binary_ste_k"):
                 delattr(module, "_binary_ste_k")
+            if hasattr(module, "_global_ptq_original_forward"):
+                delattr(module, "_global_ptq_original_forward")
             for path in module.paths:
                 for attr in _AMP_ATTRS + tuple(f"{sign}_sign" for sign in _BINARY_SIGN_NAMES):
                     opt_attr = f"_opt_{attr}"

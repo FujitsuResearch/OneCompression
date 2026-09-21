@@ -1,5 +1,6 @@
 """Tests for the MDBF adapter used by GlobalPTQ."""
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -84,3 +85,54 @@ def test_mdbf_state_round_trip():
     modules[0][1].paths[0].A_amp.zero_()
     load_mdbf_state(modules, state)
     assert torch.equal(modules[0][1].paths[0].A_amp, original)
+
+
+def test_mdbf_setup_failure_cleans_partial_state():
+    from onecomp.post_process._global_ptq.mdbf_adapter import (
+        find_mdbf_modules,
+        setup_mdbf_differentiable,
+    )
+
+    model = _make_model()
+    modules = find_mdbf_modules(model)
+    path = modules[0][1].paths[0]
+    delattr(path, "B_amp")
+
+    with pytest.raises(AttributeError):
+        setup_mdbf_differentiable(modules)
+
+    assert not hasattr(path, "_opt_A_amp")
+    assert not hasattr(modules[0][1], "_global_ptq_original_forward")
+
+
+def test_global_ptq_exception_restores_mdbf_state(monkeypatch):
+    from onecomp.post_process._global_ptq import core
+    from onecomp.post_process._global_ptq.mdbf_adapter import (
+        find_mdbf_modules,
+        setup_mdbf_differentiable,
+        write_back_mdbf_amp,
+    )
+    from onecomp.post_process.global_ptq import GlobalPTQ
+
+    model = _make_model()
+    modules = find_mdbf_modules(model)
+    layer = modules[0][1]
+    path = layer.paths[0]
+    original_forward = layer.forward
+    original_amplitude = path.A_amp.detach().clone()
+
+    def fail_after_setup(*_args, **_kwargs):
+        setup_mdbf_differentiable(modules)
+        with torch.no_grad():
+            path._opt_A_amp.fill_(7)
+        write_back_mdbf_amp(modules)
+        raise RuntimeError("training failed")
+
+    monkeypatch.setattr(core, "run_kl_distillation", fail_after_setup)
+
+    with pytest.raises(RuntimeError, match="training failed"):
+        GlobalPTQ()._run(model, object())
+
+    assert torch.equal(path.A_amp, original_amplitude)
+    assert not hasattr(path, "_opt_A_amp")
+    assert layer.forward == original_forward

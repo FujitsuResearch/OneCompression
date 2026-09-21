@@ -298,7 +298,7 @@ def run_kl_distillation(
         if method == "gptq":
             restore_gptq_original(gptq_modules, original_forwards)
         elif method == "dbf":
-            restore_dbf_original(dbf_modules, original_forwards)
+            restore_dbf_original(dbf_modules, original_forwards, cleanup=True)
         elif method == "mdbf":
             restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
         quantized_model.cpu()
@@ -526,7 +526,7 @@ def run_kl_distillation(
     if method == "gptq":
         restore_gptq_original(gptq_modules, original_forwards, cleanup=True)
     elif method == "dbf":
-        restore_dbf_original(dbf_modules, original_forwards)
+        restore_dbf_original(dbf_modules, original_forwards, cleanup=True)
     else:
         restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
 

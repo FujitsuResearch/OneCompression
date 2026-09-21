@@ -190,12 +190,37 @@ class GlobalPTQ(PostQuantizationProcess):
                 Model configuration (provides tokenizer, model path, etc.).
         """
         from ._global_ptq.core import run_kl_distillation
+        from ._global_ptq.dbf_adapter import (
+            load_dbf_state,
+            restore_dbf_original,
+            save_dbf_state,
+            write_back_dbf_scaling,
+        )
+        from ._global_ptq.gptq_adapter import (
+            load_gptq_state,
+            restore_gptq_original,
+            save_gptq_state,
+        )
+        from ._global_ptq.helpers import detect_quantization_method
+        from ._global_ptq.mdbf_adapter import (
+            load_mdbf_state,
+            restore_mdbf_original,
+            save_mdbf_state,
+        )
 
         original_use_cache = getattr(
             getattr(quantized_model, "config", None),
             "use_cache",
             None,
         )
+        method, detected_modules = detect_quantization_method(quantized_model)
+        initial_state = None
+        if method == "gptq":
+            initial_state = save_gptq_state(detected_modules)
+        elif method == "dbf":
+            initial_state = save_dbf_state(detected_modules)
+        elif method == "mdbf":
+            initial_state = save_mdbf_state(detected_modules)
 
         try:
             results = run_kl_distillation(
@@ -222,6 +247,17 @@ class GlobalPTQ(PostQuantizationProcess):
 
         except Exception:
             logger.exception("GlobalPTQ training failed — restoring model.")
+            if initial_state is not None:
+                if method == "gptq":
+                    load_gptq_state(detected_modules, initial_state)
+                    restore_gptq_original(detected_modules, {}, cleanup=True)
+                elif method == "dbf":
+                    load_dbf_state(detected_modules, initial_state)
+                    write_back_dbf_scaling(detected_modules)
+                    restore_dbf_original(detected_modules, {}, cleanup=True)
+                elif method == "mdbf":
+                    load_mdbf_state(detected_modules, initial_state)
+                    restore_mdbf_original(detected_modules, {}, cleanup=True)
             quantized_model.cpu()
             for p in quantized_model.parameters():
                 p.requires_grad = False

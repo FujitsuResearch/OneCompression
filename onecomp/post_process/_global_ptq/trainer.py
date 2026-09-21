@@ -31,6 +31,7 @@ from .gptq_adapter import (
 from .helpers import get_logits
 from .losses import compute_kl_loss, compute_ntp_loss
 from .mdbf_adapter import (
+    restore_mdbf_original,
     setup_mdbf_forwards_only,
     write_back_mdbf_amp,
     write_back_mdbf_binary,
@@ -183,20 +184,26 @@ class _GlobalPTQTrainer(Trainer):
         elif self.method == "mdbf":
             write_back_mdbf_amp(self.mdbf_modules)
             write_back_mdbf_binary(self.mdbf_modules)
-
-        result = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
-
-        if self.method == "gptq":
-            setup_gptq_forwards_only(
-                self.gptq_modules,
+            restore_mdbf_original(
+                self.mdbf_modules,
                 self.original_forwards,
+                cleanup=False,
             )
-        elif self.method == "dbf":
-            setup_dbf_forwards_only(
-                self.dbf_modules,
-                self.original_forwards,
-            )
-        elif self.method == "mdbf":
-            setup_mdbf_forwards_only(self.mdbf_modules, self.original_forwards)
+
+        try:
+            result = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
+        finally:
+            if self.method == "gptq":
+                setup_gptq_forwards_only(
+                    self.gptq_modules,
+                    self.original_forwards,
+                )
+            elif self.method == "dbf":
+                setup_dbf_forwards_only(
+                    self.dbf_modules,
+                    self.original_forwards,
+                )
+            elif self.method == "mdbf":
+                setup_mdbf_forwards_only(self.mdbf_modules, self.original_forwards)
 
         return result

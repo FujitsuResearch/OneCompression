@@ -113,6 +113,49 @@ class TestKDDataset:
         assert ds[1]["input_ids"] == [40, 50, 60]
 
 
+class TestGlobalPTQTrainerEvaluation:
+    """Regression tests for inference-path evaluation and rollback."""
+
+    def test_mdbf_evaluate_uses_original_forward(self, monkeypatch):
+        from transformers import Trainer
+
+        from onecomp.post_process._global_ptq.mdbf_adapter import (
+            find_mdbf_modules,
+            setup_mdbf_differentiable,
+        )
+        from onecomp.post_process._global_ptq.trainer import _GlobalPTQTrainer
+        from tests.onecomp.post_process.test_global_ptq_mdbf_adapter import _make_model
+
+        model = _make_model()
+        modules = find_mdbf_modules(model)
+        original_forwards, _amplitudes, _binary = setup_mdbf_differentiable(modules)
+        layer = modules[0][1]
+
+        def fake_evaluate(_trainer, *_args, **_kwargs):
+            assert layer.forward == original_forwards["layer"]
+            assert hasattr(layer.paths[0], "_opt_A_amp")
+            return {"eval_loss": 1.0}
+
+        monkeypatch.setattr(Trainer, "evaluate", fake_evaluate)
+        trainer = object.__new__(_GlobalPTQTrainer)
+        trainer.method = "mdbf"
+        trainer.mdbf_modules = modules
+        trainer.original_forwards = original_forwards
+
+        assert trainer.evaluate() == {"eval_loss": 1.0}
+        assert layer.forward != original_forwards["layer"]
+        assert hasattr(layer.paths[0], "_opt_A_amp")
+
+    @pytest.mark.parametrize(
+        "baseline_loss,final_loss,expected",
+        [(1.0, 2.0, True), (1.0, 0.5, False), (1.0, float("nan"), True)],
+    )
+    def test_rollback_compares_final_loss_with_baseline(self, baseline_loss, final_loss, expected):
+        from onecomp.post_process.global_ptq_distributed import _should_rollback
+
+        assert _should_rollback(baseline_loss, final_loss) is expected
+
+
 class _PlainPostProcessModel(nn.Module):
     """Schema-valid model with no quantized inference layers."""
 
