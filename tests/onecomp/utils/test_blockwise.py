@@ -24,8 +24,10 @@ from onecomp.utils.blockwise import (
     _create_linear_attention_mask,
     _get_block_layer_type,
     expand_kwargs_batch,
+    forward_input,
     get_blocks_and_inputs,
     move_kwargs_to_device,
+    prepare_block_kwargs,
 )
 
 # ---------------------------------------------------------------------------
@@ -288,6 +290,21 @@ class _FakeCausalLM(nn.Module):
         return hidden
 
 
+class _RecordingFakeCausalLM(_FakeCausalLM):
+    def __init__(self, layer_types, hidden_size=8, vocab_size=16):
+        super().__init__(layer_types, hidden_size=hidden_size, vocab_size=vocab_size)
+        self.forward_shapes = []
+
+    def forward(self, input_ids, **kwargs):
+        self.forward_shapes.append(
+            {
+                "input_ids": tuple(input_ids.shape),
+                **{k: tuple(v.shape) for k, v in kwargs.items() if isinstance(v, torch.Tensor)},
+            }
+        )
+        return super().forward(input_ids, **kwargs)
+
+
 def _make_model_and_inputs(layer_types, hidden_size=8, batch=2, seq_len=5, vocab_size=16):
     model = _FakeCausalLM(layer_types, hidden_size=hidden_size, vocab_size=vocab_size)
     model.eval()
@@ -331,6 +348,27 @@ def test_get_blocks_and_inputs_single_layer_type_has_no_mask_map():
     assert _ATTN_MASK_MAP_KEY not in kwargs
 
 
+def test_get_blocks_and_inputs_slices_model_kwargs_for_input_capture():
+    model = _RecordingFakeCausalLM(["full_attention", "full_attention"])
+    _, model_inputs = _make_model_and_inputs(
+        ["full_attention", "full_attention"], batch=5, seq_len=4
+    )
+    model_inputs["mm_token_type_ids"] = torch.zeros_like(model_inputs["input_ids"])
+
+    _, inps, _ = get_blocks_and_inputs(model, model_inputs, batch_size=2)
+
+    assert inps.shape == (5, 4, 8)
+    # call 0 captures batch-independent kwargs with a single sample.
+    assert model.forward_shapes[1]["input_ids"] == (2, 4)
+    assert model.forward_shapes[1]["attention_mask"] == (2, 4)
+    assert model.forward_shapes[1]["position_ids"] == (2, 4)
+    assert model.forward_shapes[1]["mm_token_type_ids"] == (2, 4)
+    assert model.forward_shapes[3]["input_ids"] == (1, 4)
+    assert model.forward_shapes[3]["attention_mask"] == (1, 4)
+    assert model.forward_shapes[3]["position_ids"] == (1, 4)
+    assert model.forward_shapes[3]["mm_token_type_ids"] == (1, 4)
+
+
 # ---------------------------------------------------------------------------
 # UserDict kwargs
 # ---------------------------------------------------------------------------
@@ -346,13 +384,134 @@ def test_expand_kwargs_batch_expands_nested_user_dict():
 
     result = expand_kwargs_batch({"shared_kv_states": shared_kv_states}, batch_size=3)
 
+    assert result["shared_kv_states"] is shared_kv_states
     assert result["shared_kv_states"]["key"].shape == (3, 2, 4)
     assert result["shared_kv_states"]["value"].shape == (3, 2, 4)
+
+
+def test_expand_kwargs_batch_preserves_user_dict_updates_between_blocks():
+    shared_kv_states = UserDict()
+    provider_kwargs = expand_kwargs_batch({"shared_kv_states": shared_kv_states}, batch_size=2)
+
+    provider_kwargs["shared_kv_states"]["full_attention"] = torch.zeros(1, 2, 4)
+    consumer_kwargs = expand_kwargs_batch({"shared_kv_states": shared_kv_states}, batch_size=2)
+
+    assert provider_kwargs["shared_kv_states"] is shared_kv_states
+    assert consumer_kwargs["shared_kv_states"] is shared_kv_states
+    assert consumer_kwargs["shared_kv_states"]["full_attention"].shape == (2, 2, 4)
 
 
 def test_move_kwargs_to_device_moves_nested_user_dict():
     shared_kv_states = UserDict({"key": torch.zeros(1, 2, 4)})
 
-    result = move_kwargs_to_device(shared_kv_states, torch.device("cpu"))
+    result = move_kwargs_to_device(shared_kv_states, torch.device("meta"))
 
-    assert result["key"].device == torch.device("cpu")
+    assert result is shared_kv_states
+    assert result["key"].device == torch.device("meta")
+
+
+def test_prepare_block_kwargs_slices_shared_kv_for_consumer_block():
+    block = nn.Module()
+    block.self_attn = nn.Module()
+    block.self_attn.layer_type = "full_attention"
+    block.self_attn.is_kv_shared_layer = True
+    key_states = torch.arange(4 * 2 * 3, dtype=torch.float32).reshape(4, 2, 3)
+    value_states = key_states + 100
+    shared_kv_states = UserDict({"full_attention": (key_states, value_states)})
+
+    result = prepare_block_kwargs(
+        {"shared_kv_states": shared_kv_states},
+        block,
+        pli=None,
+        offset=1,
+        batch_size=2,
+        device=torch.device("cpu"),
+    )
+
+    assert result["shared_kv_states"] is not shared_kv_states
+    sliced_key, sliced_value = result["shared_kv_states"]["full_attention"]
+    assert torch.equal(sliced_key, key_states[1:3])
+    assert torch.equal(sliced_value, value_states[1:3])
+
+
+def test_prepare_block_kwargs_uses_fresh_shared_kv_for_provider_block():
+    block = nn.Module()
+    block.self_attn = nn.Module()
+    block.self_attn.store_full_length_kv = True
+    shared_kv_states = UserDict({"full_attention": (torch.zeros(4, 2, 3), torch.ones(4, 2, 3))})
+
+    result = prepare_block_kwargs(
+        {"shared_kv_states": shared_kv_states},
+        block,
+        pli=None,
+        offset=0,
+        batch_size=2,
+        device=torch.device("cpu"),
+    )
+
+    assert result["shared_kv_states"] is not shared_kv_states
+    assert result["shared_kv_states"] == {}
+
+
+class _SharedKvProviderBlock(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.self_attn = nn.Module()
+        self.self_attn.store_full_length_kv = True
+
+    def forward(self, hidden_states, *, shared_kv_states):
+        key_states = hidden_states[..., :3].clone()
+        value_states = key_states + 100
+        shared_kv_states["full_attention"] = (key_states, value_states)
+        return hidden_states + 1
+
+
+class _SharedKvConsumerBlock(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.self_attn = nn.Module()
+        self.self_attn.layer_type = "full_attention"
+        self.self_attn.is_kv_shared_layer = True
+        self.seen_key_batches = []
+        self.seen_value_batches = []
+
+    def forward(self, hidden_states, *, shared_kv_states):
+        key_states, value_states = shared_kv_states["full_attention"]
+        self.seen_key_batches.append(key_states.detach().cpu())
+        self.seen_value_batches.append(value_states.detach().cpu())
+        return hidden_states + key_states.sum(dim=-1, keepdim=True)
+
+
+def test_forward_input_carries_shared_kv_from_provider_to_consumer_by_batch_slice():
+    inps = torch.arange(5 * 4 * 6, dtype=torch.float32).reshape(5, 4, 6)
+    kwargs = {"shared_kv_states": UserDict()}
+
+    provider_out = forward_input(
+        inps,
+        _SharedKvProviderBlock(),
+        kwargs,
+        batch_size=2,
+        device=torch.device("cpu"),
+    )
+    consumer = _SharedKvConsumerBlock()
+    consumer_out = forward_input(
+        provider_out,
+        consumer,
+        kwargs,
+        batch_size=2,
+        device=torch.device("cpu"),
+    )
+
+    stored_key, stored_value = kwargs["shared_kv_states"]["full_attention"]
+    assert torch.equal(stored_key, inps[..., :3])
+    assert torch.equal(stored_value, inps[..., :3] + 100)
+    assert [tuple(batch.shape) for batch in consumer.seen_key_batches] == [
+        (2, 4, 3),
+        (2, 4, 3),
+        (1, 4, 3),
+    ]
+    assert torch.equal(consumer.seen_key_batches[0], inps[:2, :, :3])
+    assert torch.equal(consumer.seen_key_batches[1], inps[2:4, :, :3])
+    assert torch.equal(consumer.seen_key_batches[2], inps[4:5, :, :3])
+    assert torch.equal(consumer.seen_value_batches[2], inps[4:5, :, :3] + 100)
+    assert consumer_out.shape == provider_out.shape

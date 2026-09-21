@@ -96,6 +96,7 @@ class Catcher(nn.Module):
 _PER_LAYER_INPUTS_KEY = "_per_layer_inputs"
 _POS_EMB_MAP_KEY = "_position_embeddings_map"
 _ATTN_MASK_MAP_KEY = "_attention_mask_map"
+_SHARED_KV_STATES_KEY = "shared_kv_states"
 
 
 def _find_blocks_parent(model, blocks):
@@ -244,9 +245,15 @@ def get_blocks_and_inputs(
 
     # Now capture block inputs for all calibration samples.
     block_inps = []
-    for inp in inp_ids.split(batch_size):
+    for first in range(0, inp_ids.shape[0], batch_size):
+        last = min(first + batch_size, inp_ids.shape[0])
+        inp = inp_ids[first:last]
+        batch_model_kwargs = {
+            k: v[first:last] if isinstance(v, torch.Tensor) and v.dim() >= 1 else v
+            for k, v in model_kwargs.items()
+        }
         try:
-            _ = model(inp, **model_kwargs)
+            _ = model(inp, **batch_model_kwargs)
         except StopForward:
             block_inps.append(blocks[0].inp.cpu())
 
@@ -363,7 +370,9 @@ def move_kwargs_to_device(x, device):
     elif isinstance(x, tuple):
         return tuple(move_kwargs_to_device(v, device) for v in x)
     elif isinstance(x, UserDict):
-        return {k: move_kwargs_to_device(v, device) for k, v in x.items()}
+        for k, v in list(x.items()):
+            x[k] = move_kwargs_to_device(v, device)
+        return x
     else:
         return x
 
@@ -400,7 +409,9 @@ def expand_kwargs_batch(kwargs, batch_size):
         elif isinstance(v, dict):
             return {k: _expand(val) for k, val in v.items()}
         elif isinstance(v, UserDict):
-            return {k: _expand(val) for k, val in v.items()}
+            for k, val in list(v.items()):
+                v[k] = _expand(val)
+            return v
         return v
 
     return {k: _expand(v) for k, v in kwargs.items()}
@@ -438,7 +449,44 @@ def prepare_block_kwargs(batch_kwargs, block, pli, offset, batch_size, device):
         if layer_type and layer_type in mask_map:
             batch_kwargs["attention_mask"] = mask_map[layer_type]
 
+    # 4) Gemma4 shared KV state. Provider blocks write states into a fresh
+    # batch-local mapping; consumer blocks read the matching calibration slice.
+    shared_kv_states = batch_kwargs.get(_SHARED_KV_STATES_KEY)
+    self_attn = getattr(block, "self_attn", None)
+    if isinstance(shared_kv_states, UserDict) and getattr(
+        self_attn, "store_full_length_kv", False
+    ):
+        batch_kwargs[_SHARED_KV_STATES_KEY] = UserDict()
+    elif isinstance(shared_kv_states, UserDict) and getattr(
+        self_attn, "is_kv_shared_layer", False
+    ):
+        batch_kwargs[_SHARED_KV_STATES_KEY] = _slice_shared_kv_states(
+            shared_kv_states, offset, batch_size, device
+        )
+
     return batch_kwargs
+
+
+def _slice_shared_kv_states(shared_kv_states, offset, batch_size, device):
+    batch_shared_kv_states = UserDict()
+    for key, value in shared_kv_states.items():
+        if isinstance(value, tuple):
+            batch_shared_kv_states[key] = tuple(
+                _slice_shared_kv_tensor(v, offset, batch_size, device) for v in value
+            )
+        else:
+            batch_shared_kv_states[key] = _slice_shared_kv_tensor(
+                value, offset, batch_size, device
+            )
+    return batch_shared_kv_states
+
+
+def _slice_shared_kv_tensor(value, offset, batch_size, device):
+    if isinstance(value, torch.Tensor):
+        if value.dim() >= 1 and value.shape[0] >= offset + batch_size:
+            value = value[offset : offset + batch_size]
+        return value.to(device)
+    return value
 
 
 def _get_block_layer_type(block: nn.Module) -> str | None:
@@ -473,6 +521,9 @@ def forward_input(
     pli = kwargs.get(_PER_LAYER_INPUTS_KEY)
     next_inps = []
     offset = 0
+    shared_kv_chunks = {}
+    self_attn = getattr(block, "self_attn", None)
+    stores_shared_kv = getattr(self_attn, "store_full_length_kv", False)
     for inp in inps.split(batch_size):
         bs = inp.shape[0]
         batch_kwargs = expand_kwargs_batch(kwargs, bs)
@@ -480,7 +531,27 @@ def forward_input(
         out = block(inp.to(device), **batch_kwargs)
         out = out[0] if isinstance(out, tuple) else out
         next_inps.append(out.cpu())
+        if stores_shared_kv:
+            for key, value in batch_kwargs[_SHARED_KV_STATES_KEY].items():
+                shared_kv_chunks.setdefault(key, []).append(
+                    tuple(v.detach().cpu() for v in value)
+                    if isinstance(value, tuple)
+                    else value.detach().cpu()
+                )
         offset += bs
+
+    if shared_kv_chunks:
+        shared_kv_states = kwargs.get(_SHARED_KV_STATES_KEY)
+        if not isinstance(shared_kv_states, UserDict):
+            shared_kv_states = UserDict()
+            kwargs[_SHARED_KV_STATES_KEY] = shared_kv_states
+        for key, chunks in shared_kv_chunks.items():
+            if isinstance(chunks[0], tuple):
+                shared_kv_states[key] = tuple(
+                    torch.cat([chunk[i] for chunk in chunks], dim=0) for i in range(len(chunks[0]))
+                )
+            else:
+                shared_kv_states[key] = torch.cat(chunks, dim=0)
     return torch.cat(next_inps)
 
 
