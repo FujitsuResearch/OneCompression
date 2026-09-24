@@ -55,6 +55,9 @@ class _UnfusedExperts(nn.Module):
     def __getitem__(self, idx):
         return getattr(self, str(int(idx)))
 
+    def __iter__(self):
+        return iter(self._modules.values())
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -584,17 +587,19 @@ def _fuse_one(
         expert0 = unfused[0]
         inter = expert0.gate_proj.out_features
         hidden = expert0.gate_proj.in_features
+        up_w0, _ = _dequantized_weight_bias(expert0.up_proj)
+        down_w0, _ = _dequantized_weight_bias(expert0.down_proj)
         gate_up_3d = torch.empty(
             num_experts,
             2 * inter,
             hidden,
-            dtype=expert0.gate_proj.weight.dtype,
+            dtype=up_w0.dtype,
         )
         down_3d = torch.empty(
             num_experts,
             hidden,
             inter,
-            dtype=expert0.down_proj.weight.dtype,
+            dtype=down_w0.dtype,
         )
         for i in range(num_experts):
             expert = unfused[i]
