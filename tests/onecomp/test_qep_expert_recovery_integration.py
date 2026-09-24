@@ -12,6 +12,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 
 import logging
 
+import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,7 +25,7 @@ from onecomp.quantizer.gptq import GPTQ
 # in_features of every expert Linear must be divisible by the 4-bit pack factor
 # (32 // 4 == 8): gate/up consume HIDDEN, down consumes INTERMEDIATE.
 HIDDEN = 8
-INTERMEDIATE = 8
+INTERMEDIATE = 16
 NUM_EXPERTS = 3
 SEQ_LEN = 3
 
@@ -230,7 +231,8 @@ def test_expert_never_selected_falls_back_to_rtn(monkeypatch, caplog):
     assert all(quantizer.results[n].actorder is False for n in names)
 
 
-def test_rtn_fallback_weight_is_actually_applied_to_the_module(monkeypatch, caplog):
+@pytest.mark.parametrize("groupsize", [-1, 2])
+def test_rtn_fallback_weight_is_actually_applied_to_the_module(monkeypatch, caplog, groupsize):
     """The RTN-fallback ``GPTQResult`` must actually flow into the module's
 
     live weight, not just sit unused in ``quantizer.results``. A
@@ -248,7 +250,7 @@ def test_rtn_fallback_weight_is_actually_applied_to_the_module(monkeypatch, capl
         "onecomp.qep._quantize_with_qep_arch.prepare_calibration_dataset",
         _fake_prepare_calibration_dataset,
     )
-    quantizer = GPTQ(wbits=4, groupsize=2, sym=True, include_layer_keywords=["experts"])
+    quantizer = GPTQ(wbits=4, groupsize=groupsize, sym=True, include_layer_keywords=["experts"])
     qep_config = QEPConfig(device="cpu", percdamp=0.01, perccorr=0.5)
 
     caplog.set_level(logging.INFO, logger="onecomp.qep._quantize_with_qep_arch")
