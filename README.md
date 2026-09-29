@@ -295,6 +295,7 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_qep_gptq.py](./example/example_qep_gptq.py) | GPTQ + QEP (error propagation) |
 | | [example_lpcd_gptq.py](./example/example_lpcd_gptq.py) | GPTQ + QEP + LPCD quantization |
 | | [example_jointq.py](./example/example_jointq.py) | JointQ quantization |
+| | [example_mdbf.py](./example/example_mdbf.py) | MDBF quantization |
 | | [example_autobit.py](./example/example_autobit.py) | AutoBit mixed-precision quantization |
 | | [example_auto_run.py](./example/example_auto_run.py) | AutoBit with automatic VRAM estimation |
 | Calibration | [example_custom_calibration.py](./example/example_custom_calibration.py) | Custom calibration dataset with CalibrationConfig |
@@ -319,6 +320,9 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
 | | [example_dbf_vllm_inference.py](./example/vllm_inference/example_dbf_vllm_inference.py) | DBF quantization and vLLM inference |
+| CPU Inference | [example_gptq_gguf_cpu.py](./example/cpu_inference/example_gptq_gguf_cpu.py) | Export GPTQ quantized models to GGUF and run CPU inference |
+| | [example_mixed_gptq_gguf_cpu.py](./example/cpu_inference/example_mixed_gptq_gguf_cpu.py) | Export Mixed-GPTQ quantized models to GGUF and run CPU inference |
+| | [example_serve_cpu.py](./example/cpu_inference/example_serve_cpu.py) | Serve a GGUF model with llama.cpp on CPU |
 
 ## 🔌 vLLM Inference
 

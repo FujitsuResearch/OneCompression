@@ -51,6 +51,17 @@ lint:format:
     - uvx isort@8.0.1 --check-only onecomp/ vllm_plugins/
     - uvx black@26.5.1 --check onecomp/ vllm_plugins/
 
+lint:readme-examples:
+  stage: lint
+  tags:
+    - lint
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  before_script:
+    - export PATH="${HOME}/.local/bin:${PATH}"
+  script:
+    - uv run --no-project --python 3.11 python scripts/check_readme_examples.py
+
 # Skip jobs when the merge request changes docs/markdown only (**/*.md, docs/**).
 # GitLab changes has no negated globs, so we whitelist non-doc paths instead.
 # Always compare the whole MR diff against the target branch: comparing against
