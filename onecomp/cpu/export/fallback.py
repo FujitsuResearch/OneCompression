@@ -1,8 +1,7 @@
 """Fallback GGUF export via dequantization + llama-quantize.
 
-This path works for any OneComp GPTQ checkpoint (including 2/3-bit, actorder,
-and mixed bitwidths) but re-quantizes the weights, so it does not preserve the
-GPTQ/QEP error correction. Prefer ``onecomp.cpu.export.direct.convert_gptq_to_gguf``
+This path reconstructs dense weights for supported checkpoints and then
+re-quantizes them. Prefer ``onecomp.cpu.export.direct.convert_gptq_to_gguf``
 when its constraints are met.
 
 Copyright 2025-2026 Fujitsu Ltd.
@@ -33,7 +32,7 @@ def export_via_dequantize(
     """Dequantize -> f16 GGUF, then optionally quantize to ``qtype`` (e.g. Q4_K_M).
 
     Args:
-        quantized_dir: OneComp GPTQ checkpoint.
+        quantized_dir: Supported OneComp quantized checkpoint.
         out_gguf: Output GGUF path.
         qtype: If given, run llama-quantize to this type; otherwise keep f16.
         work_dir: Scratch dir.

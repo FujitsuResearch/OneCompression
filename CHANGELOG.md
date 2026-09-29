@@ -1,5 +1,23 @@
 # Change log
 
+## [v1.4.0(WIP)+feature/mdbf-llamacpp-export] 2026-09-10
+
+### New Features
+
+- Added GGUF fallback export for plain and rotated MDBF checkpoints by reconstructing dense weights before llama.cpp conversion.
+
+### Bug Fixes
+
+- Reject forced `direct` and `mixed` GGUF modes for non-GPTQ layouts and rotated checkpoints instead of entering an incompatible exporter.
+
+## [v1.4.0(WIP)+feature/openvino-2026.03] 2026-09-10
+
+### Environment
+
+- Add an isolated OpenVINO 2026.3.1 environment with locked conversion dependencies and a
+  OneComp GPTQ 4-bit export example for text-generation models. Flat checkpoint
+  metadata is normalized in a temporary copy without modifying the source checkpoint.
+
 ## [v1.4.0] 2026-08-dd
 
 ### Support MDBF's GlobalPTQ
@@ -8,6 +26,10 @@
 - Added optional STE-based optimization of MDBF binary factors with state rollback and write-back support.
 - Added optional student/teacher device placement for GlobalPTQ, including CPU teacher fallback for distributed execution.
 - Added an MDBF GlobalPTQ example and adapter tests.
+### Breaking Changes
+
+- Remove Runner's layer-wise multi-GPU quantization feature. The `multi_gpu` and
+  `gpu_ids` options and the associated implementation have been removed.
 
 ### Enhancement
 

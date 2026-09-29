@@ -2,7 +2,7 @@
 
 This module exposes :class:`QuantizationProgressTracker`, a small helper
 used by :class:`onecomp.runner.Runner` and the underlying quantization
-entry points (calibration / chunked / multi-GPU / QEP) to emit a single
+entry points (calibration / chunked / QEP) to emit a single
 ``[progress]`` INFO line per completed step with done/total counts,
 percentage, wall-clock elapsed time, and a linear ETA estimate.
 
@@ -82,11 +82,11 @@ class QuantizationProgressTracker:
     Thread safety:
         With ``thread_safe=True`` an internal :class:`threading.Lock`
         guards both the counter update and the log emission, so multiple
-        worker threads (e.g. multi-GPU quantization workers) can call
-        ``step_complete`` concurrently without producing torn counts or
-        interleaved log lines. The :attr:`done` property also takes the
-        lock when present. With ``thread_safe=False`` (default) no
-        locking is performed and callers must serialise their access.
+        worker threads can call ``step_complete`` concurrently without
+        producing torn counts or interleaved log lines. The :attr:`done`
+        property also takes the lock when present. With
+        ``thread_safe=False`` (default) no locking is performed and
+        callers must serialise their access.
 
     Example:
         >>> import logging
@@ -116,8 +116,7 @@ class QuantizationProgressTracker:
                 calls. Values ``<= 0`` disable logging entirely (the
                 tracker becomes a no-op).
             label (str): Short human-readable label that appears at the
-                start of every log line (e.g. ``"GPTQ layers"`` or
-                ``"Multi-GPU layer quantization"``).
+                start of every log line (e.g. ``"GPTQ layers"``).
             thread_safe (bool): If ``True``, guard the counter and log
                 emission with a :class:`threading.Lock` so the tracker
                 can be safely shared across worker threads. Default

@@ -220,28 +220,6 @@ runner.run()
 !!! info
     Chunked calibration is mathematically exact -- it accumulates \(X^T X\) across batches without approximation.
 
-## Multi-GPU Quantization
-
-Distribute layer-wise quantization across multiple GPUs:
-
-```python
-runner = Runner(
-    model_config=model_config,
-    quantizer=gptq,
-    multi_gpu=True,
-)
-runner.run()
-
-# Or specify particular GPUs
-runner = Runner(
-    model_config=model_config,
-    quantizer=gptq,
-    multi_gpu=True,
-    gpu_ids=[0, 2, 3],
-)
-runner.run()
-```
-
 ## Comparing Multiple Quantizers
 
 Run multiple quantizers in a single session with shared calibration data:
