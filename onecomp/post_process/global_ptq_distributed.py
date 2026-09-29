@@ -538,7 +538,8 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                     write_back_gptq_params(gptq_modules)
                 restore_gptq_original(gptq_modules, original_forwards, cleanup=True)
             elif method == "dbf":
-                write_back_dbf_scaling(dbf_modules)
+                if not rollback_happened:
+                    write_back_dbf_scaling(dbf_modules)
                 restore_dbf_original(dbf_modules, original_forwards, cleanup=True)
             elif method == "mdbf":
                 if not rollback_happened:
