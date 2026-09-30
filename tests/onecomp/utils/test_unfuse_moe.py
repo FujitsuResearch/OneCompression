@@ -61,12 +61,26 @@ def test_generic_fused_experts_unfuse_fuse_roundtrip():
     fused = _GenericFusedExperts(gate_up.clone(), down.clone(), act_fn)
 
     unfused = _unfuse_one(fused)
+
+    for expert in unfused:
+        expert.up_proj.weight = nn.Parameter(
+            expert.up_proj.weight.to(torch.float16)
+        )
+        expert.down_proj.weight = nn.Parameter(
+            expert.down_proj.weight.to(torch.float16)
+        )
+
     ref_gate_up = gate_up
     ref_down = down
+    ref_gate_up_f16 = gate_up.to(torch.float16)
+    ref_down_f16 = down.to(torch.float16)
 
     refuzed = _fuse_one(unfused, override=None)
-    assert torch.allclose(refuzed.gate_up_proj.data, ref_gate_up, atol=1e-6, rtol=1e-5)
-    assert torch.allclose(refuzed.down_proj.data, ref_down, atol=1e-6, rtol=1e-5)
+
+    assert refuzed.gate_up_proj.dtype == torch.float16
+    assert refuzed.down_proj.dtype == torch.float16
+    assert torch.allclose(refuzed.gate_up_proj.data, ref_gate_up_f16, atol=1e-6, rtol=1e-5)
+    assert torch.allclose(refuzed.down_proj.data, ref_down_f16, atol=1e-6, rtol=1e-5)
 
     model = _TinyModel(_GenericFusedExperts(gate_up.clone(), down.clone(), act_fn))
     logger = _silence_logger()
