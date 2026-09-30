@@ -225,6 +225,26 @@ class TestGptqDifferentiableSetup:
                 mod, "_opt_zeros"
             ), "_opt_zeros should be kept after restore without cleanup"
 
+    def test_setup_failure_cleans_partial_state(self, monkeypatch):
+        from onecomp.post_process._global_ptq import gptq_adapter
+
+        model = _TinyGPTQModel(hidden=32)
+        modules = gptq_adapter.find_gptq_modules(model)
+        original_forward = modules[0][1].forward
+
+        monkeypatch.setattr(
+            gptq_adapter,
+            "_get_float_zeros",
+            lambda _module: (_ for _ in ()).throw(RuntimeError("setup failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="setup failed"):
+            gptq_adapter.setup_gptq_differentiable(modules, torch.device("cpu"))
+
+        assert modules[0][1].forward == original_forward
+        assert not hasattr(modules[0][1], "_opt_scales")
+        assert not hasattr(modules[0][1], "_global_ptq_original_forward")
+
 
 class TestGptqWriteBack:
     """Tests for write_back_gptq_params."""
@@ -269,6 +289,37 @@ class TestGptqStateSaveLoad:
         load_gptq_state(modules, state)
 
         assert not torch.all(modules[0][1].scales == 0.0)
+
+    def test_global_ptq_exception_restores_state(self, monkeypatch):
+        from onecomp.post_process._global_ptq import core
+        from onecomp.post_process._global_ptq.gptq_adapter import (
+            find_gptq_modules,
+            setup_gptq_differentiable,
+            write_back_gptq_params,
+        )
+        from onecomp.post_process.global_ptq import GlobalPTQ
+
+        model = _TinyGPTQModel(hidden=32)
+        modules = find_gptq_modules(model)
+        layer = modules[0][1]
+        original_forward = layer.forward
+        original_scales = layer.scales.detach().clone()
+
+        def fail_after_setup(*_args, **_kwargs):
+            setup_gptq_differentiable(modules, torch.device("cpu"))
+            with torch.no_grad():
+                layer._opt_scales.fill_(7)
+            write_back_gptq_params(modules)
+            raise RuntimeError("training failed")
+
+        monkeypatch.setattr(core, "run_kl_distillation", fail_after_setup)
+
+        with pytest.raises(RuntimeError, match="training failed"):
+            GlobalPTQ()._run(model, object())
+
+        assert torch.equal(layer.scales, original_scales)
+        assert not hasattr(layer, "_opt_scales")
+        assert layer.forward == original_forward
 
 
 # ---------------------------------------------------------------------------

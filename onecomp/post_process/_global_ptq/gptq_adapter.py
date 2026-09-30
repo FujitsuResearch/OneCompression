@@ -131,16 +131,21 @@ def setup_gptq_differentiable(
     original_forwards: Dict[str, object] = {}
     scaling_params: List[nn.Parameter] = []
 
-    for name, mod in gptq_modules:
-        mod._opt_scales = nn.Parameter(mod.scales.clone().float().to(dev))
-        mod._opt_zeros = nn.Parameter(_get_float_zeros(mod).to(dev))
-        scaling_params.extend([mod._opt_scales, mod._opt_zeros])
+    try:
+        for name, mod in gptq_modules:
+            original_forwards[name] = mod.forward
+            mod._global_ptq_original_forward = mod.forward
+            mod._opt_scales = nn.Parameter(mod.scales.clone().float().to(dev))
+            mod._opt_zeros = nn.Parameter(_get_float_zeros(mod).to(dev))
+            scaling_params.extend([mod._opt_scales, mod._opt_zeros])
 
-        original_forwards[name] = mod.forward
-        mod.forward = MethodType(
-            _make_differentiable_forward(mod),
-            mod,
-        )
+            mod.forward = MethodType(
+                _make_differentiable_forward(mod),
+                mod,
+            )
+    except Exception:
+        restore_gptq_original(gptq_modules, original_forwards, cleanup=True)
+        raise
 
     return original_forwards, scaling_params
 
@@ -169,9 +174,15 @@ def restore_gptq_original(
             called again.
     """
     for name, mod in gptq_modules:
-        if name in original_forwards:
-            mod.forward = original_forwards[name]
+        original_forward = original_forwards.get(
+            name,
+            getattr(mod, "_global_ptq_original_forward", None),
+        )
+        if original_forward is not None:
+            mod.forward = original_forward
         if cleanup:
+            if hasattr(mod, "_global_ptq_original_forward"):
+                delattr(mod, "_global_ptq_original_forward")
             for attr in ("_opt_scales", "_opt_zeros"):
                 if hasattr(mod, attr):
                     delattr(mod, attr)

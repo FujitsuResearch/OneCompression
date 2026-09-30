@@ -308,6 +308,7 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_blockwise_global_ptq_staged.py](./example/post_process/example_blockwise_global_ptq_staged.py) | Staged BlockWisePTQ → GlobalPTQ across save/load boundaries with accumulated post-process metadata |
 | | [example_global_ptq.py](./example/post_process/example_global_ptq.py) | Global PTQ with packed buffers by default and HF-compatible safetensors output |
 | | [example_global_ptq_dbf.py](./example/post_process/example_global_ptq_dbf.py) | Global PTQ with the DBF backend and HF-compatible safetensors output |
+| | [example_global_ptq_mdbf.py](./example/post_process/example_global_ptq_mdbf.py) | Global PTQ with the MDBF backend and HF-compatible safetensors output |
 | | [example_global_ptq_distributed.py](./example/post_process/example_global_ptq_distributed.py) | Multi-GPU Global PTQ with DeepSpeed / torchrun and safetensors output |
 | | [example_router_fine_tuning.py](./example/post_process/example_router_fine_tuning.py) | Router-only next-token fine-tuning for a quantized MoE model |
 | | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |

@@ -17,6 +17,14 @@ import torch.nn as nn
 logger = logging.getLogger(__name__)
 
 
+def smooth_sign_ste(x: torch.Tensor, k: float = 100.0) -> torch.Tensor:
+    """Return hard signs with a smooth tanh surrogate for backpropagation."""
+    hard = x.sign()
+    hard[hard == 0] = 1
+    soft = torch.tanh(k * x)
+    return soft + (hard - soft).detach()
+
+
 def get_language_model_backbone(model: nn.Module) -> nn.Module:
     """Return the language-model sub-module for VLMs, or *model* itself.
 
@@ -42,7 +50,7 @@ def detect_quantization_method(
     """Auto-detect the quantization method applied to *model*.
 
     Returns:
-        (method, modules) where *method* is ``"gptq"``, ``"dbf"``, or
+        (method, modules) where *method* is ``"gptq"``, ``"dbf"``, ``"mdbf"``, or
         ``None``, and *modules* is the list of ``(name, module)`` pairs
         for the detected quantized layers.
 
@@ -51,12 +59,16 @@ def detect_quantization_method(
     """
     from ...quantizer.dbf.dbf_layer import DoubleBinaryLinear
     from ...quantizer.gptq.gptq_layer import GPTQLinear
+    from ...quantizer.mdbf.mdbf_layer import MultipathMDBFLinear
 
     gptq_modules = [
         (name, mod) for name, mod in model.named_modules() if isinstance(mod, GPTQLinear)
     ]
     dbf_modules = [
         (name, mod) for name, mod in model.named_modules() if isinstance(mod, DoubleBinaryLinear)
+    ]
+    mdbf_modules = [
+        (name, mod) for name, mod in model.named_modules() if isinstance(mod, MultipathMDBFLinear)
     ]
 
     if gptq_modules and dbf_modules:
@@ -67,10 +79,20 @@ def detect_quantization_method(
             len(gptq_modules),
             len(dbf_modules),
         )
+    if (gptq_modules or dbf_modules) and mdbf_modules:
+        logger.warning(
+            "Mixed quantization model detected (gptq=%d, dbf=%d, mdbf=%d). "
+            "Global PTQ optimises the highest-priority method only.",
+            len(gptq_modules),
+            len(dbf_modules),
+            len(mdbf_modules),
+        )
     if gptq_modules:
         return "gptq", gptq_modules
     if dbf_modules:
         return "dbf", dbf_modules
+    if mdbf_modules:
+        return "mdbf", mdbf_modules
     return None, []
 
 
