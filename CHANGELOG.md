@@ -8,6 +8,7 @@
 - Fix MPS loading of large sharded checkpoints by loading weights on CPU before moving the model to MPS.
 - Reject chunked calibration (`CalibrationConfig(batch_size=...)`) on MPS, where it is not supported.
 - Fix MoE fusion for Gemma 4 MoE and Qwen MoE models by preserving the `up_proj` and `down_proj` weight dtypes when allocating fused tensors.(`unfuse_moe.py`)
+- Support `UserDict`-based shared KV states when QEP processes transformer blocks one at a time.
 
 ### Documentation
 
