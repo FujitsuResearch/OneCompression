@@ -123,19 +123,15 @@ class QuantizedModelLoader:
         elif unfuse_moe_experts(model, logger):
             logger.info("Unfused MoE expert tensors for quantized model load")
 
-        # Align checkpoint key prefixes with the empty model built from config.
-        # Gemma3 VLMs are a common case: weights saved from from_pretrained
-        # use model.language_model.model.layers. (language_model is a
-        # ForCausalLM wrapper) while from_config exposes
-        # model.language_model.layers.* directly.
-        state_dict = cls._remap_state_dict_keys(state_dict, model)
-
-        # Replace quantized layers with empty modules and align quantized
-        # tensor keys with the actual module names in the model built from
-        # config.  This is required when the saved checkpoint and the
-        # from_config model use different wrapper prefixes, e.g.
-        # model.language_model.layers.* vs model.layers.*.
+        # Replace quantized layers first. This resolves every quantizer's
+        # tensor state by layer prefix while the model still exposes the
+        # original empty Linear modules.
         state_dict = cls._replace_quantized_layers(model, state_dict, quant_config)
+
+        # Align remaining checkpoint keys with the model built from config.
+        # Quantized keys now already use the actual module prefix, so this
+        # generic remap only handles non-quantized parameters and buffers.
+        state_dict = cls._remap_state_dict_keys(state_dict, model)
 
         # Load all weights (quantized + non-quantized) in one go.  strict=False
         # is intentional because some wrapper-only components may be absent, but
@@ -593,11 +589,10 @@ class QuantizedModelLoader:
         silently skips mismatched keys and leaves layers at their empty-model
         initial values (often all zeros for quantized buffers).
 
-        Remapping runs before _replace_quantized_layers, so the empty
-        model still exposes nn.Linear.weight rather than GPTQ buffers
-        (``qweight``, ``scales``, …).  Known prefix rewrites are therefore
-        applied from checkpoint key patterns alone; they must not require the
-        destination key to already exist in model.named_parameters().
+        Quantized layers are resolved by _replace_quantized_layers before
+        this method runs. Therefore this method only remaps ordinary model
+        parameters and buffers; quantizer-specific tensor fields are already
+        materialized under their actual module prefixes.
 
         Args:
             state_dict: Tensors loaded from *.safetensors.

@@ -298,8 +298,15 @@ def _rtn_fallback_result(module: nn.Module, quantizer: Quantizer, name: str) -> 
 
     result_dict = run_rtn(module, wbits=wbits, groupsize=groupsize, sym=quantizer.sym)
 
-    # RTN's raw scale/zero are (out_features, num_groups); GPTQResult
-    # expects (num_groups, out_features).
+    scales = result_dict["scale"]
+    qzeros = result_dict["zero"]
+
+    if groupsize != -1:
+        # RTN's raw scale/zero are (out_features, num_groups); GPTQResult
+        # expects (num_groups, out_features).
+        scales = scales.T
+        qzeros = qzeros.T
+
     return GPTQResult(
         dequantized_weight=result_dict["dequantized_weight"],
         wbits=wbits,
@@ -307,8 +314,8 @@ def _rtn_fallback_result(module: nn.Module, quantizer: Quantizer, name: str) -> 
         actorder=False,
         sym=quantizer.sym,
         qweight=result_dict["quantized_weight"],
-        scales=result_dict["scale"].T,
-        qzeros=result_dict["zero"].T,
+        scales=scales,
+        qzeros=qzeros,
         perm=None,
     )
 

@@ -194,6 +194,21 @@ class TestGPTQ(BaseQuantizeSpec):
         with pytest.raises(ValueError, match="1\\.\\.15"):
             resolve_gptq_layer_wbits("model.layers.0.mlp.down_proj", quant_config)
 
+    def test_resolve_gptq_layer_wbits_prefers_quantization_bits_for_mixed_gptq(self):
+        """Mixed-bit saved metadata takes precedence over global overrides."""
+        quant_config = {
+            "bits": 4,
+            "mlp_wbits": 5,
+            "module_wbits": {"model.layers.0.mlp.down_proj": 6},
+            "quantization_bits": [
+                {"mlp.down_proj": {"bits": 3, "method": "gptq"}},
+            ],
+        }
+
+        assert resolve_gptq_layer_wbits("model.layers.0.mlp.down_proj", quant_config) == 3
+        assert resolve_gptq_layer_wbits("model.layers.0.mlp.up_proj", quant_config) == 5
+        assert resolve_gptq_layer_wbits("model.layers.0.self_attn.q_proj", quant_config) == 4
+
     @pytest.mark.parametrize(
         "override_params",
         [

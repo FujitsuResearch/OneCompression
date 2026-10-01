@@ -359,7 +359,12 @@ See the [GPT-OSS guide](docs/user-guide/gptoss.md) for HF save/load, patch detai
 
 ## 📄 License
 
-See [LICENSE](./LICENSE) for more details.
+OneComp is licensed under the [MIT License](./LICENSE).
+
+The dependencies installed with OneComp are separate open-source software (OSS)
+projects and are distributed under their respective licenses. Their licenses
+may change when the dependencies are updated, so please check the license
+terms of the installed versions as well.
 
 ## Citation
 

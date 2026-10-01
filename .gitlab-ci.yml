@@ -84,7 +84,7 @@ lint:format:
   before_script:
     - |
       for var in \
-        CI_BASTION_HOST CI_CLUSTER_HOST CI_CLUSTER_USER ONECOMP_REPO \
+        CI_BASTION_HOST CI_CLUSTER_HOST CI_CLUSTER_USER ONECOMP_REPO ONECOMP_CALIB_CACHE \
         CI_SLURM_PARTITION CI_SLURM_MEM CI_SLURM_CPUS CI_SLURM_TIME CI_SLURM_GPUS \
         CI_UV_VENV CI_TORCH_EXTRA; do
         eval "test -n \"\${${var}:-}\" || { echo \"Set ${var} in CI/CD Variables\" >&2; exit 1; }"
@@ -97,6 +97,7 @@ lint:format:
     - |
       {
         printf 'export ONECOMP_REPO=%q\n' "${ONECOMP_REPO}"
+        printf 'export ONECOMP_CALIB_CACHE=%q\n' "${ONECOMP_CALIB_CACHE}"
         printf 'export CI_COMMIT_SHA=%q\n' "${CI_COMMIT_SHA}"
         printf 'export CI_COMMIT_REF_NAME=%q\n' "${CI_COMMIT_REF_NAME:-}"
         printf 'export CI_JOB_TOKEN=%q\n' "${CI_JOB_TOKEN}"
@@ -288,6 +289,7 @@ sast-gate:
 pages:
   image: python:3.11
   stage: deploy
+  needs: []
   script:
     - pip install mkdocs mkdocs-material mkdocstrings mkdocstrings-python
     - mkdocs build --site-dir public

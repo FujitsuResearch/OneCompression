@@ -23,6 +23,7 @@ quantization steps intentionally run on CPU for performance. See
 | DBF, RTN, JointQ, and other quantizers | No | — |
 | AutoBit DBF fallback | No | — |
 | Multi-GPU quantization | No | — |
+| Chunked calibration | No | - |
 
 ## Installation
 
@@ -127,6 +128,8 @@ with an NVIDIA GPU. See the [vLLM Inference guide](vllm-inference.md).
 - Only **GPTQ** quantizers are allowed (or **AutoBitQuantizer** whose candidates are all GPTQ).
 - **AutoBit DBF fallback** is rejected when the target bitwidth would require DBF-only assignment.
 - **`multi_gpu=True`** is not supported.
+- **Chunked calibration** (`CalibrationConfig(batch_size=...)`) is not supported.
+  Leave `batch_size` unset when quantizing on MPS.
 
 To avoid DBF fallback on MPS, either set an explicit `wbits` within the GPTQ candidate range
 or ensure VRAM estimation yields a bitwidth that does not trigger DBF-only paths.
