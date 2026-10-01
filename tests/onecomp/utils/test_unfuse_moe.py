@@ -63,12 +63,8 @@ def test_generic_fused_experts_unfuse_fuse_roundtrip():
     unfused = _unfuse_one(fused)
 
     for expert in unfused:
-        expert.up_proj.weight = nn.Parameter(
-            expert.up_proj.weight.to(torch.float16)
-        )
-        expert.down_proj.weight = nn.Parameter(
-            expert.down_proj.weight.to(torch.float16)
-        )
+        expert.up_proj.weight = nn.Parameter(expert.up_proj.weight.to(torch.float16))
+        expert.down_proj.weight = nn.Parameter(expert.down_proj.weight.to(torch.float16))
 
     ref_gate_up = gate_up
     ref_down = down
