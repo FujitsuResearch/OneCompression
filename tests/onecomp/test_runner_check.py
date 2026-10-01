@@ -139,3 +139,16 @@ class TestRunnerCheckMPS:
             calibration_config=CalibrationConfig(max_length=128, num_calibration_samples=8),
         )
         runner.check()
+
+    def test_batch_size_is_not_supported_on_mps(self):
+        """MPS rejects chunked calibration requested via batch_size."""
+        runner = Runner(
+            model_config=self._mps_model_config(),
+            quantizer=GPTQ(wbits=4, groupsize=128),
+            calibration_config=CalibrationConfig(batch_size=2),
+        )
+
+        with pytest.raises(
+            ValueError, match=r"MPS quantization does not support calibration_config\.batch_size"
+        ):
+            runner.check()

@@ -332,6 +332,11 @@ class Runner:
         # candidates are all GPTQ, without DBF fallback) is supported on MPS
         device = self.model_config.get_device()
         if is_mps_device(device):
+            if batch_size is not None:
+                raise ValueError(
+                    "MPS quantization does not support calibration_config.batch_size. "
+                    "Remove batch_size from CalibrationConfig and run without chunked calibration."
+                )
             all_quantizers = self.quantizers if self.quantizers is not None else [self.quantizer]
             for i, q in enumerate(all_quantizers):
                 label = f"quantizers[{i}]" if self.quantizers else "quantizer"

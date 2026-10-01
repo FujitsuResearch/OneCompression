@@ -126,24 +126,15 @@ runner.run()
 runner.save_quantized_model("./Llama-3.1-8B-Instruct-gptq-4bit")
 ```
 
-!!! note "Qwen3.6: use `save_format=\"full_wrapper\"`"
-    Qwen3.6 quantizes as a text-only checkpoint, whose native Hugging Face
-    layout (`model.layers.*`) does not match what vLLM's composite
-    `Qwen3_5ForConditionalGeneration` loader expects (`model.language_model.layers.*`).
-    Pass `save_format="full_wrapper"` to `save_quantized_model()` to remap the
-    checkpoint for vLLM serving:
-
-    ```python
-    runner.save_quantized_model("./Qwen3.6-gptq-4bit-vllm", save_format="full_wrapper")
-    ```
-
-    This option is specific to Qwen3.6 and will raise `RuntimeError` for any
-    other model. Leave `save_format` at its default (`"auto"`) for everything
-    else, including other VLMs.
+!!! note "Qwen3.6 save format"
+    Qwen3.6 checkpoints used for vLLM serving should be saved with
+    `save_quantized_model(..., save_format="full_wrapper")`. See
+    [Basic Usage](basic-usage.md#step-5-save-the-model) for the shared
+    Qwen3.6 save-format guidance, including other confirmed workflows.
 
     For MoE variants (e.g. Qwen3.6-A3B), `full_wrapper` also drops each expert's
     trivial `g_idx` buffer, since vLLM's GPTQ `FusedMoE` kernel has no `g_idx`
-    parameter and an unmapped one would crash weight loading — see the `desc_act`/
+    parameter and an unmapped one would crash weight loading -- see the `desc_act`/
     `actorder` warning above for when this isn't safe to drop.
 
 ### 2. Serve with vLLM

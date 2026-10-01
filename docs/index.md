@@ -184,6 +184,11 @@ MDBF (Multi-Envelope Double Binary Factorization):
 
 ## License
 
-Fujitsu One Compression is released under the terms of the [LICENSE](https://github.com/FujitsuResearch/OneCompression/blob/main/LICENSE) file included in the repository.
+Fujitsu One Compression is released under the [MIT License](https://github.com/FujitsuResearch/OneCompression/blob/main/LICENSE).
+
+The dependencies installed with OneComp are separate open-source software (OSS)
+projects and are distributed under their respective licenses. Their licenses
+may change when the dependencies are updated, so please check the license
+terms of the installed versions as well.
 
 Copyright 2025-2026 Fujitsu Ltd.
