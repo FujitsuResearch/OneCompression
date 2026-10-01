@@ -43,6 +43,16 @@ class _FakeGemma3VLMWithAttn(nn.Module):
         self.model.language_model.layers = nn.ModuleList([layer])
 
 
+class _FakeGemma4VLMWithInvTimescales(_FakeGemma3VLMWithAttn):
+    """Gemma4-like VLM containing a parameter ending in ``timescales``."""
+
+    def __init__(self):
+        super().__init__()
+        self.model.audio_tower = nn.Module()
+        self.model.audio_tower.rel_pos_enc = nn.Module()
+        self.model.audio_tower.rel_pos_enc.inv_timescales = nn.Parameter(torch.ones(4))
+
+
 class _FakeLlamaLikeModel(nn.Module):
     """Plain CausalLM layout (model.layers.*) without VLM wrappers."""
 
@@ -147,13 +157,11 @@ def test_resolve_state_dict_key_returns_none_for_quantized_buffer_not_yet_in_mod
 
 
 def test_remap_state_dict_keys_leaves_quantized_tensors_for_layer_swap():
-    """_remap_state_dict_keys() alone must not touch quantized-buffer keys.
+    """Unresolved quantized keys remain available for layer replacement.
 
-    Their source-prefix -> target-prefix move is deferred to
-    _replace_quantized_layers(), which has the quantized module names from
-    quant_config needed to resolve them correctly (see
-    test_remap_replace_and_load_quantized_layer_pipeline for the full
-    pipeline).
+    The full loader invokes _replace_quantized_layers() before generic
+    remapping, so this direct unit test only checks that an unresolved key is
+    retained rather than dropped.
     """
     from onecomp.quantized_model_loader import QuantizedModelLoader
 
@@ -168,6 +176,29 @@ def test_remap_state_dict_keys_leaves_quantized_tensors_for_layer_swap():
     assert torch.equal(
         remapped["model.language_model.model.layers.0.self_attn.q_proj.qweight"], qweight
     )
+
+
+def test_quantized_layer_replacement_precedes_generic_remap_with_inv_timescales():
+    """All quantizer fields avoid suffix collisions in the full pipeline."""
+    from onecomp.quantized_model_loader import QuantizedModelLoader
+
+    model = _FakeGemma4VLMWithInvTimescales()
+    saved_module_name = "model.language_model.model.layers.0.self_attn.q_proj"
+    ckpt = _make_tiny_gptq_state_dict(128, 128, saved_module_name=saved_module_name)
+    ckpt[f"{saved_module_name}.g_idx"] = torch.zeros(128, dtype=torch.int32)
+    quant_config = _gptq_quant_config("model.layers.0.self_attn.q_proj")
+
+    replaced = QuantizedModelLoader._replace_quantized_layers(model, ckpt, quant_config)
+    remapped = QuantizedModelLoader._remap_state_dict_keys(replaced, model)
+
+    target_prefix = "model.language_model.layers.0.self_attn.q_proj"
+    assert {key.rsplit(".", 1)[-1] for key in remapped if key.startswith(target_prefix)} >= {
+        "qweight",
+        "qzeros",
+        "scales",
+        "g_idx",
+    }
+    assert "model.audio_tower.rel_pos_enc.inv_timescales" not in remapped
 
 
 def test_resolve_state_dict_key_without_model_prefix():
@@ -226,6 +257,17 @@ def test_load_quantized_model_applies_remap_before_state_dict(tmp_path):
     )
 
     captured: dict = {}
+    call_order = []
+
+    def record_replace(model, state_dict, quant_config):
+        call_order.append("replace")
+        return state_dict
+
+    original_remap = QuantizedModelLoader._remap_state_dict_keys
+
+    def record_remap(state_dict, model):
+        call_order.append("remap")
+        return original_remap(state_dict, model)
 
     class _RecordingModel(_FakeGemma3LikeModel):
         def __init__(self):
@@ -249,9 +291,12 @@ def test_load_quantized_model_applies_remap_before_state_dict(tmp_path):
         patch.object(
             QuantizedModelLoader,
             "_replace_quantized_layers",
-            # _replace_quantized_layers returns the (possibly materialized)
-            # state_dict; the caller reassigns it.
-            lambda model, state_dict, quant_config: state_dict,
+            record_replace,
+        ),
+        patch.object(
+            QuantizedModelLoader,
+            "_remap_state_dict_keys",
+            record_remap,
         ),
         patch.object(
             QuantizedModelLoader,
@@ -263,6 +308,7 @@ def test_load_quantized_model_applies_remap_before_state_dict(tmp_path):
 
     assert model_key in captured
     assert torch.equal(captured[model_key], tensor)
+    assert call_order == ["replace", "remap"]
 
 
 def test_find_layer_state_resolves_quantized_tensors_by_suffix():
