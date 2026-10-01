@@ -1,9 +1,10 @@
-# Post-Process (Global PTQ / Block-wise PTQ / LoRA SFT)
+# Post-Process (Global PTQ / Block-wise PTQ / Router Fine-Tuning / LoRA SFT)
 
-OneComp supports **post-quantization processing** — additional steps applied to a quantized model to improve accuracy or inject domain-specific knowledge. Three implementations are available:
+OneComp supports **post-quantization processing** — additional steps applied to a quantized model to improve accuracy or inject domain-specific knowledge. Four implementations are available:
 
 - **Global PTQ** — Globally optimises quantization parameters (scales, zeros, scaling factors) via KL distillation from a full-precision teacher model
 - **Block-wise PTQ** — Minimises intermediate-representation MSE against an FP16 teacher model at Transformer-block granularity. No training data labelling required.
+- **Router Fine-Tuning** — Recovers quantized MoE quality by training only router parameters with next-token prediction loss while experts and all other weights remain frozen.
 - **LoRA SFT** — Fine-tunes quantized models using Low-Rank Adaptation (LoRA) adapters with SFT loss, optional teacher distillation, and intermediate block alignment.
 
 ## Overview
@@ -335,6 +336,55 @@ See the [API Reference](../api/post_process.md) for the full parameter list.
     further post-processes, and saved again; the applied post-processes are
     recorded under `quantization_config["onecomp_post_processes"]` as an audit
     trail across save/load cycles.
+
+---
+
+## Router Fine-Tuning for Quantized MoE Models
+
+Quantization changes expert outputs even when the router itself remains in full
+precision. `RouterFineTuning` adapts routing decisions to those quantized expert
+outputs using standard shifted next-token prediction loss. Before training, all
+parameters are frozen and only parameters below exact module-name components
+`router`, `gate`, and `shared_expert_gate` are enabled. Exact matching means
+expert layers such as `gate_proj` remain frozen.
+
+```python
+from onecomp import GPTQ, CalibrationConfig, ModelConfig, RouterFineTuning, Runner
+
+model_config = ModelConfig(model_id="Qwen/Qwen3-30B-A3B", device="cuda:0")
+runner = Runner(
+    model_config=model_config,
+    quantizer=GPTQ(wbits=4, groupsize=128),
+    calibration_config=CalibrationConfig(max_length=512, num_calibration_samples=128),
+    post_processes=[
+        RouterFineTuning(
+            dataset_name="Salesforce/wikitext",
+            dataset_config_name="wikitext-2-raw-v1",
+            max_train_samples=512,
+            max_length=512,
+            epochs=1,
+            batch_size=1,
+            gradient_accumulation_steps=8,
+            lr=1e-5,
+        )
+    ],
+)
+runner.run()
+```
+
+For architectures with another router name, pass exact path components via
+`router_modules=("custom_router",)`. Local `.json`, `.jsonl`, `.csv`, `.txt`,
+and `.parquet` files are accepted through `data_files`; set `text_column` when
+the text field is not named `text`.
+
+During training, packed GPTQ layers are temporarily unpacked so gradients can
+flow through quantized experts to routing scores. Their incoming packed state is
+restored afterward. The process introduces no custom module type, so the result
+uses the normal `save_quantized_model()` and `load_quantized_model()` workflow.
+
+!!! tip
+    A complete baseline-versus-fine-tuned perplexity example is available at
+    [`example/post_process/example_router_fine_tuning.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_router_fine_tuning.py).
 
 ---
 
