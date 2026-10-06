@@ -22,6 +22,7 @@ variables:
   UV_CACHE_DIR: "${CI_PROJECT_DIR}/.cache/uv"
   GIT_DEPTH: "1"
   PYTEST_MARKERS: "not slow"
+  CI_SLURM_PENDING_TIMEOUT_SECONDS: "900"
 
 lint:conflict-markers:
   stage: lint
@@ -125,6 +126,7 @@ lint:readme-examples:
         printf 'export CI_SLURM_TIME=%q\n' "${CI_SLURM_TIME}"
         printf 'export CI_SLURM_GPUS=%q\n' "${CI_SLURM_GPUS}"
         printf 'export CI_SLURM_EXCLUDE=%q\n' "${CI_SLURM_EXCLUDE:-}"
+        printf 'export CI_SLURM_PENDING_TIMEOUT_SECONDS=%q\n' "${CI_SLURM_PENDING_TIMEOUT_SECONDS}"
         printf 'export CI_UV_VENV=%q\n' "${CI_UV_VENV}"
         printf 'export CI_TORCH_EXTRA=%q\n' "${CI_TORCH_EXTRA}"
         cat scripts/cluster_test.sh
