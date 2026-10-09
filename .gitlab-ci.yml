@@ -72,7 +72,10 @@ lint:readme-examples:
   - onecomp/**/*
   - tests/**/*
   - vllm_plugins/**/*
-  - example/**/*
+  # GitLab changes has no negated globs; list the tracked non-Markdown example
+  # file types explicitly so updates to example/example_results.md stay docs-only.
+  - example/**/*.{py,json,jsonl,txt}
+  - example/.gitignore
   - scripts/**/*
   - pyproject.toml
   - uv.lock
