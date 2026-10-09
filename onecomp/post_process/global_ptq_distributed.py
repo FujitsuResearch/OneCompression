@@ -32,6 +32,11 @@ from ._base import PostQuantizationProcess
 logger = getLogger(__name__)
 
 
+def _should_rollback(baseline_loss: float, final_loss: float) -> bool:
+    """Return whether training failed to improve on the initial model."""
+    return math.isnan(final_loss) or final_loss >= baseline_loss
+
+
 def _remove_deepspeed_hooks(model: nn.Module) -> None:
     """Remove DeepSpeed-injected forward (pre/post) hooks from every submodule.
 
@@ -86,6 +91,15 @@ class GlobalPTQDistributed(PostQuantizationProcess):
         dbf_lr (float):
             Learning rate for DBF scaling parameters.
             Default is 5e-5.
+        optimize_binary (bool):
+            Whether to optimise MDBF binary factors via sign STE.
+            Default is False.
+        mdbf_ste_k (float):
+            Sharpness for MDBF binary sign STE. Default is 2.0.
+        teacher_device (str or None):
+            Optional device for the FP16 teacher model. Defaults to the
+            student device for single-process execution and CPU when using
+            DeepSpeed or multiple processes.
         calibration_config (CalibrationConfig or None):
             Calibration data configuration.  When ``None`` (default),
             a :class:`CalibrationConfig` is created with
@@ -178,6 +192,9 @@ class GlobalPTQDistributed(PostQuantizationProcess):
 
     # --- DBF ---
     dbf_lr: float = 5e-5
+    optimize_binary: bool = False
+    mdbf_ste_k: float = 2.0
+    teacher_device: Optional[str] = None
 
     # --- Calibration ---
     calibration_config: Optional[CalibrationConfig] = None
@@ -273,6 +290,14 @@ class GlobalPTQDistributed(PostQuantizationProcess):
             write_back_gptq_params,
         )
         from ._global_ptq.helpers import detect_quantization_method
+        from ._global_ptq.mdbf_adapter import (
+            load_mdbf_state,
+            restore_mdbf_original,
+            save_mdbf_state,
+            setup_mdbf_differentiable,
+            write_back_mdbf_amp,
+            write_back_mdbf_binary,
+        )
         from ._global_ptq.trainer import _GlobalPTQTrainer, _KDDataset
 
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
@@ -289,7 +314,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
         if method is None:
             logger.warning("No quantized layers detected — skipping.")
             return {"global_executed": False, "reason": "not_quantized"}
-        if method not in ("gptq", "dbf"):
+        if method not in ("gptq", "dbf", "mdbf"):
             logger.info("Method '%s' not supported — skipping.", method)
             return {"global_executed": False, "reason": f"unsupported_method_{method}"}
 
@@ -325,11 +350,14 @@ class GlobalPTQDistributed(PostQuantizationProcess):
 
         gptq_modules = []
         dbf_modules = []
+        mdbf_modules = []
         original_forwards = {}
         param_groups = []
+        initial_state = None
 
         if method == "gptq":
             gptq_modules = detected_modules
+            initial_state = save_gptq_state(gptq_modules)
             original_forwards, scaling_params = setup_gptq_differentiable(gptq_modules, dev)
             param_groups = [{"params": scaling_params, "lr": self.gptq_lr}]
             logger.info(
@@ -339,6 +367,7 @@ class GlobalPTQDistributed(PostQuantizationProcess):
 
         elif method == "dbf":
             dbf_modules = detected_modules
+            initial_state = save_dbf_state(dbf_modules)
             original_forwards, scaling_params = setup_dbf_differentiable(dbf_modules)
             param_groups = [
                 {
@@ -351,42 +380,65 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 "Trainable: %d scaling",
                 len(scaling_params),
             )
-
-        # DeepSpeed ZeRO requires contiguous tensors for all-reduce.
-        for pg in param_groups:
-            for p in pg["params"]:
-                if isinstance(p, torch.nn.Parameter) and not p.data.is_contiguous():
-                    p.data = p.data.contiguous()
-
-        total_trainable = sum(len(pg["params"]) for pg in param_groups)
-        if total_trainable == 0:
-            logger.warning("No trainable parameters — skipping.")
-            if method == "gptq":
-                restore_gptq_original(gptq_modules, original_forwards)
-            elif method == "dbf":
-                restore_dbf_original(dbf_modules, original_forwards)
-            quantized_model.cpu()
-            return {"global_executed": False, "reason": "no_params"}
-
-        # ------------------------------------------------------------------
-        # 4. Gradient checkpointing (delegated to Trainer via TrainingArguments)
-        # ------------------------------------------------------------------
-        original_use_cache = getattr(quantized_model.config, "use_cache", None)
-        quantized_model.config.use_cache = False
+        elif method == "mdbf":
+            mdbf_modules = detected_modules
+            initial_state = save_mdbf_state(mdbf_modules)
+            original_forwards, scaling_params, binary_params = setup_mdbf_differentiable(
+                mdbf_modules,
+                optimize_binary=self.optimize_binary,
+                ste_k=self.mdbf_ste_k,
+            )
+            param_groups = [
+                {
+                    "params": list(scaling_params) + list(binary_params),
+                    "lr": self.dbf_lr,
+                    "weight_decay": 0.0,
+                }
+            ]
 
         teacher_model = None
+        run_succeeded = False
+        original_use_cache = getattr(quantized_model.config, "use_cache", None)
         try:
+            # DeepSpeed ZeRO requires contiguous tensors for all-reduce.
+            for pg in param_groups:
+                for p in pg["params"]:
+                    if isinstance(p, torch.nn.Parameter) and not p.data.is_contiguous():
+                        p.data = p.data.contiguous()
+
+            total_trainable = sum(len(pg["params"]) for pg in param_groups)
+            if total_trainable == 0:
+                logger.warning("No trainable parameters — skipping.")
+                if method == "gptq":
+                    restore_gptq_original(gptq_modules, original_forwards)
+                elif method == "dbf":
+                    restore_dbf_original(dbf_modules, original_forwards)
+                elif method == "mdbf":
+                    restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
+                return {"global_executed": False, "reason": "no_params"}
+
+            # ------------------------------------------------------------------
+            # 4. Gradient checkpointing (delegated to Trainer via TrainingArguments)
+            # ------------------------------------------------------------------
+            quantized_model.config.use_cache = False
+
             # ------------------------------------------------------------------
             # 5. Teacher model (cf. core.py section 3)
             # ------------------------------------------------------------------
             need_teacher = self.w_distill > 0
             if need_teacher:
-                logger.info("Loading FP16 teacher model...")
+                world_size = int(os.environ.get("WORLD_SIZE", "1"))
+                resolved_teacher_device = self.teacher_device
+                if resolved_teacher_device is None and (self.deepspeed_config or world_size > 1):
+                    resolved_teacher_device = "cpu"
+                teacher_dev = torch.device(resolved_teacher_device or dev)
+                logger.info("Loading FP16 teacher model on %s...", teacher_dev)
                 teacher_model = model_config.load_model(device_map="cpu")
                 teacher_model.eval()
                 for p in teacher_model.parameters():
                     p.requires_grad = False
-                teacher_model.to(dev)
+                if teacher_dev.type != "cpu":
+                    teacher_model.to(teacher_dev)
             else:
                 logger.info("w_distill=0 — skipping teacher model load (pure QAT mode).")
             # ------------------------------------------------------------------
@@ -433,12 +485,6 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 disable_tqdm=False,
             )
 
-            # Save initial state for rollback if training degrades quality
-            if method == "gptq":
-                _initial_state = save_gptq_state(gptq_modules)
-            else:
-                _initial_state = save_dbf_state(dbf_modules)
-
             # ------------------------------------------------------------------
             # 7. Train (cf. core.py section 7)
             # ------------------------------------------------------------------
@@ -448,6 +494,8 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 method=method,
                 gptq_modules=gptq_modules,
                 dbf_modules=dbf_modules,
+                mdbf_modules=mdbf_modules,
+                teacher_device=teacher_dev if need_teacher else None,
                 original_forwards=original_forwards,
                 temperature=self.temperature,
                 w_distill=self.w_distill,
@@ -460,36 +508,63 @@ class GlobalPTQDistributed(PostQuantizationProcess):
                 data_collator=default_data_collator,
             )
 
+            baseline_loss = trainer.evaluate()["eval_loss"]
+            logger.info("Initial eval_loss = %.6f", baseline_loss)
+
             train_output = trainer.train()
             self._last_train_loss = getattr(train_output, "training_loss", None)
+            final_loss = trainer.evaluate()["eval_loss"]
             self._last_log_history = list(trainer.state.log_history)
 
             # ------------------------------------------------------------------
             # 8. Finalize — rollback if training degraded quality
             # ------------------------------------------------------------------
-            eval_losses = [e["eval_loss"] for e in trainer.state.log_history if "eval_loss" in e]
-            rollback_happened = len(eval_losses) >= 2 and (
-                eval_losses[-1] >= eval_losses[0] or math.isnan(eval_losses[-1])
-            )
+            rollback_happened = _should_rollback(baseline_loss, final_loss)
             if rollback_happened:
                 logger.info(
                     "eval_loss did not improve (%.6f -> %.6f) " "— rolling back to initial state.",
-                    eval_losses[0],
-                    eval_losses[-1],
+                    baseline_loss,
+                    final_loss,
                 )
                 if method == "gptq":
-                    load_gptq_state(gptq_modules, _initial_state)
+                    load_gptq_state(gptq_modules, initial_state)
+                elif method == "dbf":
+                    load_dbf_state(dbf_modules, initial_state)
                 else:
-                    load_dbf_state(dbf_modules, _initial_state)
+                    load_mdbf_state(mdbf_modules, initial_state)
 
             if method == "gptq":
                 if not rollback_happened:
                     write_back_gptq_params(gptq_modules)
                 restore_gptq_original(gptq_modules, original_forwards, cleanup=True)
             elif method == "dbf":
-                write_back_dbf_scaling(dbf_modules)
-                restore_dbf_original(dbf_modules, original_forwards)
+                if not rollback_happened:
+                    write_back_dbf_scaling(dbf_modules)
+                restore_dbf_original(dbf_modules, original_forwards, cleanup=True)
+            elif method == "mdbf":
+                if not rollback_happened:
+                    write_back_mdbf_amp(mdbf_modules)
+                    if self.optimize_binary:
+                        write_back_mdbf_binary(mdbf_modules)
+                restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
+            run_succeeded = True
         finally:
+            if not run_succeeded and initial_state is not None:
+                if method == "gptq":
+                    load_gptq_state(gptq_modules, initial_state)
+                elif method == "dbf":
+                    load_dbf_state(dbf_modules, initial_state)
+                    write_back_dbf_scaling(dbf_modules)
+                elif method == "mdbf":
+                    load_mdbf_state(mdbf_modules, initial_state)
+
+            if method == "gptq":
+                restore_gptq_original(gptq_modules, original_forwards, cleanup=True)
+            elif method == "dbf":
+                restore_dbf_original(dbf_modules, original_forwards, cleanup=True)
+            elif method == "mdbf":
+                restore_mdbf_original(mdbf_modules, original_forwards, cleanup=True)
+
             if original_use_cache is not None:
                 quantized_model.config.use_cache = original_use_cache
 

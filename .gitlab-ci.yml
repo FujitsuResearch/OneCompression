@@ -22,6 +22,7 @@ variables:
   UV_CACHE_DIR: "${CI_PROJECT_DIR}/.cache/uv"
   GIT_DEPTH: "1"
   PYTEST_MARKERS: "not slow"
+  CI_SLURM_PENDING_TIMEOUT_SECONDS: "900"
 
 lint:conflict-markers:
   stage: lint
@@ -51,6 +52,17 @@ lint:format:
     - uvx isort@8.0.1 --check-only onecomp/ vllm_plugins/
     - uvx black@26.5.1 --check onecomp/ vllm_plugins/
 
+lint:readme-examples:
+  stage: lint
+  tags:
+    - lint
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  before_script:
+    - export PATH="${HOME}/.local/bin:${PATH}"
+  script:
+    - uv run --no-project --python 3.11 python scripts/check_readme_examples.py
+
 # Skip jobs when the merge request changes docs/markdown only (**/*.md, docs/**).
 # GitLab changes has no negated globs, so we whitelist non-doc paths instead.
 # Always compare the whole MR diff against the target branch: comparing against
@@ -60,7 +72,10 @@ lint:format:
   - onecomp/**/*
   - tests/**/*
   - vllm_plugins/**/*
-  - example/**/*
+  # GitLab changes has no negated globs; list the tracked non-Markdown example
+  # file types explicitly so updates to example/example_results.md stay docs-only.
+  - example/**/*.{py,json,jsonl,txt}
+  - example/.gitignore
   - scripts/**/*
   - pyproject.toml
   - uv.lock
@@ -114,6 +129,7 @@ lint:format:
         printf 'export CI_SLURM_TIME=%q\n' "${CI_SLURM_TIME}"
         printf 'export CI_SLURM_GPUS=%q\n' "${CI_SLURM_GPUS}"
         printf 'export CI_SLURM_EXCLUDE=%q\n' "${CI_SLURM_EXCLUDE:-}"
+        printf 'export CI_SLURM_PENDING_TIMEOUT_SECONDS=%q\n' "${CI_SLURM_PENDING_TIMEOUT_SECONDS}"
         printf 'export CI_UV_VENV=%q\n' "${CI_UV_VENV}"
         printf 'export CI_TORCH_EXTRA=%q\n' "${CI_TORCH_EXTRA}"
         cat scripts/cluster_test.sh

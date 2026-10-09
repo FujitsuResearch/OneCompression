@@ -92,18 +92,29 @@ def setup_dbf_differentiable(
         *scaling_params* is a flat list of float32 ``nn.Parameter``.
     """
     original_forwards: Dict[str, object] = {}
+    original_scalings: Dict[str, Dict[str, nn.Parameter]] = {}
     scaling_params: List[torch.Tensor] = []
 
-    for name, mod in dbf_modules:
-        for attr in _SCALING_ATTRS:
-            param = getattr(mod, attr)
-            fp32 = param.data.detach().clone().float()
-            new_param = nn.Parameter(fp32, requires_grad=True)
-            setattr(mod, attr, new_param)
-            scaling_params.append(new_param)
+    try:
+        for name, mod in dbf_modules:
+            original_forwards[name] = mod.forward
+            mod._global_ptq_original_forward = mod.forward
+            original_scalings[name] = {}
+            for attr in _SCALING_ATTRS:
+                param = getattr(mod, attr)
+                original_scalings[name][attr] = param
+                fp32 = param.data.detach().clone().float()
+                new_param = nn.Parameter(fp32, requires_grad=True)
+                setattr(mod, attr, new_param)
+                scaling_params.append(new_param)
 
-        original_forwards[name] = mod.forward
-        mod.forward = MethodType(_make_dbf_differentiable_forward(), mod)
+            mod.forward = MethodType(_make_dbf_differentiable_forward(), mod)
+    except Exception:
+        for name, mod in dbf_modules:
+            for attr, parameter in original_scalings.get(name, {}).items():
+                setattr(mod, attr, parameter)
+        restore_dbf_original(dbf_modules, original_forwards, cleanup=True)
+        raise
 
     return original_forwards, scaling_params
 
@@ -116,11 +127,18 @@ def setup_dbf_differentiable(
 def restore_dbf_original(
     dbf_modules: List[Tuple[str, nn.Module]],
     original_forwards: Dict[str, object],
+    cleanup: bool = False,
 ) -> None:
     """Restore every module's original ``forward`` method."""
     for name, mod in dbf_modules:
-        if name in original_forwards:
-            mod.forward = original_forwards[name]
+        original_forward = original_forwards.get(
+            name,
+            getattr(mod, "_global_ptq_original_forward", None),
+        )
+        if original_forward is not None:
+            mod.forward = original_forward
+        if cleanup and hasattr(mod, "_global_ptq_original_forward"):
+            delattr(mod, "_global_ptq_original_forward")
 
 
 def setup_dbf_forwards_only(

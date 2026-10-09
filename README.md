@@ -40,10 +40,13 @@ Full documentation is available at **[https://FujitsuResearch.github.io/OneCompr
 - **JointQ**: Joint quantization method that optimizes weight assignments and scale parameters simultaneously for improved quantization accuracy. Supports group-wise quantization (e.g., 4-bit, groupsize=128).
 - **MDBF (Multi-Envelope Double Binary Factorization)**: A binary factorization quantizer that approximates each weight matrix as a sum of multi-path sign matrices with multi-scale FP16 envelopes, generalizing DBF and LittleBit for aggressive low-bit (sub-1-bit) compression. Supports ADMM/gradient refinement, activation-aware initialization, and a GemLite-accelerated 1-bit inference path. See the [MDBF guide](https://FujitsuResearch.github.io/OneCompression/algorithms/mdbf/) for details.
 - **Block-wise PTQ**: Post-quantization block-wise distillation that minimises intermediate-representation MSE against an FP16 teacher model at Transformer-block granularity. Includes Phase 1 (greedy per-block optimisation) and Phase 2 CBQ (cross-block sliding-window optimisation). Supports GPTQ, DBF, and OneBit quantizers.
+- **Global PTQ**: Globally optimise GPTQ scales/zeros, DBF scaling factors, and MDBF amplitude parameters through KL distillation from a full-precision teacher. Supports optional MDBF binary-factor training with STE, single-device and distributed execution with DeepSpeed, and configurable teacher device placement. See the [Global PTQ guide](docs/user-guide/post-process.md#global-ptq-parameter-optimisation).
+- **MoE Router Fine-Tuning**: Adapt routing decisions after expert quantization by training only router parameters with next-token prediction loss, while experts and other weights remain frozen. Results use the normal quantized-model save/load workflow. See the [router fine-tuning guide](docs/user-guide/post-process.md#router-fine-tuning-for-quantized-moe-models).
 - **LoRA SFT Post-Process**: Fine-tune quantized models with LoRA adapters for accuracy recovery or domain-specific knowledge injection. Supports SFT loss, teacher distillation, and intermediate block alignment.
 - **Rotation Preprocessing**: SpinQuant/OstQuant-based rotation preprocessing that reduces quantization error by learning optimal rotation matrices before quantization. Rotation/scaling matrices are absorbed into model weights, with online Hadamard hooks automatically registered at load time. Supports Llama and Qwen3 architectures.
 - **Web Dashboard (HPC)**: A browser-based dashboard for launching quantization jobs, deploying models, and validating chat-based inference in HPC environments. See [dashboard/README.md](dashboard/README.md) for details.
 - **GGUF Export & Hugging Face Hub Integration**: Convert models to the GGUF v3 format (F16) for llama.cpp/Ollama with a dependency-free built-in writer, generate model cards with quantization recipes and evaluation results, and push save directories to the Hugging Face Hub. Supports Llama (SentencePiece or Llama-3-style BPE) and Qwen2 (BPE) architectures, including multi-EOS stop-token mapping. See the [GGUF Export guide](https://FujitsuResearch.github.io/OneCompression/user-guide/gguf-export/).
+- **OpenVINO Export**: Export supported OneComp GPTQ 4-bit text-generation checkpoints to OpenVINO IR using an isolated, dependency-locked OpenVINO 2026.3.1 environment and conversion example. Checkpoint metadata is normalized in a temporary copy without modifying the source. See the [OpenVINO export guide](envs/openvino/README.md).
 - (TBD)
 
 ## 🤖 Supported Models
@@ -126,7 +129,7 @@ Then install OneComp from PyPI (see step 2 below). GPTQ quantization and Hugging
 > - GPTQ (`run_gptq`): Hessian and weights are moved to CPU for the full column-wise loop (including inverse-Hessian Cholesky). If that loop stayed on MPS, `quantize()` would call `maxq.item()` once per column; each call triggers **per-column host sync** (wait for pending MPS ops, then read one scalar—not a full Hessian/weight copy every column)—often several times slower than CPU on Apple Silicon (e.g. ~4× in internal benchmarks with PyTorch 2.12). Keeping GPTQ on CPU avoids that overhead. With `mse=True`, `find_params` also calls `quantize()` in a grid loop and benefits from the same CPU placement.
 > - QEP weight correction (`adjust_weight`, when QEP correction runs—typically `qep=True` with error propagation enabled): Per-layer work stays on MPS (e.g. `weight @ delta_hatX`, diagonal damping). Only the Cholesky solve uses CPU via `_safe_cholesky_and_solve` (one solve per layer, not per column); moving all of QEP to CPU does not materially improve speed. The subsequent GPTQ step still uses the CPU path above.
 >
-> DBF-based AutoBit fallback and multi-GPU quantization are not supported on MPS.
+> DBF-based AutoBit fallback is not supported on MPS.
 
 #### 2. Install `onecomp`
 
@@ -136,7 +139,7 @@ Once PyTorch is installed, you can install `onecomp`:
 pip install onecomp
 ```
 
-To enable multi-GPU training features (DeepSpeed), install with the `distributed` extra:
+To enable multi-GPU training for Global PTQ (DeepSpeed), install with the `distributed` extra:
 
 ```bash
 pip install "onecomp[distributed]"
@@ -182,7 +185,7 @@ See the **MPS device placement (GPTQ vs QEP)** note under [macOS (MPS)](#macos-m
 
 Adding `--extra dev` installs development tools (black, pre-commit, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
-Adding `--extra distributed` installs DeepSpeed for multi-GPU training.
+Adding `--extra distributed` installs DeepSpeed for Global PTQ multi-GPU training.
 Adding `--extra hydra` installs `hydra-core` for the example scripts and `model_validation/` runners that use Hydra-based configuration.
 
 To use vLLM for serving quantized models on Linux, add `--extra vllm` together with `--extra cu130`:
@@ -295,6 +298,7 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_qep_gptq.py](./example/example_qep_gptq.py) | GPTQ + QEP (error propagation) |
 | | [example_lpcd_gptq.py](./example/example_lpcd_gptq.py) | GPTQ + QEP + LPCD quantization |
 | | [example_jointq.py](./example/example_jointq.py) | JointQ quantization |
+| | [example_mdbf.py](./example/example_mdbf.py) | MDBF quantization |
 | | [example_autobit.py](./example/example_autobit.py) | AutoBit mixed-precision quantization |
 | | [example_auto_run.py](./example/example_auto_run.py) | AutoBit with automatic VRAM estimation |
 | Calibration | [example_custom_calibration.py](./example/example_custom_calibration.py) | Custom calibration dataset with CalibrationConfig |
@@ -307,7 +311,9 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_blockwise_global_ptq_staged.py](./example/post_process/example_blockwise_global_ptq_staged.py) | Staged BlockWisePTQ → GlobalPTQ across save/load boundaries with accumulated post-process metadata |
 | | [example_global_ptq.py](./example/post_process/example_global_ptq.py) | Global PTQ with packed buffers by default and HF-compatible safetensors output |
 | | [example_global_ptq_dbf.py](./example/post_process/example_global_ptq_dbf.py) | Global PTQ with the DBF backend and HF-compatible safetensors output |
+| | [example_global_ptq_mdbf.py](./example/post_process/example_global_ptq_mdbf.py) | Global PTQ with the MDBF backend and HF-compatible safetensors output |
 | | [example_global_ptq_distributed.py](./example/post_process/example_global_ptq_distributed.py) | Multi-GPU Global PTQ with DeepSpeed / torchrun and safetensors output |
+| | [example_router_fine_tuning.py](./example/post_process/example_router_fine_tuning.py) | Router-only next-token fine-tuning for a quantized MoE model |
 | | [example_lora_sft.py](./example/post_process/example_lora_sft.py) | LoRA SFT post-quantization fine-tuning |
 | | [example_lora_sft_knowledge.py](./example/post_process/example_lora_sft_knowledge.py) | LoRA SFT knowledge injection |
 | | [example_lora_sft_knowledge_jointq.py](./example/post_process/example_lora_sft_knowledge_jointq.py) | LoRA SFT knowledge injection on a JointQ-quantized model |
@@ -318,6 +324,9 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_jointq_vllm_inference.py](./example/vllm_inference/example_jointq_vllm_inference.py) | JointQ quantization and vLLM inference |
 | | [example_autobit_vllm_inference.py](./example/vllm_inference/example_autobit_vllm_inference.py) | AutoBit quantization and vLLM inference |
 | | [example_dbf_vllm_inference.py](./example/vllm_inference/example_dbf_vllm_inference.py) | DBF quantization and vLLM inference |
+| CPU Inference | [example_gptq_gguf_cpu.py](./example/cpu_inference/example_gptq_gguf_cpu.py) | Export GPTQ quantized models to GGUF and run CPU inference |
+| | [example_mixed_gptq_gguf_cpu.py](./example/cpu_inference/example_mixed_gptq_gguf_cpu.py) | Export Mixed-GPTQ quantized models to GGUF and run CPU inference |
+| | [example_serve_cpu.py](./example/cpu_inference/example_serve_cpu.py) | Serve a GGUF model with llama.cpp on CPU |
 
 ## 🔌 vLLM Inference
 

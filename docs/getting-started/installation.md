@@ -107,7 +107,7 @@ To enable visualization features (matplotlib), install with the `visualize` extr
 pip install onecomp[visualize]
 ```
 
-To enable multi-GPU training features (DeepSpeed), install with the `distributed` extra:
+To enable multi-GPU training for Global PTQ (DeepSpeed), install with the `distributed` extra:
 
 ```bash
 pip install "onecomp[distributed]"
@@ -152,7 +152,7 @@ See the [macOS / MPS guide](../user-guide/mps.md) for device placement and usage
 
 Adding `--extra dev` installs development tools (black, pytest, pylint).
 Adding `--extra visualize` installs matplotlib for visualization features.
-Adding `--extra distributed` installs DeepSpeed for multi-GPU training.
+Adding `--extra distributed` installs DeepSpeed for Global PTQ multi-GPU training.
 
 To use vLLM for serving quantized models on Linux, add `--extra vllm` together with `--extra cu130`:
 

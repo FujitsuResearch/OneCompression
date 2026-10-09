@@ -27,7 +27,7 @@ logger = getLogger(__name__)
 class GlobalPTQ(PostQuantizationProcess):
     """Global Post-Training Quantization via KL distillation.
 
-    After layer-wise PTQ (GPTQ / DBF) quantises each linear layer
+    After layer-wise PTQ (GPTQ / DBF / MDBF) quantises each linear layer
     independently, global PTQ minimises the KL divergence between an
     FP16 teacher model and the quantized student model across the
     entire sequence, fine-tuning continuous quantization parameters
@@ -47,6 +47,17 @@ class GlobalPTQ(PostQuantizationProcess):
         dbf_lr (float):
             Learning rate for DBF scaling parameters.
             Default is 5e-5.
+        optimize_binary (bool):
+            Whether to optimise MDBF binary factors via sign STE.
+            Default is False.
+        mdbf_ste_k (float):
+            Sharpness for MDBF binary sign STE. Default is 2.0.
+        student_device (str or None):
+            Device for the quantized student model. Defaults to CUDA when
+            available, otherwise CPU.
+        teacher_device (str or None):
+            Optional device for the FP16 teacher model. Defaults to the
+            student device.
         calibration_config (CalibrationConfig or None):
             Calibration data configuration.  When ``None`` (default),
             a :class:`CalibrationConfig` is created with
@@ -126,6 +137,10 @@ class GlobalPTQ(PostQuantizationProcess):
     temperature: float = 1.0
     grad_clip: float = 1.0
     dbf_lr: float = 5e-5
+    optimize_binary: bool = False
+    mdbf_ste_k: float = 2.0
+    student_device: Optional[str] = None
+    teacher_device: Optional[str] = None
     calibration_config: Optional[CalibrationConfig] = None
     warmup_ratio: float = 0.1
     min_lr_ratio: float = 0.01
@@ -175,12 +190,37 @@ class GlobalPTQ(PostQuantizationProcess):
                 Model configuration (provides tokenizer, model path, etc.).
         """
         from ._global_ptq.core import run_kl_distillation
+        from ._global_ptq.dbf_adapter import (
+            load_dbf_state,
+            restore_dbf_original,
+            save_dbf_state,
+            write_back_dbf_scaling,
+        )
+        from ._global_ptq.gptq_adapter import (
+            load_gptq_state,
+            restore_gptq_original,
+            save_gptq_state,
+        )
+        from ._global_ptq.helpers import detect_quantization_method
+        from ._global_ptq.mdbf_adapter import (
+            load_mdbf_state,
+            restore_mdbf_original,
+            save_mdbf_state,
+        )
 
         original_use_cache = getattr(
             getattr(quantized_model, "config", None),
             "use_cache",
             None,
         )
+        method, detected_modules = detect_quantization_method(quantized_model)
+        initial_state = None
+        if method == "gptq":
+            initial_state = save_gptq_state(detected_modules)
+        elif method == "dbf":
+            initial_state = save_dbf_state(detected_modules)
+        elif method == "mdbf":
+            initial_state = save_mdbf_state(detected_modules)
 
         try:
             results = run_kl_distillation(
@@ -189,6 +229,10 @@ class GlobalPTQ(PostQuantizationProcess):
                 epochs=self.epochs,
                 gptq_lr=self.gptq_lr,
                 dbf_lr=self.dbf_lr,
+                optimize_binary=self.optimize_binary,
+                mdbf_ste_k=self.mdbf_ste_k,
+                student_device=self.student_device,
+                teacher_device=self.teacher_device,
                 temperature=self.temperature,
                 grad_clip=self.grad_clip,
                 calibration_config=self.calibration_config,
@@ -203,6 +247,17 @@ class GlobalPTQ(PostQuantizationProcess):
 
         except Exception:
             logger.exception("GlobalPTQ training failed — restoring model.")
+            if initial_state is not None:
+                if method == "gptq":
+                    load_gptq_state(detected_modules, initial_state)
+                    restore_gptq_original(detected_modules, {}, cleanup=True)
+                elif method == "dbf":
+                    load_dbf_state(detected_modules, initial_state)
+                    write_back_dbf_scaling(detected_modules)
+                    restore_dbf_original(detected_modules, {}, cleanup=True)
+                elif method == "mdbf":
+                    load_mdbf_state(detected_modules, initial_state)
+                    restore_mdbf_original(detected_modules, {}, cleanup=True)
             quantized_model.cpu()
             for p in quantized_model.parameters():
                 p.requires_grad = False

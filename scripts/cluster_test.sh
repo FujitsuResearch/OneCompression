@@ -19,6 +19,11 @@ set -euo pipefail
 : "${CI_TORCH_EXTRA:?CI_TORCH_EXTRA is required}"
 
 CI_SLURM_EXCLUDE="${CI_SLURM_EXCLUDE:-}"
+CI_SLURM_PENDING_TIMEOUT_SECONDS="${CI_SLURM_PENDING_TIMEOUT_SECONDS:-900}"
+if [[ ! "${CI_SLURM_PENDING_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: CI_SLURM_PENDING_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 1
+fi
 SLURM_EXCLUDE_LINE=""
 if [[ -n "${CI_SLURM_EXCLUDE}" ]]; then
   SLURM_EXCLUDE_LINE="#SBATCH --exclude=${CI_SLURM_EXCLUDE}"
@@ -40,6 +45,7 @@ echo "mode: ${CLUSTER_MODE}"
 echo "job label: ${JOB_LABEL}"
 echo "skip uv sync: ${SKIP_UV_SYNC}"
 echo "target: ${PYTEST_TARGET}"
+echo "pending timeout: ${CI_SLURM_PENDING_TIMEOUT_SECONDS}s"
 
 cd "${ONECOMP_REPO}"
 mkdir -p output error .cache
@@ -202,14 +208,20 @@ exit_file="${ONECOMP_REPO}/output/tests-${JOB_LABEL}-${job_id}.exit"
 stream_pid=""
 
 cleanup() {
+  trap - EXIT HUP INT TERM
   if [[ -n "${stream_pid}" ]]; then
     kill "${stream_pid}" 2>/dev/null || true
     wait "${stream_pid}" 2>/dev/null || true
     stream_pid=""
   fi
+  # Safe after normal completion, and avoids orphaning a job if squeue is unavailable.
+  scancel "${job_id}" 2>/dev/null || true
   rm -f "${job_script}"
 }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Stream GPU job log to GitLab CI in real time (SSH stdout → Runner job log).
 (
@@ -220,8 +232,44 @@ trap cleanup EXIT
 ) &
 stream_pid=$!
 
-# Wait for SLURM job to leave the queue, then poll for .exit (written by trap on GPU node).
-while squeue -j "${job_id}" -h 2>/dev/null | grep -q .; do
+# Wait for SLURM job to leave the queue, reporting its state and bounding PENDING time.
+pending_started=""
+last_status_report=-60
+squeue_failures=0
+while true; do
+  if queue_status="$(squeue -j "${job_id}" -h -o '%T|%R' 2>/dev/null | head -n 1)"; then
+    squeue_failures=0
+  else
+    squeue_failures=$((squeue_failures + 1))
+    if ((squeue_failures >= 3)); then
+      echo "ERROR: failed to query SLURM job ${job_id} ${squeue_failures} consecutive times" >&2
+      exit 1
+    fi
+    echo "WARNING: failed to query SLURM job ${job_id}; retrying in 5s (${squeue_failures}/3)" >&2
+    sleep 5
+    continue
+  fi
+  if [[ -z "${queue_status}" ]]; then
+    break
+  fi
+
+  job_state="${queue_status%%|*}"
+  job_reason="${queue_status#*|}"
+  if (( SECONDS - last_status_report >= 60 )); then
+    echo "SLURM job ${job_id}: state=${job_state}, reason=${job_reason}"
+    last_status_report=${SECONDS}
+  fi
+
+  if [[ "${job_state}" == "PENDING" ]]; then
+    if [[ -z "${pending_started}" ]]; then
+      pending_started=${SECONDS}
+    elif (( SECONDS - pending_started >= CI_SLURM_PENDING_TIMEOUT_SECONDS )); then
+      echo "ERROR: SLURM job ${job_id} remained PENDING for ${CI_SLURM_PENDING_TIMEOUT_SECONDS}s (reason=${job_reason})" >&2
+      exit 1
+    fi
+  else
+    pending_started=""
+  fi
   sleep 5
 done
 

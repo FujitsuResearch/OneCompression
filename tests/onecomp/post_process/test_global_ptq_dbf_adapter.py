@@ -145,6 +145,26 @@ class TestDbfDifferentiableSetup:
         out = model(x)
         assert out.shape == (2, 16)
 
+    def test_setup_failure_restores_partial_state(self):
+        from onecomp.post_process._global_ptq.dbf_adapter import (
+            find_dbf_modules,
+            setup_dbf_differentiable,
+        )
+
+        model = _TinyDBFModel()
+        modules = find_dbf_modules(model)
+        layer = modules[0][1]
+        original_forward = layer.forward
+        original_scaling0 = layer.scaling0
+        delattr(layer, "scaling2")
+
+        with pytest.raises(AttributeError):
+            setup_dbf_differentiable(modules)
+
+        assert layer.scaling0 is original_scaling0
+        assert layer.forward == original_forward
+        assert not hasattr(layer, "_global_ptq_original_forward")
+
 
 class TestDbfWriteBack:
     """Tests for write_back_dbf_scaling."""
@@ -214,3 +234,35 @@ class TestDbfStateSaveLoad:
         load_dbf_state(modules, state)
 
         assert torch.allclose(modules[0][1].scaling0.data, original_s0)
+
+    def test_global_ptq_exception_restores_state(self, monkeypatch):
+        from onecomp.post_process._global_ptq import core
+        from onecomp.post_process._global_ptq.dbf_adapter import (
+            find_dbf_modules,
+            setup_dbf_differentiable,
+            write_back_dbf_scaling,
+        )
+        from onecomp.post_process.global_ptq import GlobalPTQ
+
+        model = _TinyDBFModel()
+        modules = find_dbf_modules(model)
+        layer = modules[0][1]
+        original_forward = layer.forward
+        original_scaling0 = layer.scaling0.detach().clone()
+
+        def fail_after_setup(*_args, **_kwargs):
+            setup_dbf_differentiable(modules)
+            with torch.no_grad():
+                layer.scaling0.fill_(7)
+            write_back_dbf_scaling(modules)
+            raise RuntimeError("training failed")
+
+        monkeypatch.setattr(core, "run_kl_distillation", fail_after_setup)
+
+        with pytest.raises(RuntimeError, match="training failed"):
+            GlobalPTQ()._run(model, object())
+
+        assert torch.equal(layer.scaling0, original_scaling0)
+        assert layer.scaling0.dtype == torch.float16
+        assert layer.scaling0.requires_grad is False
+        assert layer.forward == original_forward
