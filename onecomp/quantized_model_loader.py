@@ -92,6 +92,41 @@ class QuantizedModelLoader:
         Example:
             >>> model, tokenizer = QuantizedModelLoader.load_quantized_model("./tinyllama_gptq3")
         """
+        return cls._load_quantized_model_legacy(
+            save_directory,
+            torch_dtype=torch_dtype,
+            device_map=device_map,
+            trust_remote_code=trust_remote_code,
+            local_files_only=local_files_only,
+        )
+
+    @classmethod
+    def _load_quantized_model_legacy(
+        cls,
+        save_directory: str,
+        *,
+        torch_dtype: Optional[torch.dtype] = None,
+        device_map: Optional[str] = "auto",
+        trust_remote_code: bool = True,
+        local_files_only: bool = True,
+    ) -> tuple[Any, Any]:
+        """Load using the original dense construction and whole-checkpoint path.
+
+        Args:
+            save_directory: Saved model directory.
+            torch_dtype: Requested model dtype.
+            device_map: Existing automatic placement request, or CPU retention.
+            trust_remote_code: Retained for compatibility with the public API.
+            local_files_only: Restrict tokenizer loading to local files.
+
+        Returns:
+            The loaded model and tokenizer.
+
+        Raises:
+            FileNotFoundError: If the directory or required files are missing.
+            ValueError: If the quantization configuration is invalid.
+            RuntimeError: If model weights cannot be restored.
+        """
         save_directory = os.path.abspath(save_directory)
         if not os.path.isdir(save_directory):
             raise FileNotFoundError(f"Saved model directory not found: {save_directory}")
