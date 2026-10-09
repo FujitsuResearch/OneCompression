@@ -89,7 +89,7 @@ nav:
       - CLI: user-guide/cli.md
       - Configuration: user-guide/configuration.md
       - Pre-Process (Rotation): user-guide/pre-process.md
-      - Post-Process (Global PTQ / Block-wise PTQ / LoRA SFT): user-guide/post-process.md
+      - Post-Process (Global PTQ / Block-wise PTQ / Router Fine-Tuning / LoRA SFT): user-guide/post-process.md
       - vLLM Inference: user-guide/vllm-inference.md
       - GPT-OSS: user-guide/gptoss.md
       - CPU Inference (llama.cpp / GGUF): user-guide/cpu-inference.md

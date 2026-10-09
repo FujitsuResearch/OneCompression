@@ -69,7 +69,7 @@ example `GlobalPTQ` on a model with no quantized layers) the entry records
 
 ## Global PTQ: Parameter Optimisation
 
-Global PTQ improves quantized model accuracy by globally optimising continuous quantization parameters (scales and zeros for GPTQLinear-backed quantizers such as GPTQ, RTN, and JointQ; scaling factors for DBF) using KL-divergence distillation from a full-precision teacher model.
+Global PTQ improves quantized model accuracy by globally optimising continuous quantization parameters (scales and zeros for GPTQLinear-backed quantizers such as GPTQ, RTN, and JointQ; scaling factors for DBF; amplitude parameters for MDBF) using KL-divergence distillation from a full-precision teacher model. Both `GlobalPTQ` and `GlobalPTQDistributed` support MDBF, including optional binary-factor training with a straight-through estimator (STE).
 
 ### Single-GPU (GlobalPTQ)
 
@@ -133,6 +133,51 @@ documented in the `GlobalPTQ` API reference.
     available at
     [`example/post_process/example_global_ptq.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_global_ptq.py).
 
+### MDBF amplitude and binary-factor optimisation
+
+By default, Global PTQ optimises MDBF's amplitude parameters while keeping its
+binary factors fixed. Set `optimize_binary=True` to also train the binary factors
+using sign STE. `mdbf_ste_k` controls the sharpness of the smooth gradient
+surrogate, and `dbf_lr` is the learning rate for both MDBF amplitudes and binary
+factors.
+
+```python
+from onecomp import CalibrationConfig, GlobalPTQ, MDBF, ModelConfig, Runner
+
+model_config = ModelConfig(
+    model_id="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+    device="cuda:0",
+)
+runner = Runner(
+    model_config=model_config,
+    quantizer=MDBF(target_bits=1.0),
+    post_processes=[
+        GlobalPTQ(
+            epochs=3,
+            dbf_lr=5e-5,
+            optimize_binary=True,
+            mdbf_ste_k=2.0,
+            student_device="cuda:0",
+            teacher_device="cpu",
+            calibration_config=CalibrationConfig(),
+        )
+    ],
+)
+runner.run()
+runner.save_quantized_model("./tinyllama-mdbf-globalptq")
+```
+
+With `GlobalPTQ`, `student_device=None` uses CUDA when available, otherwise CPU;
+`teacher_device=None` uses the student's device. Set `teacher_device="cpu"` to
+reduce GPU memory usage, or select another device explicitly. CPU teacher
+execution and transferring its logits to the student device can slow training.
+`student_device` controls only the Global PTQ post-process, not the preceding
+quantization, whose placement is configured through `ModelConfig`.
+
+!!! tip
+    A complete MDBF quantization, Global PTQ, evaluation, and save example is available at
+    [`example/post_process/example_global_ptq_mdbf.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/post_process/example_global_ptq_mdbf.py).
+
 ### Multi-GPU with DeepSpeed (GlobalPTQDistributed)
 
 For large models that do not fit on a single GPU, use `GlobalPTQDistributed` with DeepSpeed ZeRO-2.
@@ -178,13 +223,26 @@ Launch with `torchrun`:
 torchrun --nproc_per_node=2 my_script.py
 ```
 
+For MDBF, use `MDBF` as the Runner quantizer and configure `dbf_lr`,
+`optimize_binary`, and `mdbf_ste_k` on `GlobalPTQDistributed` as in the single-device
+example. Unlike `GlobalPTQ`, `GlobalPTQDistributed` has no `student_device`
+argument: each process uses its local-rank CUDA device, or CPU if CUDA is unavailable.
+
+When `teacher_device=None`, the teacher defaults to CPU if a DeepSpeed config is
+provided or `WORLD_SIZE > 1`; otherwise it uses the student's device. Override
+this with `teacher_device` when needed. If `w_distill=0`, no teacher is loaded.
+
 ### GlobalPTQ Key Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `epochs` | `5` | Number of distillation epochs |
 | `gptq_lr` | `1e-5` | Learning rate for GPTQ scales/zeros |
-| `dbf_lr` | `5e-5` | Learning rate for DBF scaling parameters |
+| `dbf_lr` | `5e-5` | Learning rate for DBF scaling parameters and MDBF amplitudes/binary factors |
+| `optimize_binary` | `False` | Also train MDBF binary factors using sign STE (MDBF only) |
+| `mdbf_ste_k` | `2.0` | Sharpness of the smooth gradient surrogate for MDBF binary sign STE |
+| `student_device` | `None` | GlobalPTQ only: student device; defaults to CUDA when available, otherwise CPU |
+| `teacher_device` | `None` | Teacher device; defaults to the student device in GlobalPTQ; see distributed defaults below |
 | `temperature` | `1.0` | Softmax temperature for KL divergence |
 | `calibration_config` | `CalibrationConfig(num_calibration_samples=128)` | Calibration data configuration (see [CalibrationConfig](../api/calibration_config.md)) |
 | `use_gradient_checkpointing` | `True` | Reduce GPU memory at the cost of recomputation |
@@ -192,20 +250,23 @@ torchrun --nproc_per_node=2 my_script.py
 | `use_mixed_precision` | `False` | Enable BF16 autocast to reduce memory |
 | `grad_accum_steps` | `1` | Gradient accumulation steps |
 
-> **Note — DBF vs GPTQ training differences:**
-> When optimising **DBF** scaling factors, Global PTQ uses plain Adam (not AdamW) without a learning-rate scheduler.
-> For **GPTQ** scales/zeros, it uses AdamW with a cosine-warmup LR schedule.
+> **Note — GlobalPTQ optimiser differences:**
+> For **DBF** scaling factors and **MDBF** parameters, `GlobalPTQ` uses plain Adam (not AdamW) without a learning-rate scheduler.
+> For **GPTQ** scales/zeros, `GlobalPTQ` uses AdamW with a cosine-warmup LR schedule.
 > Adjust `dbf_lr` and `gptq_lr` independently for best results.
 
-> **Note — Mixed GPTQ + DBF models:**
+> **Note — Mixed quantization methods:**
 > Global PTQ currently optimises a single quantization method per run.
-> If a model contains both GPTQ and DBF layers (e.g. from AutoBit fallback), only GPTQ layers are optimised and a warning is logged.
-> Joint GPTQ + DBF optimisation is planned for a future release.
+> If a model contains different quantization families, the priority is GPTQ, then DBF, then MDBF; only the highest-priority family present is optimised and a warning is logged.
 
 ### GlobalPTQDistributed Additional Parameters
 
+`GlobalPTQDistributed` also accepts `dbf_lr`, `optimize_binary`, and `mdbf_ste_k`
+with the same defaults as above, but does not accept `student_device`.
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| `teacher_device` | `None` | CPU when using DeepSpeed or multiple processes; otherwise the student device; unused when `w_distill=0` |
 | `deepspeed_config` | `None` | Path to DeepSpeed config JSON |
 | `w_distill` | `1.0` | Weight for KL distillation loss |
 | `w_ntp` | `0.0` | Weight for next-token prediction loss |
