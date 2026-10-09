@@ -1,39 +1,55 @@
 # Change log
 
-## [v1.4.0(WIP)+feature/mdbf-llamacpp-export] 2026-09-10
+## [v1.4.0] 2026-10-09
+
+### Breaking Changes
+
+- Removed Runner's layer-wise multi-GPU quantization and its `multi_gpu` / `gpu_ids`
+  arguments. Remove these arguments from existing `Runner(...)` calls and use the
+  standard quantization workflow. Distributed post-processing via
+  `GlobalPTQDistributed` remains available.
 
 ### New Features
 
-- Added GGUF fallback export for plain and rotated MDBF checkpoints by reconstructing dense weights before llama.cpp conversion.
-
-### Bug Fixes
-
-- Reject forced `direct` and `mixed` GGUF modes for non-GPTQ layouts and rotated checkpoints instead of entering an incompatible exporter.
-
-## [v1.4.0(WIP)+feature/openvino-2026.03] 2026-09-10
+- **MDBF Global PTQ**: `GlobalPTQ` and `GlobalPTQDistributed` now optimize MDBF
+  amplitude parameters through KL distillation. Set `optimize_binary=True` to also
+  train binary factors using a straight-through estimator (STE). See the
+  [MDBF GlobalPTQ example](example/post_process/example_global_ptq_mdbf.py).
+- **Global PTQ device placement**: `GlobalPTQ` accepts `student_device` and
+  `teacher_device`; `GlobalPTQDistributed` accepts `teacher_device`. The distributed
+  implementation now defaults the teacher to CPU when using DeepSpeed or multiple
+  processes, reducing GPU memory usage.
+- **MoE router fine-tuning**: added `RouterFineTuning`, a post-process that trains
+  only router parameters with next-token prediction loss while quantized experts
+  and other weights remain frozen. Results use the normal quantized-model save/load
+  workflow. See the [router fine-tuning example](example/post_process/example_router_fine_tuning.py).
+- **MDBF GGUF export**: plain and rotated MDBF checkpoints can now be exported for
+  stock llama.cpp through the fallback path. Dense weights are reconstructed and
+  online Hadamard transforms are folded into them before conversion. The default
+  `Q4_K_M` output is re-quantized and does not retain MDBF's low-bit compression;
+  use `Q8_0` or `qtype=None` (f16, Python API only) to reduce additional quantization
+  error. See the [CPU inference guide](docs/user-guide/cpu-inference.md).
 
 ### Environment
 
-- Add an isolated OpenVINO 2026.3.1 environment with locked conversion dependencies and a
-  OneComp GPTQ 4-bit export example for text-generation models. Flat checkpoint
-  metadata is normalized in a temporary copy without modifying the source checkpoint.
+- Added an isolated, dependency-locked **OpenVINO 2026.3.1** environment and a
+  OneComp GPTQ 4-bit text-generation export example. Checkpoint metadata is
+  normalized in a temporary copy without modifying the source checkpoint.
+  See the [OpenVINO export guide](envs/openvino/README.md) for supported-model
+  requirements and inference setup.
 
-## [v1.4.0] 2026-08-dd
+### Bug Fixes
 
-### Support MDBF's GlobalPTQ
+- GGUF export now rejects forced `direct` and `mixed` modes for non-GPTQ layouts
+  and rotated checkpoints. Use `auto` or `fallback` for these checkpoints.
+- Hardened Global PTQ state restoration for GPTQ, DBF, and MDBF after training
+  failures, and rollback to the initial state when distributed training does not
+  improve the baseline loss.
 
-- Added MDBF support to `GlobalPTQ` and `GlobalPTQDistributed` for KL-distillation-based global optimization of MDBF amplitude parameters.
-- Added optional STE-based optimization of MDBF binary factors with state rollback and write-back support.
-- Added optional student/teacher device placement for GlobalPTQ, including CPU teacher fallback for distributed execution.
-- Added an MDBF GlobalPTQ example and adapter tests.
-### Breaking Changes
+### Tests (CI)
 
-- Remove Runner's layer-wise multi-GPU quantization feature. The `multi_gpu` and
-  `gpu_ids` options and the associated implementation have been removed.
-
-### Enhancement
-
-- Support fine-tuning router after quantizing expert's of MoE, which can be used as the postprocess. see [GEMQ](https://arxiv.org/abs/2605.23078).
+- Added README example-link validation and timeout handling for pending SLURM
+  test jobs.
 
 ## [v1.3.4] 2026-09-18
 
