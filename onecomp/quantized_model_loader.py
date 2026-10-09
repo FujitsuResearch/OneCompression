@@ -33,6 +33,25 @@ from .utils.unfuse_moe import unfuse_moe_experts
 
 logger = getLogger(__name__)
 
+_LOAD_STRATEGIES = ("auto", "streaming", "legacy")
+
+
+class StreamingUnsupportedError(ValueError):
+    """Raised by ``load_strategy="streaming"`` for a checkpoint that needs the legacy loader.
+
+    Attributes:
+        reason: Human-readable cause, not meant to be matched in code.
+    """
+
+    def __init__(self, reason: str) -> None:
+        """Keep ``reason`` as the only argument so the exception pickles unchanged."""
+        super().__init__(reason)
+        self.reason = reason
+
+    def __str__(self) -> str:
+        """Prefix the reason with the strategy that could not be honored."""
+        return f"load_strategy='streaming' cannot load this checkpoint: {self.reason}"
+
 
 class QuantizedModelLoader:
     """Loader for quantized models saved by onecomp (GPTQ, DBF, OneBit, etc.)."""
@@ -46,6 +65,7 @@ class QuantizedModelLoader:
         device_map: Optional[str] = "auto",
         trust_remote_code: bool = True,
         local_files_only: bool = True,
+        load_strategy: str = "auto",
     ) -> Tuple[Any, Any]:
         """Load a quantized model and tokenizer from a safetensors directory.
 
@@ -68,6 +88,13 @@ class QuantizedModelLoader:
         For legacy models saved via ``torch.save`` (``.pt`` format), use
         :meth:`load_quantized_model_pt` instead.
 
+        GPTQ and mixed GPTQ checkpoints of Qwen3 and Llama models without
+        rotation or a LoRA sidecar, placed on CPU or on a single CUDA device,
+        are streamed: the load is planned from the safetensors headers and the
+        tensors are then read one at a time onto their final device, without a
+        dense copy of the model in host memory. ``load_strategy`` decides what
+        happens to other checkpoints.
+
         Args:
             save_directory: Path to the saved model directory.
             torch_dtype: Model dtype (default: torch.float16).
@@ -75,6 +102,12 @@ class QuantizedModelLoader:
                 Set to ``None`` or ``""`` to leave the model on CPU.
             trust_remote_code: Passed to from_pretrained.
             local_files_only: Passed to from_pretrained.
+            load_strategy: ``"auto"`` streams supported checkpoints and loads
+                the others with the legacy loader after a warning.
+                ``"streaming"`` raises :class:`StreamingUnsupportedError` for
+                the others instead. ``"legacy"`` always uses the legacy
+                loader, which needs host RAM for a dense copy of the model
+                plus the checkpoint.
 
         Returns:
             (model, tokenizer)
@@ -87,11 +120,55 @@ class QuantizedModelLoader:
                 ``modules_in_block_to_quantize`` keys.  Validated by the same
                 :func:`onecomp.utils.quant_config.validate_quant_config` used by
                 the save path, so saving and loading enforce identical required
-                keys and raise the same exception type.
+                keys and raise the same exception type.  Also raised if
+                ``load_strategy`` is not ``"auto"``, ``"streaming"`` or
+                ``"legacy"``.
+            StreamingUnsupportedError: If ``load_strategy="streaming"`` and the
+                checkpoint cannot be streamed. Raised before any tensor value
+                is read.
 
         Example:
             >>> model, tokenizer = QuantizedModelLoader.load_quantized_model("./tinyllama_gptq3")
         """
+        if not (isinstance(load_strategy, str) and load_strategy in _LOAD_STRATEGIES):
+            raise ValueError(
+                f"load_strategy must be one of {_LOAD_STRATEGIES}, got {load_strategy!r}"
+            )
+        if load_strategy == "legacy":
+            logger.info("Loading %s with the legacy loader", save_directory)
+        else:
+            # Imported here because the streaming module imports this one.
+            from .quantized_model_loader_streaming import (
+                StreamingUnsupported,
+                materialize,
+                plan_streaming_load,
+            )
+
+            save_directory = os.path.abspath(save_directory)
+            if not os.path.isdir(save_directory):
+                raise FileNotFoundError(f"Saved model directory not found: {save_directory}")
+            config_dict, quant_config = cls._load_config_and_quant_config(save_directory)
+            plan = plan_streaming_load(
+                save_directory, config_dict, quant_config, torch_dtype, device_map
+            )
+            if not isinstance(plan, StreamingUnsupported):
+                logger.info("Loading %s with the streaming loader", save_directory)
+                model = materialize(plan)
+                cls._load_generation_config(model, save_directory)
+                tokenizer = AutoTokenizer.from_pretrained(
+                    save_directory,
+                    local_files_only=local_files_only,
+                )
+                model.config.quantization_config = quant_config
+                return model, tokenizer
+            if load_strategy == "streaming":
+                raise StreamingUnsupportedError(plan.reason)
+            logger.warning(
+                "Cannot stream %s (%s); falling back to the legacy loader, which needs host "
+                "RAM for a dense copy of the model plus the checkpoint",
+                save_directory,
+                plan.reason,
+            )
         return cls._load_quantized_model_legacy(
             save_directory,
             torch_dtype=torch_dtype,
