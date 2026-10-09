@@ -536,9 +536,7 @@ class QuantizedModelLoader:
         missing key by :meth:`_check_load_state_dict_result` when we are
         about to re-tie it here.
         """
-        should_retie = cls._should_retie_word_embeddings(model.config) and isinstance(
-            getattr(model, "lm_head", None), torch.nn.Linear
-        )
+        should_retie = cls._should_retie_lm_head(model)
         cls._check_load_state_dict_result(
             incompat,
             expected_missing={"lm_head.weight"} if should_retie else frozenset(),
@@ -546,6 +544,13 @@ class QuantizedModelLoader:
         if should_retie:
             model.tie_weights()
             logger.info("Re-tied lm_head to embed_tokens after assign-load")
+
+    @classmethod
+    def _should_retie_lm_head(cls, model: torch.nn.Module) -> bool:
+        """Return True if the config asks to tie ``lm_head`` and it is a plain ``nn.Linear``."""
+        return cls._should_retie_word_embeddings(model.config) and isinstance(
+            getattr(model, "lm_head", None), torch.nn.Linear
+        )
 
     @staticmethod
     def _resolve_dtype_from_config(
@@ -1165,7 +1170,29 @@ class QuantizedModelLoader:
         """
         missing = [k for k in getattr(incompat, "missing_keys", []) if k not in expected_missing]
         unexpected = list(getattr(incompat, "unexpected_keys", []))
+        QuantizedModelLoader._raise_on_critical_keys(missing, unexpected)
 
+        if missing:
+            logger.warning("Non-critical missing keys: %d", len(missing))
+            for k in missing[:20]:
+                logger.warning("  missing: %s", k)
+
+        if unexpected:
+            logger.warning("Non-critical unexpected keys: %d", len(unexpected))
+            for k in unexpected[:20]:
+                logger.warning("  unexpected: %s", k)
+
+    @staticmethod
+    def _raise_on_critical_keys(missing: list[str], unexpected: list[str]) -> None:
+        """Raise if a key left out of ``load_state_dict`` names a weight-carrying tensor.
+
+        Args:
+            missing: Model keys the state_dict did not provide.
+            unexpected: State_dict keys the model did not accept.
+
+        Raises:
+            RuntimeError: If any of the keys is critical.
+        """
         # Weight-carrying tensor names of every quantizer: missing one means
         # the layer silently kept its empty-model zeros.
         critical_patterns = (
@@ -1206,16 +1233,6 @@ class QuantizedModelLoader:
                 f"critical_unexpected={len(critical_unexpected)}\n"
                 + "\n".join(f"  UNEXPECTED: {k}" for k in critical_unexpected[:80])
             )
-
-        if missing:
-            logger.warning("Non-critical missing keys: %d", len(missing))
-            for k in missing[:20]:
-                logger.warning("  missing: %s", k)
-
-        if unexpected:
-            logger.warning("Non-critical unexpected keys: %d", len(unexpected))
-            for k in unexpected[:20]:
-                logger.warning("  unexpected: %s", k)
 
     @staticmethod
     def _assert_quantized_modules_loaded(model: torch.nn.Module) -> None:
