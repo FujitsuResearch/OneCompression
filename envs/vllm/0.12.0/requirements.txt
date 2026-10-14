@@ -85,7 +85,7 @@ multidict==6.7.1
 multiprocess==0.70.19
 networkx==3.6.1
 ninja==1.13.0
-nltk==3.9.4
+nltk==3.10.3
 numba==0.61.2
 numpy==2.2.6
 nvidia-cublas==13.0.0.19
