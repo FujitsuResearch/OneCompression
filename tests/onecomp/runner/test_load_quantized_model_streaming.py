@@ -19,6 +19,7 @@ from tests.onecomp.fixtures.quantized_checkpoint import (
 
 
 def _logits(model: torch.nn.Module) -> torch.Tensor:
+    """Return the logits of a fixed short prompt."""
     input_ids = torch.tensor([[1, 5, 9, 3]], device=model.device)
     with torch.no_grad():
         return model(input_ids).logits
@@ -85,6 +86,7 @@ def test_planning_reads_no_tensor_value(tmp_path, monkeypatch, edit_state_dict, 
 
 
 def _use_dbf_for_one_layer(quant_config: dict) -> None:
+    """Switch one layer of a ``mixed_gptq`` table to the DBF method."""
     quant_config["quantization_bits"][1]["mlp.down_proj"]["method"] = "dbf"
 
 

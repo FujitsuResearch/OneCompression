@@ -57,6 +57,7 @@ def test_missing_directory_raises_file_not_found_for_every_strategy(tmp_path, lo
 
 
 def _loader_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """Return the warnings logged by ``onecomp.quantized_model_loader``."""
     return [
         record.getMessage()
         for record in caplog.records
@@ -65,6 +66,7 @@ def _loader_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 
 def _write_with_lora_sidecar(save_dir: Path) -> None:
+    """Write a checkpoint with a LoRA adapter for one GPTQ layer in ``lora_adapter/``."""
     write_quantized_checkpoint(save_dir)
     adapter_dir = save_dir / LORA_ADAPTER_SUBDIR
     adapter_dir.mkdir()
@@ -80,6 +82,7 @@ def _write_with_lora_sidecar(save_dir: Path) -> None:
 
 
 def _write_with_key_in_two_files(save_dir: Path) -> None:
+    """Write a checkpoint plus an extra file that stores ``model.norm.weight`` again."""
     write_quantized_checkpoint(save_dir)
     save_file({"model.norm.weight": torch.ones(64).half()}, str(save_dir / "extra.safetensors"))
 
@@ -143,19 +146,41 @@ def test_unsupported_checkpoint_falls_back_under_auto_and_stops_under_streaming(
     assert error.value.reason in fallback_warning
 
 
+@pytest.mark.parametrize(
+    "inferred_map",
+    [
+        pytest.param({"model": 0, "lm_head": "cpu"}, id="split-with-cpu-offload"),
+        pytest.param({"": "mps"}, id="single-non-cuda-device"),
+    ],
+)
+def test_placement_beyond_one_cpu_or_cuda_device_falls_back_to_legacy(
+    tmp_path, monkeypatch, inferred_map
+):
+    write_quantized_checkpoint(tmp_path / "model")
+    monkeypatch.setattr(streaming, "infer_auto_device_map", lambda model: inferred_map)
+
+    with patch.object(QuantizedModelLoader, "_load_quantized_model_legacy") as legacy:
+        load_quantized_model(str(tmp_path / "model"))
+        legacy.assert_called_once()
+        with pytest.raises(StreamingUnsupportedError):
+            load_quantized_model(str(tmp_path / "model"), load_strategy="streaming")
+    legacy.assert_called_once()
+
+
 def test_custom_registration_is_left_to_the_legacy_loader(tmp_path, monkeypatch):
     constructed = []
 
     class CustomQwen3Config(Qwen3Config):
-        pass
+        """Config class registered in place of the built-in one."""
 
     class CustomQwen3ForCausalLM(Qwen3ForCausalLM):
+        """Model whose constructor uses the CPU RNG and fails on the meta device."""
+
         config_class = CustomQwen3Config
 
-        def __init__(self, config):
+        def __init__(self, config: CustomQwen3Config):
             super().__init__(config)
             constructed.append(type(self))
-            # Uses the CPU RNG, and .item() fails on the meta device.
             self.register_buffer("noise", torch.rand(4), persistent=False)
             self.lm_head.weight.sum().item()
 
@@ -193,7 +218,7 @@ def test_legacy_strategy_does_not_plan_a_streaming_load(tmp_path):
 def test_read_failure_after_planning_propagates_without_legacy_retry(tmp_path, monkeypatch):
     write_quantized_checkpoint(tmp_path / "model")
 
-    def fail(key):
+    def fail(key: str) -> None:
         raise OSError(f"cannot read {key}")
 
     intercept_tensor_reads(monkeypatch, fail)

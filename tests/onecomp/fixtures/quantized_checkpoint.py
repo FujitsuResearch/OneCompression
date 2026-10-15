@@ -10,7 +10,7 @@ import contextlib
 import json
 from itertools import chain
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 import pytest
 import torch
@@ -67,6 +67,7 @@ def _random_dbf_linear(linear: torch.nn.Linear, generator: torch.Generator) -> D
     mid_features = min(in_features, out_features)
 
     def signs(*shape: int) -> torch.Tensor:
+        """Return a random matrix of +1 and -1."""
         return torch.randint(0, 2, shape, generator=generator).float() * 2 - 1
 
     return DoubleBinaryLinear(
@@ -242,18 +243,22 @@ def intercept_tensor_reads(
     real_safe_open = quantized_model_loader_streaming.safe_open
 
     class InterceptingReader:
-        def __init__(self, reader):
+        """Safetensors reader that reports each value read to ``on_read``."""
+
+        def __init__(self, reader: Any):
             self._reader = reader
 
-        def __getattr__(self, name):
+        def __getattr__(self, name: str) -> Any:
             return getattr(self._reader, name)
 
-        def get_tensor(self, key):
+        def get_tensor(self, key: str) -> torch.Tensor:
+            """Report ``key``, then read its value."""
             on_read(key)
             return self._reader.get_tensor(key)
 
     @contextlib.contextmanager
-    def intercepting_safe_open(*args, **kwargs):
+    def intercepting_safe_open(*args: Any, **kwargs: Any) -> Iterator[InterceptingReader]:
+        """Open a safetensors file like ``safe_open`` and wrap the reader."""
         with real_safe_open(*args, **kwargs) as reader:
             yield InterceptingReader(reader)
 
