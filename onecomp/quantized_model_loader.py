@@ -39,17 +39,20 @@ _LOAD_STRATEGIES = ("auto", "streaming", "legacy")
 class StreamingUnsupportedError(ValueError):
     """Raised by ``load_strategy="streaming"`` for a checkpoint that needs the legacy loader.
 
-    Attributes:
+    Args:
         reason: Human-readable cause, not meant to be matched in code.
+
+    Attributes:
+        reason: The cause given at construction.
     """
 
     def __init__(self, reason: str) -> None:
-        """Keep ``reason`` as the only argument so the exception pickles unchanged."""
+        # The message prefix is added in __str__ so that args stays (reason,)
+        # and the exception pickles unchanged.
         super().__init__(reason)
         self.reason = reason
 
     def __str__(self) -> str:
-        """Prefix the reason with the strategy that could not be honored."""
         return f"load_strategy='streaming' cannot load this checkpoint: {self.reason}"
 
 

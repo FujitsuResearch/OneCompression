@@ -1,5 +1,11 @@
 # Change log
 
+## [v1.4.1(WIP)+feature/issue-58-low-memory-loader] 2026-10-15
+
+### Enhancement
+
+- Load GPTQ and mixed GPTQ checkpoints of Qwen3 and Llama models with low host memory in `load_quantized_model()` ([#58](https://github.com/FujitsuResearch/OneCompression/issues/58)). Instead of building a dense model on CPU and reading the whole checkpoint, the loader plans the load from the safetensors headers on an empty (meta) model and then reads the tensors one at a time onto their final device. On an RTX 4090 host, loading a 4-bit GPTQ Qwen3-8B checkpoint onto the GPU peaked at 2.2 GiB of host memory instead of 19.7 GiB. Existing calls need no change: other checkpoints are still loaded by the previous loader, after a warning. The new keyword-only `load_strategy` argument (`"auto"`, `"streaming"`, `"legacy"`) and `onecomp.StreamingUnsupportedError` control this fallback. See [Low-memory loading](docs/api/quantized_model_loader.md#low-memory-loading) in the API reference for the supported checkpoints, the strategies and the memory requirements.
+
 ## [v1.4.1] 2026-mm-dd
 
 ## [v1.4.0] 2026-10-09
