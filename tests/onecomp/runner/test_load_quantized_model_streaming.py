@@ -46,6 +46,7 @@ def _load_both(save_dir: Path, **kwargs) -> tuple[torch.nn.Module, torch.nn.Modu
             id="llama-tied-8bit-gptq-v2",
         ),
         pytest.param({"layer_bits": (4, 8)}, id="qwen3-mixed-gptq"),
+        pytest.param({"config_dtype": "bfloat16"}, id="qwen3-bf16"),
         pytest.param({"config_dtype": "bfloat16", "fp32_norm": True}, id="qwen3-bf16-fp32-norm"),
     ],
 )
