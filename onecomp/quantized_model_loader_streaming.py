@@ -304,6 +304,9 @@ def materialize(plan: StreamingPlan) -> torch.nn.Module:
         raise RuntimeError(f"Tensors left on the meta device after loading: {leftovers[:20]}")
     # Buffers built outside the meta context, such as the RoPE frequencies, are on CPU.
     model.to(plan.destination)
+    # Checked after placement so that the existing module checks run unchanged; checking
+    # before the transfer would need a per-tensor version of them. On a GPU, their FP32
+    # copies need GPU memory beyond the model.
     QuantizedModelLoader._assert_quantized_modules_loaded(model)
     if plan.device_map is not None:
         model.hf_device_map = dict(plan.device_map)

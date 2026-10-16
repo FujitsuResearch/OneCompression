@@ -112,6 +112,11 @@ except ValueError as error:
     When the whole model is placed on a GPU, streaming keeps the host memory
     used for loading to about the largest single tensor on top of the
     process's baseline. When the model is kept on CPU (`device_map=None`), the
-    final weights stay in host memory. `load_strategy="streaming"` selects the
+    final weights stay in host memory. On a GPU, the streaming loader checks
+    the quantized buffers after placing them, and the check needs temporary GPU
+    memory, for example for FP32 copies of the buffers. The GPU therefore needs
+    some free memory beyond the size of the final model. The legacy loader runs
+    the same check on CPU, before it moves the model to the GPU.
+    `load_strategy="streaming"` selects the
     loading method; it does not guarantee a memory limit or prevent
     out-of-memory errors, for example during inference.
