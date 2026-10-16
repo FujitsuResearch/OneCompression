@@ -3,6 +3,7 @@
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -157,3 +158,21 @@ def test_streaming_places_the_whole_model_on_one_cuda_device(tmp_path):
     assert not hasattr(actual, "_hf_hook")
     assert_same_loaded_model(actual, expected)
     assert torch.equal(_logits(actual), _logits(expected))
+
+
+def _mapped_checkpoint_files(save_dir: Path) -> int:
+    """Count the memory mappings of the checkpoint files under save_dir in this process."""
+    with open("/proc/self/maps", encoding="utf-8") as maps:
+        return sum(str(save_dir) in line and ".safetensors" in line for line in maps)
+
+
+@pytest.mark.skipif(not os.path.exists("/proc/self/maps"), reason="needs /proc/self/maps")
+@pytest.mark.parametrize("num_shards", [1, 2])
+def test_cpu_placement_maps_each_checkpoint_file_once(tmp_path, num_shards):
+    write_quantized_checkpoint(tmp_path / "model", num_shards=num_shards)
+
+    _model, _ = load_quantized_model(
+        str(tmp_path / "model"), device_map=None, load_strategy="streaming"
+    )
+
+    assert _mapped_checkpoint_files(tmp_path / "model") == num_shards

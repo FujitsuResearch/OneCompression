@@ -9,6 +9,7 @@ value is read.
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
+import contextlib
 import glob
 import os
 from dataclasses import dataclass
@@ -270,14 +271,28 @@ def materialize(plan: StreamingPlan) -> torch.nn.Module:
             buffer is empty, non-finite or all zero.
     """
     model = plan.model
-    for key, path, checkpoint_key in plan.tensors:
-        # One reader and one staging tensor at a time keep the host memory used
-        # for reading at about the largest tensor.
-        with safe_open(path, framework="pt", device="cpu") as reader:
-            tensor = reader.get_tensor(checkpoint_key)
-        # Without a dtype the value is cast to the placeholder's final dtype.
-        set_module_tensor_to_device(model, key, plan.destination, value=tensor, clear_cache=False)
-        del tensor
+    with contextlib.ExitStack() as stack:
+        file_readers: dict[str, Any] = {}
+        for key, path, checkpoint_key in plan.tensors:
+            if plan.destination.type == "cpu":
+                # Tensors placed on CPU stay views of the file mapping. One reader per file
+                # gives them one mapping per file, as the legacy loader has, instead of a
+                # mapping of the whole file per tensor.
+                if path not in file_readers:
+                    file_readers[path] = stack.enter_context(
+                        safe_open(path, framework="pt", device="cpu")
+                    )
+                tensor = file_readers[path].get_tensor(checkpoint_key)
+            else:
+                # A reader per tensor unmaps the file once the tensor is copied, which keeps
+                # the host memory used for reading at about the largest tensor.
+                with safe_open(path, framework="pt", device="cpu") as reader:
+                    tensor = reader.get_tensor(checkpoint_key)
+            # Without a dtype the value is cast to the placeholder's final dtype.
+            set_module_tensor_to_device(
+                model, key, plan.destination, value=tensor, clear_cache=False
+            )
+            del tensor
     if plan.retie:
         model.tie_weights()
     leftovers = [
