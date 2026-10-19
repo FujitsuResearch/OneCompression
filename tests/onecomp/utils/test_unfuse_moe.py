@@ -15,6 +15,9 @@ from types import SimpleNamespace
 import torch
 from torch import nn
 
+from onecomp.quantizer.gptq import GPTQ
+from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
+
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _spec = importlib.util.spec_from_file_location(
     "unfuse_moe",
@@ -132,54 +135,9 @@ _dequantized_weight_bias = _unfuse_mod._dequantized_weight_bias
 _gpt_oss_combine_gate_up = _unfuse_mod._gpt_oss_combine_gate_up
 _UnfusedExperts = _unfuse_mod._UnfusedExperts
 _ExpertMLP = _unfuse_mod._ExpertMLP
-_GPTQ_STACK = None
-
-
-def _get_gptq_classes():
-    global _GPTQ_STACK
-    if _GPTQ_STACK is not None:
-        return _GPTQ_STACK
-
-    from types import ModuleType
-
-    for pkg in (
-        "onecomp",
-        "onecomp.quantizer",
-        "onecomp.utils",
-        "onecomp.quantizer.gptq",
-    ):
-        if pkg not in sys.modules:
-            mod = ModuleType(pkg)
-            mod.__path__ = [str(_REPO_ROOT / Path(*pkg.split(".")))]
-            sys.modules[pkg] = mod
-
-    gemlite_stub = ModuleType("onecomp.quantizer.gemlite")
-    gemlite_stub.create_gemlite_linear = lambda *args, **kwargs: None
-    gemlite_stub.is_gemlite_available = lambda: False
-    sys.modules["onecomp.quantizer.gemlite"] = gemlite_stub
-
-    def _load(fullname, relpath):
-        path = _REPO_ROOT / relpath
-        spec = importlib.util.spec_from_file_location(fullname, path)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[fullname] = mod
-        assert spec.loader is not None
-        spec.loader.exec_module(mod)
-        return mod
-
-    _load("onecomp.quantizer._quantizer", "onecomp/quantizer/_quantizer.py")
-    _load("onecomp.utils.quant_config", "onecomp/utils/quant_config.py")
-    gptq_mod = _load("onecomp.quantizer.gptq._gptq", "onecomp/quantizer/gptq/_gptq.py")
-    layer_mod = _load(
-        "onecomp.quantizer.gptq.gptq_layer",
-        "onecomp/quantizer/gptq/gptq_layer.py",
-    )
-    _GPTQ_STACK = (gptq_mod.GPTQ, layer_mod.GPTQLinear)
-    return _GPTQ_STACK
 
 
 def _linear_to_gptq(linear: nn.Linear, inp: torch.Tensor) -> nn.Module:
-    GPTQ, GPTQLinear = _get_gptq_classes()
     quantizer = GPTQ(wbits=4, bitpack_on_quantize=True)
     hessian, _ = quantizer.calculate_hessian(linear, inp)
     result = quantizer.quantize_layer(linear, inp, hessian=hessian)
