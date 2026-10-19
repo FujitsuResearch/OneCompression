@@ -1,6 +1,10 @@
 # Change log
 
-## [v1.4.1] 2026-mm-dd
+## [v1.4.1] 2026-10-dd
+
+### Bug Fixes
+
+- Fixed direct GPTQ-to-GGUF export for Qwen3.8 dense and Qwen3.6 MoE models by applying the required linear-attention V-head permutation and supporting both native and nested `text_config` layouts. Previously, affected GGUF models could produce corrupted text and extremely high perplexity.
 
 ## [v1.4.0] 2026-10-09
 
