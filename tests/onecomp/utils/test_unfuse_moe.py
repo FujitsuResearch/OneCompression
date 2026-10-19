@@ -6,10 +6,7 @@ Roundtrip tests for unfuse_moe_experts / fuse_moe_experts (no full model).
 
 """
 
-import importlib.util
 import logging
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
 import torch
@@ -17,16 +14,7 @@ from torch import nn
 
 from onecomp.quantizer.gptq import GPTQ
 from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_spec = importlib.util.spec_from_file_location(
-    "unfuse_moe",
-    _REPO_ROOT / "onecomp" / "utils" / "unfuse_moe.py",
-)
-_unfuse_mod = importlib.util.module_from_spec(_spec)
-sys.modules["unfuse_moe"] = _unfuse_mod
-assert _spec.loader is not None
-_spec.loader.exec_module(_unfuse_mod)
+from onecomp.utils import unfuse_moe as _unfuse_mod
 
 _GenericFusedExperts = _unfuse_mod._GenericFusedExperts
 _fuse_gpt_oss_one = _unfuse_mod._fuse_gpt_oss_one
