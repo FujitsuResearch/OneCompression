@@ -18,6 +18,7 @@ from logging import getLogger
 from typing import Optional
 
 from onecomp.cpu.export.dequantize import dequantize_to_hf
+from onecomp.cpu.export.transforms.qwen35 import is_qwen35_model
 from onecomp.cpu.llama_tooling import run_convert_hf_to_gguf, run_llama_quantize
 
 logger = getLogger(__name__)
@@ -47,12 +48,14 @@ def export_via_dequantize(
         dense_dir = os.path.join(work_dir, "dense_fp16")
         dequantize_to_hf(quantized_dir, dense_dir)
 
+        no_mtp = is_qwen35_model(quantized_dir)
+
         if qtype is None:
-            run_convert_hf_to_gguf(dense_dir, out_gguf, outtype="f16")
+            run_convert_hf_to_gguf(dense_dir, out_gguf, outtype="f16", no_mtp=no_mtp)
             return out_gguf
 
         f16_gguf = os.path.join(work_dir, "model.f16.gguf")
-        run_convert_hf_to_gguf(dense_dir, f16_gguf, outtype="f16")
+        run_convert_hf_to_gguf(dense_dir, f16_gguf, outtype="f16", no_mtp=no_mtp)
         run_llama_quantize(f16_gguf, out_gguf, qtype)
         return out_gguf
     finally:

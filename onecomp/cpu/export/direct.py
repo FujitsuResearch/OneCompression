@@ -42,12 +42,21 @@ from onecomp.cpu.export.skeleton import (
     skeleton_logical_shapes,
     stitch_gguf,
 )
+from onecomp.cpu.export.transforms.qwen35 import (
+    Qwen35LinearAttentionLayout,
+    is_qwen35_model,
+    load_qwen35_layout,
+    transform_qwen35_gptq,
+)
 
 logger = getLogger(__name__)
 
 
 def build_replacements(
-    quantized_dir: str, tnm, rope_heads: Optional[Tuple[int, int]] = None
+    quantized_dir: str,
+    tnm,
+    rope_heads: Optional[Tuple[int, int]] = None,
+    model_layout: Optional[Qwen35LinearAttentionLayout] = None,
 ) -> Tuple[Dict[str, Tuple[np.ndarray, "object"]], Dict[str, str]]:
     """Pack all losslessly-convertible GPTQ layers; return {gguf_name: (bytes, qtype)}.
 
@@ -57,6 +66,7 @@ def build_replacements(
     """
     replacements: Dict[str, Tuple[np.ndarray, object]] = {}
     skipped: Dict[str, str] = {}
+
     for layer in iter_gptq_layers(quantized_dir):
         name = gguf_weight_name(tnm, layer.name)
         if name is None:
@@ -66,10 +76,22 @@ def build_replacements(
             skipped[layer.name] = "actorder=True not representable in GGUF blocks"
             continue
         q_int, scales, zeros = layer.q_int, layer.scales, layer.zeros
-        n_perm = rope_heads_for_tensor(name, rope_heads)
-        if n_perm is not None:
-            q_int, scales, zeros = permute_gptq_rows(q_int, scales, zeros, n_perm)
+
         try:
+            n_perm = rope_heads_for_tensor(name, rope_heads)
+            if n_perm is not None:
+                q_int, scales, zeros = permute_gptq_rows(q_int, scales, zeros, n_perm)
+
+            if model_layout is not None:
+                q_int, scales, zeros = transform_qwen35_gptq(
+                    layer_name=layer.name,
+                    q_int=q_int,
+                    scales=scales,
+                    zeros=zeros,
+                    groupsize=layer.groupsize,
+                    layout=model_layout,
+                )
+
             packed, qtype = pack_gptq_linear(
                 q_int=q_int.cpu().numpy(),
                 scales=scales.cpu().numpy(),
@@ -108,7 +130,9 @@ def convert_gptq_to_gguf(
     work_dir = work_dir or tempfile.mkdtemp(prefix="onecomp_gguf_")
     os.makedirs(work_dir, exist_ok=True)
     try:
-        skeleton = build_skeleton_gguf(quantized_dir, original_model, work_dir)
+        model_layout = load_qwen35_layout(quantized_dir)
+        no_mtp = is_qwen35_model(quantized_dir)
+        skeleton = build_skeleton_gguf(quantized_dir, original_model, work_dir, no_mtp=no_mtp)
         import gguf
 
         reader = gguf.GGUFReader(skeleton)
@@ -116,7 +140,9 @@ def convert_gptq_to_gguf(
         skel_shapes = skeleton_logical_shapes(reader)
         rope_heads = rope_permutation_heads(reader)
         del reader
-        replacements, skipped = build_replacements(quantized_dir, tnm, rope_heads=rope_heads)
+        replacements, skipped = build_replacements(
+            quantized_dir, tnm, rope_heads=rope_heads, model_layout=model_layout
+        )
         # Drop any packed tensor that the skeleton can't accept (missing or a
         # different shape, e.g. exotic per-layer-embedding projections); those
         # layers stay fp16 instead of aborting the export.

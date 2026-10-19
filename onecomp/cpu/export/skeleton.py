@@ -31,6 +31,7 @@ def build_skeleton_gguf(
     quantized_dir: str,
     original_model: Optional[str],
     work_dir: str,
+    no_mtp: bool = False,
 ) -> str:
     """Produce an f16 skeleton GGUF (correct metadata + tokenizer + tensor names).
 
@@ -52,12 +53,12 @@ def build_skeleton_gguf(
         original_model = None
     if original_model and os.path.isdir(original_model):
         logger.info("Building skeleton GGUF from original model %s", original_model)
-        run_convert_hf_to_gguf(original_model, skeleton, outtype="f16")
+        run_convert_hf_to_gguf(original_model, skeleton, outtype="f16", no_mtp=no_mtp)
     else:
         dense_dir = os.path.join(work_dir, "dense_fp16")
         logger.info("Dequantizing GPTQ -> dense fp16 to build skeleton")
         dequantize_to_hf(quantized_dir, dense_dir)
-        run_convert_hf_to_gguf(dense_dir, skeleton, outtype="f16")
+        run_convert_hf_to_gguf(dense_dir, skeleton, outtype="f16", no_mtp=no_mtp)
     return skeleton
 
 
