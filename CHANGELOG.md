@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 - Fixed direct GPTQ-to-GGUF export for Qwen3.8 dense and Qwen3.6 MoE models by applying the required linear-attention V-head permutation and supporting both native and nested `text_config` layouts. Previously, affected GGUF models could produce corrupted text and extremely high perplexity.
+- Fixed generated Hugging Face Hub model cards to reference the published quantized repository in Usage examples while preserving the original `base_model` metadata and avoiding broken Hub links for local model paths.
 
 ## [v1.4.0] 2026-10-09
 
