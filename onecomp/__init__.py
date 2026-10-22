@@ -15,7 +15,7 @@ from .model_config import ModelConfig
 from .post_process import *
 from .pre_process import *
 from .qep import QEPConfig
-from .quantized_model_loader import QuantizedModelLoader
+from .quantized_model_loader import QuantizedModelLoader, StreamingUnsupportedError
 from .quantizer import *
 from .rotated_model_config import RotatedModelConfig
 from .runner import Runner
