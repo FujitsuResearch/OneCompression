@@ -51,6 +51,12 @@ from onecomp.cpu.export.skeleton import (
     skeleton_logical_shapes,
     stitch_gguf,
 )
+from onecomp.cpu.export.transforms.qwen35 import (
+    Qwen35LinearAttentionLayout,
+    is_qwen35_model,
+    load_qwen35_layout,
+    transform_qwen35_gptq,
+)
 from onecomp.cpu.llama_tooling import run_llama_quantize_per_tensor
 
 logger = getLogger(__name__)
@@ -99,7 +105,9 @@ def _direct_pack_feasible(layer: GPTQLayer) -> bool:
     return False
 
 
-def _route_layer(layer: GPTQLayer) -> Tuple[str, str, str]:
+def _route_layer(
+    layer: GPTQLayer, model_layout: Optional[Qwen35LinearAttentionLayout] = None
+) -> Tuple[str, str, str]:
     """Decide (route, ggml_type_name, reason) for one unpacked GPTQ layer."""
     route, gtype = select_gguf_route(layer.wbits, layer.sym)
 
@@ -118,10 +126,26 @@ def _route_layer(layer: GPTQLayer) -> Tuple[str, str, str]:
         kq = _ACTORDER_KQUANT.get(layer.wbits, "Q4_K")
         return ROUTE_KQUANT, kq, "direct pack infeasible (zero-point/shape): K-quant fallback"
 
+    if route == ROUTE_DIRECT and model_layout is not None:
+        try:
+            transform_qwen35_gptq(
+                layer_name=layer.name,
+                q_int=layer.q_int,
+                scales=layer.scales,
+                zeros=layer.zeros,
+                groupsize=layer.groupsize,
+                layout=model_layout,
+            )
+        except UnsupportedGPTQLayout as exc:
+            kq = _ACTORDER_KQUANT.get(layer.wbits, "Q4_K")
+            return ROUTE_KQUANT, kq, str(exc)
+
     return route, gtype.name, ""
 
 
-def plan_mixed_export(quantized_dir: str) -> List[ModulePlan]:
+def plan_mixed_export(
+    quantized_dir: str, model_layout: Optional[Qwen35LinearAttentionLayout] = None
+) -> List[ModulePlan]:
     """Return the per-module GGUF routing plan for a (mixed_)gptq checkpoint.
 
     Does not build a skeleton or pack anything; useful for previewing how a
@@ -129,7 +153,7 @@ def plan_mixed_export(quantized_dir: str) -> List[ModulePlan]:
     """
     plans: List[ModulePlan] = []
     for layer in iter_gptq_layers(quantized_dir):
-        route, gtype_name, reason = _route_layer(layer)
+        route, gtype_name, reason = _route_layer(layer, model_layout=model_layout)
         plans.append(
             ModulePlan(
                 name=layer.name,
@@ -178,8 +202,10 @@ def export_mixed_gptq_gguf(
     Returns:
         Summary dict with the routing breakdown and replacement counts.
     """
-    plans = plan_mixed_export(quantized_dir)
+    model_layout = load_qwen35_layout(quantized_dir)
+    plans = plan_mixed_export(quantized_dir, model_layout=model_layout)
     has_kquant = any(p.route == ROUTE_KQUANT for p in plans)
+    model_layout = load_qwen35_layout(quantized_dir)
 
     owns_workdir = work_dir is None
     work_dir = work_dir or tempfile.mkdtemp(prefix="onecomp_mixed_gguf_")
@@ -189,7 +215,8 @@ def export_mixed_gptq_gguf(
         # *dequantized* values (not the original FP weights) so llama-quantize
         # re-quantizes the GPTQ-optimized weights. Force the dequantize path.
         skeleton_src = None if has_kquant else original_model
-        skeleton = build_skeleton_gguf(quantized_dir, skeleton_src, work_dir)
+        no_mtp = is_qwen35_model(quantized_dir)
+        skeleton = build_skeleton_gguf(quantized_dir, skeleton_src, work_dir, no_mtp=no_mtp)
 
         import gguf
 
@@ -209,7 +236,7 @@ def export_mixed_gptq_gguf(
             if gguf_name is None:
                 unmapped[layer.name] = "no GGUF tensor-name mapping"
                 continue
-            route, gtype_name, _reason = _route_layer(layer)
+            route, gtype_name, _reason = _route_layer(layer, model_layout=model_layout)
 
             if route == ROUTE_DIRECT:
                 q_int, scales, zeros = layer.q_int, layer.scales, layer.zeros
@@ -217,6 +244,15 @@ def export_mixed_gptq_gguf(
                 if n_perm is not None:
                     q_int, scales, zeros = permute_gptq_rows(q_int, scales, zeros, n_perm)
                 try:
+                    if model_layout is not None:
+                        q_int, scales, zeros = transform_qwen35_gptq(
+                            layer_name=layer.name,
+                            q_int=q_int,
+                            scales=scales,
+                            zeros=zeros,
+                            groupsize=layer.groupsize,
+                            layout=model_layout,
+                        )
                     packed, qtype = pack_gptq_linear(
                         q_int=q_int.cpu().numpy(),
                         scales=scales.cpu().numpy(),
