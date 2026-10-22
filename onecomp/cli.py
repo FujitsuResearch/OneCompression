@@ -144,5 +144,7 @@ def main():
             "wbits": args.wbits if args.wbits is not None else "auto",
             "groupsize": args.groupsize,
         }
-        card = generate_model_card(args.model_id, recipe=recipe, results={})
+        card = generate_model_card(
+            args.model_id, recipe=recipe, results={}, repo_id=args.push_to_hub
+        )
         push_to_hub(save_dir, args.push_to_hub, model_card=card)
