@@ -9,6 +9,8 @@
   class, so a full `pytest tests/` run failed the slow JointQ + `PostProcessLoraSFT`
   test with `No GPTQLinear layers were found`. The test now imports `GPTQ`,
   `GPTQLinear` and `unfuse_moe` from the `onecomp` package.
+- Added a regression test that runs `test_unfuse_moe.py` in a child process and fails
+  if the run replaces an imported `onecomp` module or the `GPTQLinear` class.
 
 ## [v1.4.1] 2026-10-dd
 
