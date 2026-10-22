@@ -358,6 +358,25 @@ def dequantize_to_hf(
 
         defold_rotated_dense_state(dense_state, fp32_had=meta.fp32_had)
 
+    # Normalize wrapper namespace used by Qwen3.5/3.8 checkpoints.
+    # The Transformers model created from Qwen3_5ForCausalLM expects
+    # model.layers.*, while the checkpoint may contain
+    # model.language_model.layers.*.
+    prefix = "model.language_model."
+    normalized_state: Dict[str, torch.Tensor] = {}
+
+    for key, tensor in dense_state.items():
+        normalized_key = "model." + key[len(prefix) :] if key.startswith(prefix) else key
+
+        if normalized_key in normalized_state:
+            raise ValueError(
+                f"Duplicate tensor key after namespace normalization: " f"{normalized_key}"
+            )
+
+        normalized_state[normalized_key] = tensor
+
+    dense_state = normalized_state
+
     missing, unexpected = model.load_state_dict(dense_state, strict=False, assign=True)
     if unexpected:
         logger.warning("Unexpected keys when loading dense state: %s", unexpected[:8])
