@@ -1,5 +1,23 @@
 # Change log
 
+## [v1.4.1] 2026-10-28
+
+### Bug Fixes
+
+- Fixed direct GPTQ-to-GGUF export for Qwen3.8 dense and Qwen3.6 MoE models by applying the required linear-attention V-head permutation and supporting both native and nested `text_config` layouts. Previously, affected GGUF models could produce corrupted text and extremely high perplexity.
+- Fixed generated Hugging Face Hub model cards to reference the published quantized repository in Usage examples while preserving the original `base_model` metadata and avoiding broken Hub links for local model paths.
+- Fixed Gemma 4 MoE GGUF export by preserving the `model.language_model.*` namespace during dense reconstruction.
+
+### Tests
+
+- Fixed `tests/onecomp/utils/test_unfuse_moe.py` leaving reloaded GPTQ modules and a
+  gemlite stub in `sys.modules`. Tests that ran after it saw a second `GPTQLinear`
+  class, so a full `pytest tests/` run failed the slow JointQ + `PostProcessLoraSFT`
+  test with `No GPTQLinear layers were found`. The test now imports `GPTQ`,
+  `GPTQLinear` and `unfuse_moe` from the `onecomp` package.
+- Added a regression test that runs `test_unfuse_moe.py` in a child process and fails
+  if the run replaces an imported `onecomp` module or the `GPTQLinear` class.
+
 ## [v1.4.0] 2026-10-09
 
 ### Breaking Changes

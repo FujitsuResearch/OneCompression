@@ -6,24 +6,17 @@ Roundtrip tests for unfuse_moe_experts / fuse_moe_experts (no full model).
 
 """
 
-import importlib.util
 import logging
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import torch
+from safetensors.torch import save_file
 from torch import nn
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_spec = importlib.util.spec_from_file_location(
-    "unfuse_moe",
-    _REPO_ROOT / "onecomp" / "utils" / "unfuse_moe.py",
-)
-_unfuse_mod = importlib.util.module_from_spec(_spec)
-sys.modules["unfuse_moe"] = _unfuse_mod
-assert _spec.loader is not None
-_spec.loader.exec_module(_unfuse_mod)
+from onecomp.quantizer.gptq import GPTQ
+from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
+from onecomp.utils import unfuse_moe as _unfuse_mod
 
 _GenericFusedExperts = _unfuse_mod._GenericFusedExperts
 _fuse_gpt_oss_one = _unfuse_mod._fuse_gpt_oss_one
@@ -50,6 +43,57 @@ class _TinyModel(nn.Module):
     def __init__(self, fused: nn.Module):
         super().__init__()
         self.layers = nn.ModuleList([_TinyMoEBlock(fused)])
+
+
+class _QwenMoEModel(nn.Module):
+    def __init__(self, fused: nn.Module):
+        super().__init__()
+        self.model = nn.Module()
+        self.model.layers = nn.ModuleList([_TinyMoEBlock(fused)])
+
+
+class _GemmaMoEBlock(nn.Module):
+    def __init__(self, fused: nn.Module):
+        super().__init__()
+        self.experts = fused
+
+
+class _GemmaMoEModel(nn.Module):
+    def __init__(self, fused: nn.Module):
+        super().__init__()
+        self.model = nn.Module()
+        self.model.language_model = nn.Module()
+        self.model.language_model.layers = nn.ModuleList([_GemmaMoEBlock(fused)])
+
+
+def _make_fused_experts(
+    dtype: torch.dtype = torch.float32,
+) -> nn.Module:
+    num_experts = 2
+    intermediate_size = 4
+    hidden_size = 8
+
+    return _GenericFusedExperts(
+        gate_up_proj=torch.zeros(
+            num_experts,
+            2 * intermediate_size,
+            hidden_size,
+            dtype=dtype,
+        ),
+        down_proj=torch.zeros(
+            num_experts,
+            hidden_size,
+            intermediate_size,
+            dtype=dtype,
+        ),
+        act_fn=torch.nn.functional.silu,
+    )
+
+
+_checkpoint_uses_fused_moe = _unfuse_mod._checkpoint_uses_fused_moe
+strip_moe_experts_from_quant_config = _unfuse_mod.strip_moe_experts_from_quant_config
+verify_saved_moe_checkpoint = _unfuse_mod.verify_saved_moe_checkpoint
+verify_saved_moe_quant_checkpoint = _unfuse_mod.verify_saved_moe_quant_checkpoint
 
 
 def test_generic_fused_experts_unfuse_fuse_roundtrip():
@@ -132,54 +176,9 @@ _dequantized_weight_bias = _unfuse_mod._dequantized_weight_bias
 _gpt_oss_combine_gate_up = _unfuse_mod._gpt_oss_combine_gate_up
 _UnfusedExperts = _unfuse_mod._UnfusedExperts
 _ExpertMLP = _unfuse_mod._ExpertMLP
-_GPTQ_STACK = None
-
-
-def _get_gptq_classes():
-    global _GPTQ_STACK
-    if _GPTQ_STACK is not None:
-        return _GPTQ_STACK
-
-    from types import ModuleType
-
-    for pkg in (
-        "onecomp",
-        "onecomp.quantizer",
-        "onecomp.utils",
-        "onecomp.quantizer.gptq",
-    ):
-        if pkg not in sys.modules:
-            mod = ModuleType(pkg)
-            mod.__path__ = [str(_REPO_ROOT / Path(*pkg.split(".")))]
-            sys.modules[pkg] = mod
-
-    gemlite_stub = ModuleType("onecomp.quantizer.gemlite")
-    gemlite_stub.create_gemlite_linear = lambda *args, **kwargs: None
-    gemlite_stub.is_gemlite_available = lambda: False
-    sys.modules["onecomp.quantizer.gemlite"] = gemlite_stub
-
-    def _load(fullname, relpath):
-        path = _REPO_ROOT / relpath
-        spec = importlib.util.spec_from_file_location(fullname, path)
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[fullname] = mod
-        assert spec.loader is not None
-        spec.loader.exec_module(mod)
-        return mod
-
-    _load("onecomp.quantizer._quantizer", "onecomp/quantizer/_quantizer.py")
-    _load("onecomp.utils.quant_config", "onecomp/utils/quant_config.py")
-    gptq_mod = _load("onecomp.quantizer.gptq._gptq", "onecomp/quantizer/gptq/_gptq.py")
-    layer_mod = _load(
-        "onecomp.quantizer.gptq.gptq_layer",
-        "onecomp/quantizer/gptq/gptq_layer.py",
-    )
-    _GPTQ_STACK = (gptq_mod.GPTQ, layer_mod.GPTQLinear)
-    return _GPTQ_STACK
 
 
 def _linear_to_gptq(linear: nn.Linear, inp: torch.Tensor) -> nn.Module:
-    GPTQ, GPTQLinear = _get_gptq_classes()
     quantizer = GPTQ(wbits=4, bitpack_on_quantize=True)
     hessian, _ = quantizer.calculate_hessian(linear, inp)
     result = quantizer.quantize_layer(linear, inp, hessian=hessian)
@@ -368,3 +367,201 @@ def test_fused_state_dict_has_per_layer_moe_keys():
     assert "layers.0.mlp.experts.gate_up_proj" in sd
     assert "layers.1.mlp.experts.gate_up_proj" in sd
     _unfuse_mod.validate_fused_moe_state_dict(model)
+
+
+@pytest.mark.parametrize(
+    ("model_factory", "module_prefix", "config_suffix"),
+    [
+        (
+            _QwenMoEModel,
+            "model.layers.0.mlp.experts",
+            "mlp.experts",
+        ),
+        (
+            _GemmaMoEModel,
+            "model.language_model.layers.0.experts",
+            "experts",
+        ),
+    ],
+    ids=["qwen-mlp-experts", "gemma-direct-experts"],
+)
+def test_strip_moe_experts_from_quant_config(
+    model_factory,
+    module_prefix,
+    config_suffix,
+):
+    model = model_factory(_make_fused_experts())
+
+    layer_prefix = module_prefix.rsplit(
+        f".{config_suffix}",
+        maxsplit=1,
+    )[0]
+
+    quant_config = {
+        "modules_in_block_to_quantize": [
+            f"{module_prefix}.0.gate_proj",
+            f"{module_prefix}.0.up_proj",
+            f"{module_prefix}.0.down_proj",
+            f"{layer_prefix}.self_attn.q_proj",
+        ],
+        "quantized_layer_names": [
+            f"{module_prefix}.1.down_proj",
+            f"{layer_prefix}.self_attn.o_proj",
+        ],
+        "quantization_bits": [
+            {
+                f"{config_suffix}.0.gate_proj": {
+                    "bits": 4,
+                },
+                f"{config_suffix}.0.up_proj": {
+                    "bits": 4,
+                },
+                f"{config_suffix}.0.down_proj": {
+                    "bits": 4,
+                },
+                "self_attn.q_proj": {
+                    "bits": 4,
+                },
+            }
+        ],
+    }
+
+    strip_moe_experts_from_quant_config(
+        quant_config,
+        model,
+    )
+
+    assert quant_config["modules_in_block_to_quantize"] == [
+        f"{layer_prefix}.self_attn.q_proj",
+    ]
+    assert quant_config["quantized_layer_names"] == [
+        f"{layer_prefix}.self_attn.o_proj",
+    ]
+    assert quant_config["quantization_bits"] == [
+        {
+            "self_attn.q_proj": {
+                "bits": 4,
+            },
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "model.layers.0.mlp.experts.gate_up_proj",
+        ("model.language_model.layers.0." "experts.gate_up_proj"),
+    ],
+    ids=["qwen-mlp-experts", "gemma-direct-experts"],
+)
+def test_checkpoint_uses_fused_moe_for_supported_layouts(
+    key,
+):
+    state_dict = {
+        key: torch.zeros(2, 8, 4),
+    }
+
+    assert _checkpoint_uses_fused_moe(state_dict)
+
+
+def test_checkpoint_does_not_treat_2d_gate_up_as_fused_moe():
+    state_dict = {
+        "model.layers.0.mlp.gate_up_proj": (torch.zeros(8, 4)),
+    }
+
+    assert not _checkpoint_uses_fused_moe(state_dict)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "model.layers.0.mlp.experts.gate_up_proj",
+        ("model.language_model.layers.0." "experts.gate_up_proj"),
+    ],
+    ids=["qwen-mlp-experts", "gemma-direct-experts"],
+)
+def test_verify_saved_moe_checkpoint_supports_layouts(
+    tmp_path,
+    key,
+):
+    save_file(
+        {
+            key: torch.zeros(2, 8, 4),
+        },
+        str(tmp_path / "model.safetensors"),
+    )
+
+    assert verify_saved_moe_checkpoint(tmp_path) == 1
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "model.layers.0.mlp.experts.0",
+        ("model.language_model.layers.0." "experts.0"),
+    ],
+    ids=["qwen-mlp-experts", "gemma-direct-experts"],
+)
+def test_verify_saved_quantized_moe_checkpoint_supports_layouts(
+    tmp_path,
+    prefix,
+):
+    save_file(
+        {
+            f"{prefix}.down_proj.qweight": torch.zeros(
+                2,
+                4,
+                dtype=torch.int32,
+            ),
+        },
+        str(tmp_path / "model.safetensors"),
+    )
+
+    assert verify_saved_moe_quant_checkpoint(tmp_path) == 1
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "model.layers.0.mlp.experts.gate_up_proj",
+        ("model.language_model.layers.0." "experts.gate_up_proj"),
+    ],
+    ids=["qwen-mlp-experts", "gemma-direct-experts"],
+)
+def test_verify_quantized_moe_rejects_fused_tensor(
+    tmp_path,
+    key,
+):
+    save_file(
+        {
+            ("model.layers.0.mlp.experts.0." "down_proj.qweight"): torch.zeros(
+                2,
+                4,
+                dtype=torch.int32,
+            ),
+            key: torch.zeros(2, 8, 4),
+        },
+        str(tmp_path / "model.safetensors"),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="unexpectedly contains dense fused",
+    ):
+        verify_saved_moe_quant_checkpoint(tmp_path)
+
+
+def test_infer_fused_moe_dtype_ignores_direct_experts():
+    model = _GemmaMoEModel(
+        _make_fused_experts(
+            dtype=torch.bfloat16,
+        )
+    )
+    model.non_moe = nn.Linear(
+        8,
+        8,
+        bias=False,
+        dtype=torch.float16,
+    )
+
+    assert _unfuse_mod._infer_fused_moe_dtype(model) == torch.float16

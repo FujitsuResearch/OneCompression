@@ -270,6 +270,37 @@ def _reject_unfilled_weights(
     )
 
 
+def _normalize_dense_state_namespace(
+    dense_state: Dict[str, torch.Tensor],
+    expected_keys: set[str],
+) -> Dict[str, torch.Tensor]:
+    """Map checkpoint keys to the namespace expected by the dense model."""
+    wrapper_prefix = "model.language_model."
+    normalized_state: Dict[str, torch.Tensor] = {}
+
+    for key, tensor in dense_state.items():
+        candidates = [key]
+
+        if key.startswith(wrapper_prefix):
+            candidates.append("model." + key[len(wrapper_prefix) :])
+        elif key.startswith("model."):
+            candidates.append(wrapper_prefix + key[len("model.") :])
+
+        normalized_key = next(
+            (candidate for candidate in candidates if candidate in expected_keys),
+            key,
+        )
+
+        if normalized_key in normalized_state:
+            raise ValueError(
+                "Duplicate tensor key after namespace normalization: " f"{normalized_key}"
+            )
+
+        normalized_state[normalized_key] = tensor
+
+    return normalized_state
+
+
 def dequantize_to_hf(
     save_directory: str,
     output_directory: str,
@@ -357,6 +388,11 @@ def dequantize_to_hf(
         from onecomp.cpu.export.rotation import defold_rotated_dense_state
 
         defold_rotated_dense_state(dense_state, fp32_had=meta.fp32_had)
+
+    dense_state = _normalize_dense_state_namespace(
+        dense_state,
+        set(model.state_dict().keys()),
+    )
 
     missing, unexpected = model.load_state_dict(dense_state, strict=False, assign=True)
     if unexpected:
