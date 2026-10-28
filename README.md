@@ -58,7 +58,7 @@ Other Hugging Face-compatible models may work but are currently untested.
 |---|-------------|-----------------|--------|
 | 1 | Llama | TinyLlama, Llama-2, Llama-3 | ✅ Verified |
 | 2 | Qwen3 | Qwen3-0.6B ~ 32B, Qwen3-30B-A3B | ✅ Verified |
-| 3 | Gemma | Gemma 2, Gemma 3, Gemma 4  | ✅ Verified |
+| 3 | Gemma | Gemma 2, Gemma 3, Gemma 4, Gemma 4-26B-A4B  | ✅ Verified |
 | 4 | [GPT-OSS](docs/user-guide/gptoss.md) | openai/gpt-oss-20b, gpt-oss-120b | ✅ Verified |
 | 5 | Qwen3.6 | Qwen3.6-27B, Qwen3.6-35B-A3B | ✅ Verified |
 | 6 | Qwen3.8 | Qwen3.8-27B | ✅ Verified |
