@@ -1,5 +1,17 @@
 # Change log
 
+## [v1.4.1(WIP)+fix/unfuse-moe-test-module-reload] 2026-10-26
+
+### Tests (CI)
+
+- Fixed `tests/onecomp/utils/test_unfuse_moe.py` leaving reloaded GPTQ modules and a
+  gemlite stub in `sys.modules`. Tests that ran after it saw a second `GPTQLinear`
+  class, so a full `pytest tests/` run failed the slow JointQ + `PostProcessLoraSFT`
+  test with `No GPTQLinear layers were found`. The test now imports `GPTQ`,
+  `GPTQLinear` and `unfuse_moe` from the `onecomp` package.
+- Added a regression test that runs `test_unfuse_moe.py` in a child process and fails
+  if the run replaces an imported `onecomp` module or the `GPTQLinear` class.
+
 ## [v1.4.1] 2026-10-dd
 
 ### Bug Fixes
