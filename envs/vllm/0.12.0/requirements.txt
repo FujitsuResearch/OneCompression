@@ -28,6 +28,7 @@ cuda-toolkit==13.0.2
 cupy-cuda12x==14.0.1
 DataProperty==1.1.1
 datasets==4.8.5
+defusedxml==0.7.1
 depyf==0.20.0
 dill==0.4.1
 diskcache==5.6.3
