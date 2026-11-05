@@ -4,15 +4,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
-import gc
-
 import torch
-
-
-def clean():
-    """Memory cleanup function"""
-    gc.collect()
-    torch.cuda.empty_cache()
 
 
 def is_pow2(n):
@@ -50,7 +42,7 @@ def matmul_hadU(X, transpose=False):
         input_tensor, output = (output, input_tensor)
 
     del output
-    clean()
+    torch.cuda.empty_cache()
 
     if K > 1 and hadK is not None:
         input_tensor = torch.bmm(

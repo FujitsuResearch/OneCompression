@@ -14,7 +14,6 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
-import gc
 from logging import getLogger
 from typing import Optional
 
@@ -294,7 +293,6 @@ def run_qbb(  # pylint: disable=too-many-positional-arguments
     alpha_list_cpu = [alpha.detach().to(dtype=torch.float16, device="cpu") for alpha in alpha_list]
 
     del W, Q, B_list, B_int_list
-    gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 

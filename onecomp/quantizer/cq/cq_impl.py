@@ -12,7 +12,6 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Keiji Kimura
 """
 
-import gc
 from logging import getLogger
 from typing import Union
 
@@ -155,7 +154,6 @@ def run_cq(
     quantized_weight = Q_int.reshape(layer.weight.shape).cpu()
 
     del W, Q, Q_int
-    gc.collect()
     torch.cuda.empty_cache()
 
     return {
