@@ -2,6 +2,12 @@
 
 ## [v1.4.2(WIP)+fix/rtn-ragged-group] 2026-11-05
 
+### Enhancement
+
+- `RTN` now accepts a `groupsize` that does not divide a layer's input size; the last group of
+  each row is shorter, as in GPTQ. vLLM still requires the input size to be a multiple of
+  `groupsize`.
+
 ### Bug Fixes
 
 - Fixed QEP quantization stopping with `ValueError` when an MoE expert received no calibration
