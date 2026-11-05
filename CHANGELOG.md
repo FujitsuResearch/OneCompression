@@ -1,5 +1,16 @@
 # Change log
 
+## [v1.5.0(WIP)+perf/drop-quantizer-gc-collect] 2026-11-05
+
+### Enhancement
+
+- Removed the full `gc.collect()` calls that GPTQ, RTN, DBF, MDBF, ARB, CQ, QBB, QuIP
+  and OneBit made for every quantized linear layer (several per layer in MDBF and in
+  QuIP with `incoh_mode="had"`). Each call scanned every object Python tracks, adding
+  overhead to every layer, while intermediate tensors are already freed by reference
+  counting. Quantization is faster, especially for quantizers that spend little time
+  per layer, such as RTN and GPTQ. Quantization results are unchanged.
+
 ## [v1.5.0(WIP)+feature/issue-58-low-memory-loader] 2026-10-21
 
 ### Enhancement
