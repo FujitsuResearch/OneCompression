@@ -49,6 +49,7 @@ onecomp-eval = "onecomp.eval.run_evaluate:main"
 onecomp-gguf = "onecomp.cpu.cli:main"
 
 [project.optional-dependencies]
+pq = ["dilithium-py>=1.0.1"]
 cpu = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
 mps = ["torch; sys_platform == 'darwin'", "torchvision; sys_platform == 'darwin'"]
 cu118 = ["torch; sys_platform == 'linux'", "torchvision; sys_platform == 'linux'"]
