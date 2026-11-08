@@ -14,6 +14,10 @@ latency. Every policy decodes greedily from the same prompts.
   - deer:          at each "Wait", probe a trial answer; stop if it is confident
   - stability:     probe every 256 tokens; stop after three identical answers
 
+ASAG (policy="asag_reference") reads attention weights: load the model with
+attn_implementation="eager" before adding it to POLICIES, and compare it only
+with policies run on the same eager model.
+
 Edit QUESTIONS and POLICIES to try other settings. The reference backend is
 serial and batch-size one. For serving, use the vLLM logits processor (see
 vllm_inference/example_reasoning_vllm_inference.py).
