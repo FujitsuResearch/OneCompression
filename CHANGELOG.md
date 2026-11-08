@@ -12,6 +12,11 @@
   processor apply them per request. Compression is disabled by default. See the
   [reasoning compression guide](docs/user-guide/reasoning-compression.md) and the
   [example](example/example_reasoning_compression.py).
+- **ThinkBrake reasoning policy (experimental)**: `policy="thinkbrake"` stops
+  reasoning at a sentence or transition boundary when the end-of-thinking token
+  is nearly the most likely next token. It reads only the logits that decoding
+  already produces, so it adds no model forward, and runs in both the
+  Transformers reference backend and the vLLM logits processor.
 
 ## [v1.5.0(WIP)+perf/drop-quantizer-gc-collect] 2026-11-05
 

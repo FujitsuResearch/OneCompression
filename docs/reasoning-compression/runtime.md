@@ -22,6 +22,10 @@ same randomly initialized tiny model. No distribution or global random seed is
 changed by the greedy adapter. Model-specific generation processors such as
 repetition penalties and constrained decoding are outside this reference path.
 
+At each boundary, a policy that uses logits receives `logit_observation` of the
+logits the last forward already returned, so ThinkBrake adds no model forward.
+Policies that require the margin reject multi-token end markers.
+
 Forced end-marker sequences are emitted token by token through normal decoding,
 with the cache updated for each token before the next forward. There is no cache
 rewind. The maximum generation length can still interrupt a marker or final
@@ -40,7 +44,8 @@ The adapter targets the inspected v1 interfaces in:
 - `vllm/v1/sample/logits_processor/interface.py`: `LogitsProcessor`,
   `BatchUpdate`, and `MoveDirectionality`;
 - `vllm/sampling_params.py`: per-request `extra_args`;
-- `vllm/entrypoints/llm.py`: `logits_processors` engine argument.
+- `vllm/entrypoints/llm.py`: `logits_processors` engine argument;
+- `vllm/tokenizers/registry.py`: `cached_tokenizer_from_config`.
 
 Register `onecomp.runtime.vllm.logits_processor:ReasoningLogitsProcessor` in the
 engine. `VLLMReasoningAdapter.extra_args(config, format, request_id)` creates the
@@ -50,8 +55,19 @@ removals, additions, unidirectional moves and swaps; tests cover slot reuse and
 different stopping times in one batch. Marker tokens are forced with the usual
 sampler and remain in the normal output stream/KV history.
 
+With async scheduling, which vLLM 0.21 enables by default, `update_state` can
+see the newest output token as a `-1` placeholder that vLLM fills in just before
+sampling. The processor consumes tokens only up to the first placeholder and
+resynchronizes in `apply`; placeholders are never counted or decoded.
+
+ThinkBrake reads the margin from the request's own logits row. For sentence
+boundaries the processor decodes each sampled token with vLLM's cached
+tokenizer; for transition boundaries it decodes the argmax candidate. Budget
+policies skip decoding. Linguistic boundaries decode token fragments; they are
+approximations, not a universal sentence parser.
+
 Supported policies are listed in `VLLMReasoningAdapter.supported_policies`
-(none, fixed and prompt budget); others fail explicitly. The processor is
+(none, fixed, prompt budget and ThinkBrake); others fail explicitly. The processor is
 restricted to vLLM 0.21.x, `n=1`, and no speculative decoding. An end marker may
 not also be an EOS/stop token. These are capability guards, not evidence that
 untested modes work. Worker-local trace state is not transported through the

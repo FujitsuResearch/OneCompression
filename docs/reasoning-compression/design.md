@@ -23,7 +23,7 @@ onecomp/reasoning/
     controller.py      ReasoningCompressionController: boundary -> observation -> decision
     boundaries.py      sentence / transition / token-interval detectors
     actions.py         Decision and the stop action
-    signals/           ReasoningSignal protocol for backend observations
+    signals/           ReasoningSignal protocol and the output-logit margin (logit_observation)
     policies/          one module per method; POLICIES registry and make_policy()
     data.py            boxed-answer extraction and conservative grading
 onecomp/runtime/
@@ -34,10 +34,11 @@ onecomp/runtime/
 Each policy class declares what a backend must observe (`uses_logits`,
 `requires_logits`, `uses_probe`, `requires_attention`, `probe_options()`,
 `needs_probe()`, `needs_attention_followup()`); backends query these instead of
-matching policy names. The budget baselines need no observation, so they leave
-these at their defaults; adaptive policies are added by registering a new class
-in `POLICIES` without changing this interface. Package `__init__.py` files only
-re-export.
+matching policy names. The budget baselines need no observation
+(`uses_logits=False`); ThinkBrake sets `requires_logits`, so backends pass it
+the margin computed from logits they already produced. Further adaptive
+policies are added by registering a new class in `POLICIES` without changing
+this interface. Package `__init__.py` files only re-export.
 
 ## Contracts
 

@@ -24,10 +24,13 @@ described in the [Reasoning Compression user guide](../user-guide/reasoning-comp
         - make_policy
         - NonePolicy
         - BudgetPolicy
+        - ThinkBrakePolicy
 
 ## Signals
 
 ::: onecomp.reasoning.ReasoningSignal
+
+::: onecomp.reasoning.signals.logit_observation
 
 ## Backends
 
