@@ -24,6 +24,7 @@ class TinyTokenizer:
         8: "{",
         9: "}",
         10: "probe",
+        11: "jump",
         12: ">",
     }
 
@@ -31,7 +32,11 @@ class TinyTokenizer:
         return "".join(self.pieces.get(int(i), "?") for i in ids)
 
     def encode(self, text, **_):
-        return [10] if "Final Answer" in text else [4]
+        if "Final Answer" in text:
+            return [10]
+        if text.startswith("Wait,"):
+            return [11]
+        return [4]
 
 
 class ScriptedLM(torch.nn.Module):
@@ -40,10 +45,11 @@ class ScriptedLM(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.zeros(1))
+        self.config = SimpleNamespace(_attn_implementation="eager")
         self.generation_config = SimpleNamespace(eos_token_id=7)
         self.forward_lengths = []
 
-    def forward(self, input_ids, past_key_values=None, **_):
+    def forward(self, input_ids, past_key_values=None, output_attentions=False, **_):
         incoming = input_ids[0].tolist()
         history = list(past_key_values or []) + incoming
         self.forward_lengths.append(len(incoming))
@@ -58,7 +64,12 @@ class ScriptedLM(torch.nn.Module):
             next_id = 3 if count >= 6 else [4, 5][count % 2]
         logits = torch.full((1, len(incoming), 16), -7.0)
         logits[0, -1, next_id] = 7.0
-        return SimpleNamespace(logits=logits, past_key_values=history)
+        attentions = None
+        if output_attentions:
+            weights = torch.ones(len(history), len(history)).tril()
+            weights /= weights.sum(-1, keepdim=True)
+            attentions = tuple(weights[None, None].repeat(1, 2, 1, 1) for _ in range(4))
+        return SimpleNamespace(logits=logits, past_key_values=history, attentions=attentions)
 
 
 FORMAT = ReasoningFormat((2,), (3,))
@@ -374,7 +385,7 @@ def test_none_matches_native_greedy_tiny_qwen3():
     assert result.state.generated_token_ids == native[0, prompt.shape[1] :].tolist()
 
 
-def _tiny_qwen3():
+def _tiny_qwen3(attention="eager"):
     from transformers import Qwen3Config, Qwen3ForCausalLM
 
     torch.manual_seed(17)
@@ -390,25 +401,35 @@ def _tiny_qwen3():
             max_position_embeddings=128,
             eos_token_id=31,
             pad_token_id=0,
+            attn_implementation=attention,
         )
     ).eval()
 
 
-def test_cache_branch_probe_matches_replay_and_restores_cache_exactly():
+@pytest.mark.parametrize("policy", ["deer", "asag_reference"])
+def test_cache_branch_probe_matches_replay_and_restores_cache_exactly(policy):
     model = _tiny_qwen3()
     adapter = TransformersReasoningAdapter(model, TinyTokenizer())
     prefix = [1, 4, 5, 4, 5, 4]
-    config = ReasoningConfig(policy="deer", probe_max_tokens=4)
+    config = ReasoningConfig(policy=policy, probe_max_tokens=4)
     with torch.inference_mode():
         cache = adapter._forward(prefix).past_key_values
     before = [(layer.keys.clone(), layer.values.clone()) for layer in cache.layers]
-    branched = adapter.probe(prefix, config, cache=cache)
-    replayed = adapter.probe(prefix, config)
+    branched = adapter.probe(
+        prefix, config, cache=cache, previous_span=(1, 3), current_span=(3, 6)
+    )
+    replayed = adapter.probe(prefix, config, previous_span=(1, 3), current_span=(3, 6))
     for (keys, values), layer in zip(before, cache.layers):
         assert torch.equal(keys, layer.keys) and torch.equal(values, layer.values)
     assert branched.token_ids == replayed.token_ids
     assert branched.reused_prefix_tokens > 0 and replayed.reused_prefix_tokens == 0
     assert branched.model_evaluated_tokens < replayed.model_evaluated_tokens
+    if policy == "asag_reference":
+        # Cue rows plus as many preceding reasoning rows, keys over the whole prefix.
+        for key in ("attention_query_rows", "attention_key_tokens"):
+            assert branched.signals[key] == replayed.signals[key]
+        for key in ("attention_entropy", "previous_attention", "current_attention"):
+            assert branched.signals[key] == pytest.approx(replayed.signals[key], rel=1e-4)
 
 
 def test_prefix_reuse_keeps_main_trajectory_and_reduces_probe_compute():
@@ -439,3 +460,138 @@ def test_prefix_reuse_keeps_main_trajectory_and_reduces_probe_compute():
         reused.metrics["probe_model_evaluated_tokens"]
         < replayed.metrics["probe_model_evaluated_tokens"]
     )
+
+
+def test_asag_attention_reference_is_measured():
+    model, result = run(
+        ReasoningConfig(policy="asag_reference", boundary="tokens", interval=2, probe_max_tokens=6)
+    )
+    assert result.state.reasoning_tokens == 2
+    assert result.state.signals[0]["attention_layers"] == 4
+    assert result.state.signals[0]["attention_query_rows"] == 2
+    assert result.state.signals[0]["first_attention_boundary"]
+    assert result.metrics["attention_statistics_overhead_s"] > 0
+    assert result.metrics["model_evaluated_tokens"] == sum(model.forward_lengths)
+
+
+def test_asag_probe_on_real_tiny_qwen3_eager_model_output():
+    model = _tiny_qwen3()
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    result = adapter.probe([1, 4], ReasoningConfig(policy="asag_reference", probe_max_tokens=3))
+    assert result.signals["attention_layers"] == 2
+    assert result.signals["attention_query_rows"] == 2
+    assert result.signals["attention_key_tokens"] == 3
+    assert result.signals["attention_entropy"] >= 0
+    assert result.prefill_tokens == 3
+    assert result.model_evaluated_tokens == result.prefill_tokens + result.decode_tokens
+    assert result.attention_overhead_s > 0
+
+
+def test_asag_attention_requires_eager_before_any_forward():
+    model = ScriptedLM()
+    model.config._attn_implementation = "sdpa"
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    with pytest.raises(ValueError, match="eager"):
+        adapter.generate(
+            [1], reasoning_format=FORMAT, config=ReasoningConfig(policy="asag_reference")
+        )
+    assert model.forward_lengths == []
+    # The confidence-only ablation collects no attention, so fused attention is fine.
+    adapter.generate(
+        [1],
+        reasoning_format=FORMAT,
+        config=ReasoningConfig(policy="asag_reference", asag_mode="confidence"),
+        max_new_tokens=4,
+    )
+
+
+def test_asag_jump_and_bias_follow_normal_cache_path(monkeypatch):
+    model = ScriptedLM()
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    original_probe = adapter.probe
+    calls = []
+
+    def trapping_probe(*args, **kwargs):
+        result = original_probe(*args, **kwargs)
+        result.signals.update(
+            attention_entropy=10.0,
+            backward_ratio=2.0,
+            previous_attention=0.2,
+            current_attention=0.1,
+        )
+        return result
+
+    monkeypatch.setattr(adapter, "probe", trapping_probe)
+    result = adapter.generate(
+        [1],
+        reasoning_format=FORMAT,
+        config=ReasoningConfig(
+            policy="asag_reference",
+            boundary="tokens",
+            interval=2,
+            confidence_threshold=1.0,
+            probe_max_tokens=6,
+            max_jumps=1,
+        ),
+        max_new_tokens=20,
+    )
+    assert [i["kind"] for i in result.state.interventions] == ["jump", "stop"]
+    assert 11 in result.state.generated_token_ids
+    assert result.metrics["model_evaluated_tokens"] == sum(model.forward_lengths)
+
+    model = ScriptedLM()
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    original_probe = adapter.probe
+
+    def converging_probe(*args, **kwargs):
+        result = original_probe(*args, **kwargs)
+        result.signals.update(
+            attention_entropy=10.0 if not calls else 5.0,
+            backward_ratio=0.0,
+            previous_attention=0.0,
+            current_attention=0.1,
+        )
+        calls.append(1)
+        return result
+
+    monkeypatch.setattr(adapter, "probe", converging_probe)
+    result = adapter.generate(
+        [1],
+        reasoning_format=FORMAT,
+        config=ReasoningConfig(
+            policy="asag_reference",
+            boundary="tokens",
+            interval=2,
+            confidence_threshold=1.0,
+            probe_max_tokens=6,
+        ),
+        max_new_tokens=20,
+    )
+    assert any(i["kind"] == "bias" for i in result.state.interventions)
+    assert result.metrics["model_evaluated_tokens"] == sum(model.forward_lengths)
+
+
+def test_attention_and_confidence_ablations_omit_unneeded_work():
+    _, attention = run(
+        ReasoningConfig(
+            policy="asag_reference", asag_mode="attention", boundary="tokens", interval=2
+        )
+    )
+    assert attention.metrics["probe_tokens"] == 0
+    assert attention.metrics["probe_decode_model_evaluated_tokens"] == 0
+    assert attention.metrics["attention_latency_s"] > 0
+    _, confidence = run(
+        ReasoningConfig(
+            policy="asag_reference", asag_mode="confidence", boundary="tokens", interval=2
+        )
+    )
+    assert confidence.metrics["attention_latency_s"] == 0
+    assert confidence.metrics["probe_tokens"] > 0
+
+
+def test_mixture_distribution_is_first_answer_content_position():
+    adapter = TransformersReasoningAdapter(ScriptedLM(), TinyTokenizer())
+    result = adapter.probe([1, 4], ReasoningConfig(policy="asag_reference", probe_max_tokens=6))
+    assert result.token_ids[:3] == [8, 6, 9]
+    # Not the distribution right after the cue, which predicts the "{" delimiter.
+    assert int(result.first_distribution.argmax()) == 6
