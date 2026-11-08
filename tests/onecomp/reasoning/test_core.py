@@ -105,6 +105,66 @@ class CoreTests(unittest.TestCase):
         c = ReasoningCompressionController(ReasoningConfig(policy="thinkbrake", threshold=10))
         self.assertEqual(c.decide(s, {"logit_margin": None}).kind, "continue")
 
+    def test_deer_stops_only_above_confidence_threshold(self):
+        s = RequestState("a", ReasoningFormat((10,), (20,)))
+        c = ReasoningCompressionController(
+            ReasoningConfig(policy="deer", confidence_threshold=0.9)
+        )
+        s.append(1)
+        self.assertEqual(c.decide(s, {"confidence": 0.9, "answer": "42"}).kind, "continue")
+        s.append(1)
+        self.assertEqual(c.decide(s, {"confidence": 0.95, "answer": "42"}).kind, "stop")
+        self.assertEqual(s.probe_confidences, [0.9, 0.95])
+        self.assertEqual(s.interventions[0]["reason"], "probe_confidence")
+        s = RequestState("b", ReasoningFormat((10,), (20,)))
+        with self.assertRaises(ValueError):
+            c.decide(s, {"confidence": 1.5})
+
+    def test_deer_relative_confidence_variant(self):
+        s = RequestState("a", ReasoningFormat((10,), (20,)))
+        c = ReasoningCompressionController(
+            ReasoningConfig(policy="deer", confidence_threshold=0.99, relative_confidence=True)
+        )
+        for confidence, kind in ((0.6, "continue"), (0.5, "continue"), (0.7, "stop")):
+            s.append(1)
+            self.assertEqual(c.decide(s, {"confidence": confidence}).kind, kind)
+
+    def test_stability_uses_answer_and_requires_window(self):
+        s = RequestState("a", ReasoningFormat((10,), (20,)))
+        c = ReasoningCompressionController(ReasoningConfig(policy="stability", stability_window=3))
+        for answer in ("42", "42"):
+            s.append(1)
+            self.assertEqual(c.decide(s, {"answer": answer}).kind, "continue")
+        s.append(1)
+        self.assertEqual(c.decide(s, {"answer": "42"}).kind, "stop")
+
+    def test_repeated_boundary_does_not_accumulate_evidence(self):
+        s = RequestState("a", ReasoningFormat((10,), (20,)))
+        c = ReasoningCompressionController(ReasoningConfig(policy="stability", stability_window=2))
+        s.append(1, "Done.")
+        self.assertEqual(c.decide(s, {"answer": "42"}).kind, "continue")
+        self.assertFalse(c.is_boundary(s))
+        self.assertEqual(c.decide(s, {"answer": "42"}).kind, "continue")
+        self.assertEqual(len(s.probe_answers), 1)
+        self.assertEqual(len(s.signals), 1)
+
+    def test_incomplete_probes_never_imply_confidence_or_stability(self):
+        for policy in ("deer", "stability"):
+            c = ReasoningCompressionController(
+                ReasoningConfig(
+                    policy=policy,
+                    confidence_threshold=0,
+                    stability_window=1,
+                    relative_confidence=True,
+                )
+            )
+            s = RequestState("a", ReasoningFormat((10,), (20,)))
+            for _ in range(2):
+                s.append(1)
+                decision = c.decide(s, {"answer": "42", "confidence": 1, "probe_complete": False})
+                self.assertEqual(decision.kind, "continue")
+            self.assertEqual(s.probe_confidences, [])
+
     def test_boundaries(self):
         s = RequestState("a", ReasoningFormat((10,), (20,)))
         s.append(1, "done.\n")
@@ -151,6 +211,10 @@ class CoreTests(unittest.TestCase):
             {"threshold": True},
             {"temperature": 0},
             {"temperature": float("inf")},
+            {"confidence_threshold": 1.1},
+            {"probe_max_tokens": 0},
+            {"stability_window": 0},
+            {"relative_confidence": 1},
         ):
             with self.assertRaises((ValueError, TypeError)):
                 ReasoningConfig.from_dict(values)

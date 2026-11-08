@@ -48,6 +48,16 @@ class ReasoningPolicy(ABC):
         pass
 
 
+def is_confident(signals, config):
+    """Complete probe whose confidence strictly exceeds the configured threshold."""
+    confidence = signals.get("confidence")
+    return (
+        signals.get("probe_complete", True)
+        and confidence is not None
+        and confidence > config.confidence_threshold
+    )
+
+
 def has_cheap_stop(signals, config):
     """ThinkBrake margin test: best non-end minus end log-probability <= threshold."""
     margin = signals.get("logit_margin")

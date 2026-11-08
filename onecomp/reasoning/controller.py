@@ -2,6 +2,7 @@
 
 """Coordinate request-local observations, policies and intervention records."""
 
+import math
 from time import perf_counter
 
 from .actions import Decision
@@ -46,9 +47,32 @@ class ReasoningCompressionController:
             raise ValueError("Oracle correctness labels cannot be policy observations")
         boundary = state.total_generated_tokens
         if state.last_decision_boundary == boundary:
-            # Repeated engine callbacks for the same prefix must not apply an
-            # intervention twice.
+            # Repeated engine callbacks for the same prefix are not fresh probes
+            # and must not accumulate evidence or apply an intervention twice.
             return Decision()
+        complete = values.get("probe_complete", True)
+        if type(complete) is not bool:
+            raise ValueError("probe_complete must be boolean")
+        if not complete:
+            values["confidence"] = None
+            values["answer"] = ""
+        confidence = values.get("confidence")
+        if confidence is not None and (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or not math.isfinite(confidence)
+            or not 0 <= confidence <= 1
+        ):
+            raise ValueError("confidence must be a finite probability or None")
+        if confidence is not None:
+            state.probe_confidences.append(values["confidence"])
+        if "answer" in values:
+            state.probe_answers.append(values["answer"])
+            w = self.config.stability_window
+            answers = state.probe_answers[-w:]
+            values["answer_stability"] = float(
+                len(answers) == w and bool(answers[0]) and len(set(answers)) == 1
+            )
         decision = self.policy.decide(state, values)
         state.last_decision_boundary = boundary
         if not state.boundaries or state.boundaries[-1] != boundary:
