@@ -2,14 +2,15 @@
 
 Example: Runtime reasoning compression with the Transformers reference backend
 
-A small experiment: runs a few math questions with the baseline policies that
-shorten a thinking model's reasoning, then reports per policy the accuracy,
-reasoning tokens, total model-token evaluations and wall-clock latency. Every
-policy decodes greedily from the same prompts.
+A small experiment: runs a few math questions with policies that shorten a
+thinking model's reasoning, then reports per policy the accuracy, reasoning
+tokens, total model-token evaluations and wall-clock latency. Every policy
+decodes greedily from the same prompts.
 
   - none:          vanilla generation (identical tokens to disabled compression)
   - fixed:         force </think> after a fixed reasoning-token budget
   - prompt_budget: a per-question budget from a TALE-like length heuristic
+  - thinkbrake:    stop at a sentence boundary when </think> nearly wins (logits only)
 
 Edit QUESTIONS and POLICIES to try other settings. The reference backend is
 serial and batch-size one. For serving, use the vLLM logits processor (see
@@ -51,6 +52,8 @@ POLICIES = [
     ReasoningConfig(policy="fixed", budget=1024),
     # The budget is replaced per question by estimate_prompt_budget() below.
     ReasoningConfig(policy="prompt_budget"),
+    # ThinkBrake's Qwen3 setting: gap threshold 0.1 at the paper's temperature 0.6.
+    ReasoningConfig(policy="thinkbrake", threshold=0.1, temperature=0.6),
 ]
 
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")
@@ -77,7 +80,7 @@ for config in POLICIES:
             request_config = replace(config, budget=estimate_prompt_budget(question))
         else:
             request_config = config
-        budget = request_config.budget if config.policy != "none" else None
+        budget = request_config.budget if config.policy in {"fixed", "prompt_budget"} else None
         result = adapter.generate(
             prompt_ids,
             reasoning_format=reasoning_format,
