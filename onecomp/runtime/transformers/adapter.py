@@ -4,7 +4,8 @@
 
 This backend deliberately favors inspectable semantics over serving performance.
 Every forced marker token passes through the normal KV-cache path. Answer probes
-replay the full prefix in a new cache, so the request's cache is never touched.
+branch from the live KV cache when it can be cropped exactly and restore it
+bit-for-bit afterwards; otherwise they replay the full prefix in a new cache.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ class ProbeResult:
     decode_tokens: int
     latency_s: float
     signals: dict[str, Any]
+    reused_prefix_tokens: int = 0
 
 
 @dataclass
@@ -87,11 +89,15 @@ class TransformersReasoningAdapter:
     ``text`` holds newly completed characters; it is empty while a multi-byte
     character is still incomplete, and the last token's call flushes any held
     text, so the concatenated texts match the output.
+
+    ``probe_prefix_reuse=False`` forces every probe to re-prefill its whole prefix
+    (the conservative replay-cost reference).
     """
 
-    def __init__(self, model: Any, tokenizer: Any):
+    def __init__(self, model: Any, tokenizer: Any, *, probe_prefix_reuse: bool = True):
         self.model = model.eval()
         self.tokenizer = tokenizer
+        self.probe_prefix_reuse = probe_prefix_reuse
         self._supports_logits_to_keep = (
             "logits_to_keep" in inspect.signature(model.forward).parameters
         )
@@ -132,6 +138,37 @@ class TransformersReasoningAdapter:
             **kwargs,
         )
 
+    @staticmethod
+    def _can_branch(cache: Any) -> bool:
+        """Full-attention per-layer key/value caches can be cropped and restored exactly."""
+        layers = getattr(cache, "layers", None)
+        return (
+            bool(layers)
+            and hasattr(cache, "crop")
+            and all(
+                hasattr(layer, "keys") and not getattr(layer, "is_sliding", False)
+                for layer in layers
+            )
+        )
+
+    @staticmethod
+    def _branch(cache: Any, keep: int) -> Callable[[], None]:
+        """Crop ``cache`` to ``keep`` tokens; the returned callback restores it exactly."""
+        length = cache.get_seq_length()
+        saved = [
+            (layer.keys[..., keep:length, :].clone(), layer.values[..., keep:length, :].clone())
+            for layer in cache.layers
+        ]
+        cache.crop(keep)
+
+        def restore():
+            cache.crop(keep)
+            for index, (keys, values) in enumerate(saved):
+                if keys.shape[-2]:
+                    cache.update(keys, values, index)
+
+        return restore
+
     def _boxed_content(self, token_ids):
         """Indices of tokens overlapping boxed answer content, excluding delimiters."""
         text = self._decode(token_ids)
@@ -158,43 +195,65 @@ class TransformersReasoningAdapter:
         return answer, selected, bool(answer and selected)
 
     @torch.inference_mode()
-    def probe(self, prefix_ids: Sequence[int], config: ReasoningConfig) -> ProbeResult:
+    def probe(
+        self, prefix_ids: Sequence[int], config: ReasoningConfig, *, cache: Any = None
+    ) -> ProbeResult:
         """Run a disposable answer probe and count every model-evaluated token.
 
         The probe appends DEER's answer cue to the prefix and decodes greedily, so
         each selected probability is the maximum. Confidence is the geometric mean
         over answer-content tokens. A probe truncated before EOS or a closing
         boxed-answer brace is not confident.
+
+        ``cache`` is the live request cache holding exactly ``prefix_ids``. When
+        given, the probe branches from it and restores it before returning.
         """
         cue_ids = self._encode(DEER_PROBE_CUE)
         if not cue_ids:
             raise ValueError("Probe cue must tokenize to at least one token")
-        inputs = list(prefix_ids) + cue_ids
+        prefix_ids = list(prefix_ids)
+        restore = None
+        if (
+            self.probe_prefix_reuse
+            and cache is not None
+            and self._can_branch(cache)
+            and cache.get_seq_length() == len(prefix_ids)
+        ):
+            keep = len(prefix_ids)
+            restore = self._branch(cache, keep)
+            inputs = cue_ids
+        else:
+            keep, cache = 0, None
+            inputs = prefix_ids + cue_ids
         self._sync()
         started = perf_counter()
-        output = self._forward(inputs)
-        probe_cache = output.past_key_values
-        logits = output.logits[0, -1].float()
-        generated: list[int] = []
-        probabilities: list[float] = []
-        decode_evaluations = 0
-        complete = False
-        eos_ids = self._eos_ids()
-        for _ in range(config.probe_max_tokens):
-            distribution = torch.softmax(logits, dim=-1)
-            token_id = int(torch.argmax(logits).item())
-            generated.append(token_id)
-            probabilities.append(float(distribution[token_id].item()))
-            # Cue ends in \\boxed: completion needs the balanced closing brace.
-            if "}" in self._decode([token_id]):
-                complete = self._boxed_content(generated)[2]
-            if token_id in eos_ids or complete:
-                break
-            if len(generated) < config.probe_max_tokens:
-                output = self._forward([token_id], probe_cache)
-                probe_cache = output.past_key_values
-                logits = output.logits[0, -1].float()
-                decode_evaluations += 1
+        try:
+            output = self._forward(inputs, cache)
+            probe_cache = output.past_key_values
+            logits = output.logits[0, -1].float()
+            generated: list[int] = []
+            probabilities: list[float] = []
+            decode_evaluations = 0
+            complete = False
+            eos_ids = self._eos_ids()
+            for _ in range(config.probe_max_tokens):
+                distribution = torch.softmax(logits, dim=-1)
+                token_id = int(torch.argmax(logits).item())
+                generated.append(token_id)
+                probabilities.append(float(distribution[token_id].item()))
+                # Cue ends in \\boxed: completion needs the balanced closing brace.
+                if "}" in self._decode([token_id]):
+                    complete = self._boxed_content(generated)[2]
+                if token_id in eos_ids or complete:
+                    break
+                if len(generated) < config.probe_max_tokens:
+                    output = self._forward([token_id], probe_cache)
+                    probe_cache = output.past_key_values
+                    logits = output.logits[0, -1].float()
+                    decode_evaluations += 1
+        finally:
+            if restore is not None:
+                restore()
         answer, content, complete = self._boxed_content(generated)
         confidence = deer_confidence([probabilities[i] for i in content]) if complete else 0.0
         self._sync()
@@ -213,6 +272,7 @@ class TransformersReasoningAdapter:
                 "probe_complete": complete,
                 "probe_cue": DEER_PROBE_CUE,
             },
+            reused_prefix_tokens=keep,
         )
 
     @torch.inference_mode()
@@ -261,6 +321,7 @@ class TransformersReasoningAdapter:
             "probe_model_evaluated_tokens": 0,
             "probe_prefill_tokens": 0,
             "probe_decode_model_evaluated_tokens": 0,
+            "probe_reused_prefix_tokens": 0,
             "probe_tokens": 0,
             "probe_latency_s": 0.0,
             "controller_overhead_s": 0.0,
@@ -296,6 +357,7 @@ class TransformersReasoningAdapter:
                         controller,
                         state,
                         logits,
+                        cache,
                         list(prompt_ids) + generated,
                         queued,
                         probe_history,
@@ -358,6 +420,7 @@ class TransformersReasoningAdapter:
         controller,
         state,
         logits,
+        cache,
         prefix_ids,
         queued,
         probe_history,
@@ -377,12 +440,13 @@ class TransformersReasoningAdapter:
         wants_probe = controller.needs_probe(state, observation)
         metrics["controller_overhead_s"] += perf_counter() - observe_started
         if wants_probe:
-            probe = self.probe(prefix_ids, controller.config)
+            probe = self.probe(prefix_ids, controller.config, cache=cache)
             observation.update(probe.signals)
             metrics["probe_tokens"] += len(probe.token_ids)
             metrics["probe_model_evaluated_tokens"] += probe.model_evaluated_tokens
             metrics["probe_prefill_tokens"] += probe.prefill_tokens
             metrics["probe_decode_model_evaluated_tokens"] += probe.decode_tokens
+            metrics["probe_reused_prefix_tokens"] += probe.reused_prefix_tokens
             metrics["probe_latency_s"] += probe.latency_s
             probe_history.append(
                 {

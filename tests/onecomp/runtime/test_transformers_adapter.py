@@ -342,3 +342,70 @@ def test_none_matches_native_greedy_tiny_qwen3():
         max_new_tokens=8,
     )
     assert result.state.generated_token_ids == native[0, prompt.shape[1] :].tolist()
+
+
+def _tiny_qwen3():
+    from transformers import Qwen3Config, Qwen3ForCausalLM
+
+    torch.manual_seed(17)
+    return Qwen3ForCausalLM(
+        Qwen3Config(
+            vocab_size=32,
+            hidden_size=16,
+            intermediate_size=32,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            num_key_value_heads=1,
+            head_dim=8,
+            max_position_embeddings=128,
+            eos_token_id=31,
+            pad_token_id=0,
+        )
+    ).eval()
+
+
+def test_cache_branch_probe_matches_replay_and_restores_cache_exactly():
+    model = _tiny_qwen3()
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    prefix = [1, 4, 5, 4, 5, 4]
+    config = ReasoningConfig(policy="deer", probe_max_tokens=4)
+    with torch.inference_mode():
+        cache = adapter._forward(prefix).past_key_values
+    before = [(layer.keys.clone(), layer.values.clone()) for layer in cache.layers]
+    branched = adapter.probe(prefix, config, cache=cache)
+    replayed = adapter.probe(prefix, config)
+    for (keys, values), layer in zip(before, cache.layers):
+        assert torch.equal(keys, layer.keys) and torch.equal(values, layer.values)
+    assert branched.token_ids == replayed.token_ids
+    assert branched.reused_prefix_tokens > 0 and replayed.reused_prefix_tokens == 0
+    assert branched.model_evaluated_tokens < replayed.model_evaluated_tokens
+
+
+def test_prefix_reuse_keeps_main_trajectory_and_reduces_probe_compute():
+    results = []
+    for reuse in (True, False):
+        adapter = TransformersReasoningAdapter(
+            _tiny_qwen3(), TinyTokenizer(), probe_prefix_reuse=reuse
+        )
+        results.append(
+            adapter.generate(
+                [1, 5, 9],
+                reasoning_format=FORMAT,
+                config=ReasoningConfig(
+                    policy="deer",
+                    boundary="tokens",
+                    interval=2,
+                    confidence_threshold=1.0,
+                    probe_max_tokens=3,
+                ),
+                max_new_tokens=10,
+            )
+        )
+    reused, replayed = results
+    assert reused.state.generated_token_ids == replayed.state.generated_token_ids
+    assert reused.metrics["probe_reused_prefix_tokens"] > 0
+    assert replayed.metrics["probe_reused_prefix_tokens"] == 0
+    assert (
+        reused.metrics["probe_model_evaluated_tokens"]
+        < replayed.metrics["probe_model_evaluated_tokens"]
+    )
