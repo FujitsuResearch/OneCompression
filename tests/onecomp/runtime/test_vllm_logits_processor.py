@@ -98,6 +98,34 @@ def test_multitoken_marker_advances_only_after_sampled_output(processor):
     assert processor.requests[0].state.marker_tokens == 2
 
 
+def test_async_placeholders_are_consumed_once_replaced(processor):
+    # vLLM's async scheduler shows -1 to update_state and fills it in before apply.
+    output = []
+    update(processor, size=1, added=[(0, params(2), [1], output)])
+    output.append(-1)
+    processor.update_state(None)
+    assert processor.requests[0].state.reasoning_tokens == 0
+    output[-1] = 4
+    assert processor.apply(torch.zeros(1, 10)).eq(0).all()
+    assert processor.requests[0].state.reasoning_tokens == 1
+    output.extend([4, -1])
+    processor.update_state(None)
+    output[-1] = 4
+    assert processor.apply(torch.zeros(1, 10)).argmax().item() == 3
+    assert processor.requests[0].seen == 3
+
+
+def test_async_placeholder_while_marker_is_pending(processor):
+    output = []
+    update(processor, size=1, added=[(0, params(0), [1], output)])
+    assert processor.apply(torch.zeros(1, 10)).argmax().item() == 3
+    output.append(-1)
+    processor.update_state(None)
+    output[-1] = 3
+    assert processor.apply(torch.zeros(1, 10)).eq(0).all()
+    assert processor.requests[0].state.phase == "answer"
+
+
 def test_speculative_mode_fails_explicitly():
     with pytest.raises(NotImplementedError, match="speculative"):
         ReasoningLogitsProcessor(SimpleNamespace(speculative_config=object()), "cpu", False)

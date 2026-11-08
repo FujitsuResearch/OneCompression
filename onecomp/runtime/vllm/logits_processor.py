@@ -99,23 +99,34 @@ class ReasoningLogitsProcessor(LogitsProcessor):
                 if direction == MoveDirectionality.SWAP and second is not None:
                     self.requests[source] = second
         for request in self.requests.values():
-            if len(request.output_ids) < request.seen:
-                raise RuntimeError(
-                    "vLLM output history shrank; unsupported cache/trajectory rewind"
-                )
-            for token_id in request.output_ids[request.seen :]:
-                if request.forced:
-                    expected = request.forced.popleft()
-                    if token_id != expected:
-                        raise RuntimeError("A vLLM sampler overrode a forced reasoning marker")
-                # Budget policies ignore token text, so outputs are not decoded.
-                request.state.append(token_id)
-            request.seen = len(request.output_ids)
+            self._consume(request)
+
+    def _consume(self, request):
+        """Append newly sampled tokens to the request state.
+
+        With async scheduling, vLLM 0.21 appends ``-1`` placeholders that it
+        replaces in place before sampling, so stop at the first placeholder and
+        pick the rest up in ``apply``.
+        """
+        output = request.output_ids
+        if len(output) < request.seen:
+            raise RuntimeError("vLLM output history shrank; unsupported cache/trajectory rewind")
+        for token_id in output[request.seen :]:
+            if token_id < 0:
+                break
+            if request.forced:
+                expected = request.forced.popleft()
+                if token_id != expected:
+                    raise RuntimeError("A vLLM sampler overrode a forced reasoning marker")
+            # Budget policies ignore token text, so outputs are not decoded.
+            request.state.append(token_id)
+            request.seen += 1
 
     def apply(self, logits):
         for index, request in self.requests.items():
             if index >= logits.shape[0]:
                 raise RuntimeError("Stale reasoning request slot outside the vLLM batch")
+            self._consume(request)
             if not request.forced and request.controller.is_boundary(request.state):
                 decision = request.controller.decide(request.state, {})
                 if decision.kind == "stop":
