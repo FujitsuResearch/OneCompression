@@ -327,6 +327,8 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | CPU Inference | [example_gptq_gguf_cpu.py](./example/cpu_inference/example_gptq_gguf_cpu.py) | Export GPTQ quantized models to GGUF and run CPU inference |
 | | [example_mixed_gptq_gguf_cpu.py](./example/cpu_inference/example_mixed_gptq_gguf_cpu.py) | Export Mixed-GPTQ quantized models to GGUF and run CPU inference |
 | | [example_serve_cpu.py](./example/cpu_inference/example_serve_cpu.py) | Serve a GGUF model with llama.cpp on CPU |
+| Reasoning Compression | [example_reasoning_compression.py](./example/example_reasoning_compression.py) | Compare none / fixed / prompt_budget reasoning policies with the Transformers reference backend (experimental) |
+| | [example_reasoning_vllm_inference.py](./example/vllm_inference/example_reasoning_vllm_inference.py) | Per-request reasoning compression policies in a vLLM batch (experimental) |
 
 ## 🔌 vLLM Inference
 
