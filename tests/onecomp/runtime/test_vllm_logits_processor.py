@@ -139,6 +139,57 @@ def test_async_placeholder_while_marker_is_pending(processor):
     assert processor.requests[0].state.phase == "answer"
 
 
+def test_thinkbrake_uses_actual_next_logits_at_candidate_boundary(processor):
+    output = []
+    update(
+        processor,
+        size=1,
+        added=[
+            (
+                0,
+                params(10, policy="thinkbrake", boundary="tokens", interval=1, threshold=0.5),
+                [1],
+                output,
+            )
+        ],
+    )
+    output.append(4)
+    processor.update_state(None)
+    logits = torch.zeros(1, 10)
+    logits[0, 4], logits[0, 3] = 5.0, 4.8
+    assert processor.apply(logits).argmax().item() == 3
+    assert processor.requests[0].state.signals[0]["logit_margin"] == pytest.approx(0.2)
+
+
+class PieceTokenizer:
+    def decode(self, ids, **_):
+        assert all(i >= 0 for i in ids), "async placeholders must never be decoded"
+        return {4: "x", 5: "."}[ids[0]]
+
+
+def test_thinkbrake_sentence_boundary_decodes_only_replaced_placeholders(processor):
+    processor._tokenizer = PieceTokenizer()
+    output = []
+    update(
+        processor, size=1, added=[(0, params(10, policy="thinkbrake", threshold=0.5), [1], output)]
+    )
+    output.append(-1)
+    processor.update_state(None)
+    output[-1] = 5
+    logits = torch.zeros(1, 10)
+    logits[0, 4], logits[0, 3] = 5.0, 4.8
+    assert processor.apply(logits).argmax().item() == 3
+    assert processor.requests[0].state.last_text == "."
+    assert processor.requests[0].state.signals[0]["logit_margin"] == pytest.approx(0.2)
+
+
+def test_thinkbrake_rejects_multitoken_end():
+    with pytest.raises(ValueError, match="singleton"):
+        VLLMReasoningAdapter.extra_args(
+            ReasoningConfig(policy="thinkbrake"), ReasoningFormat((2,), (3, 4))
+        )
+
+
 def test_speculative_mode_fails_explicitly():
     with pytest.raises(NotImplementedError, match="speculative"):
         ReasoningLogitsProcessor(SimpleNamespace(speculative_config=object()), "cpu", False)

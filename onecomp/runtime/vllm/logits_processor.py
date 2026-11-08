@@ -25,6 +25,7 @@ from onecomp.reasoning import (
     RequestState,
 )
 from onecomp.reasoning.actions import StopAction
+from onecomp.reasoning.signals import logit_observation
 
 from .adapter import VLLMReasoningAdapter
 
@@ -67,10 +68,21 @@ class ReasoningLogitsProcessor(LogitsProcessor):
             raise NotImplementedError(
                 "Reasoning compression is not validated with speculative decoding"
             )
+        self.vllm_config = vllm_config
         self.requests: dict[int, _Request] = {}
+        self._tokenizer = None
 
     def is_argmax_invariant(self):
         return False
+
+    def _decode(self, token_id):
+        if self._tokenizer is None:
+            from vllm.tokenizers import cached_tokenizer_from_config
+
+            self._tokenizer = cached_tokenizer_from_config(self.vllm_config.model_config)
+            if self._tokenizer is None:
+                raise ValueError("Linguistic boundaries require vLLM tokenizer initialization")
+        return self._tokenizer.decode([token_id], skip_special_tokens=False)
 
     def update_state(self, batch_update: BatchUpdate | None):
         if batch_update is not None:
@@ -119,8 +131,14 @@ class ReasoningLogitsProcessor(LogitsProcessor):
                 expected = request.forced.popleft()
                 if token_id != expected:
                     raise RuntimeError("A vLLM sampler overrode a forced reasoning marker")
-            # Budget policies ignore token text, so outputs are not decoded.
-            request.state.append(token_id)
+            controller = request.controller
+            # Only logit policies consult linguistic boundaries; budgets ignore text.
+            text = (
+                self._decode(token_id)
+                if controller.policy.uses_logits and controller.config.boundary != "tokens"
+                else ""
+            )
+            request.state.append(token_id, text)
             request.seen += 1
 
     def apply(self, logits):
@@ -128,13 +146,28 @@ class ReasoningLogitsProcessor(LogitsProcessor):
             if index >= logits.shape[0]:
                 raise RuntimeError("Stale reasoning request slot outside the vLLM batch")
             self._consume(request)
-            if not request.forced and request.controller.is_boundary(request.state):
-                decision = request.controller.decide(request.state, {})
-                if decision.kind == "stop":
-                    state = request.state
-                    StopAction(state.format, state.pending_end_prefix).apply(request.forced)
-                elif decision.kind != "continue":
-                    raise RuntimeError("Unsupported intervention in vLLM logits adapter")
+            config = request.controller.config
+            uses_logits = request.controller.policy.uses_logits
+            if not request.forced:
+                next_text = ""
+                if uses_logits and config.boundary == "transition":
+                    next_text = self._decode(int(logits[index].argmax().item()))
+                if request.controller.is_boundary(request.state, next_text):
+                    observation = (
+                        logit_observation(
+                            logits[index],
+                            request.state.format.end_token_ids[0],
+                            config.temperature,
+                        )
+                        if uses_logits
+                        else {}
+                    )
+                    decision = request.controller.decide(request.state, observation)
+                    if decision.kind == "stop":
+                        state = request.state
+                        StopAction(state.format, state.pending_end_prefix).apply(request.forced)
+                    elif decision.kind != "continue":
+                        raise RuntimeError("Unsupported intervention in vLLM logits adapter")
             if request.forced:
                 token_id = request.forced[0]
                 if not 0 <= token_id < logits.shape[-1]:
