@@ -693,3 +693,24 @@ gptq = GPTQ(
     exclude_layer_keywords=["down_proj", "gate_proj"],
 )
 ```
+
+## Reasoning Compression
+
+Shorten Qwen3's thinking at inference time (independent of weight quantization):
+
+```python
+from onecomp.reasoning import ReasoningConfig, ReasoningFormat
+from onecomp.runtime.transformers import TransformersReasoningAdapter
+
+adapter = TransformersReasoningAdapter(model, tokenizer)
+result = adapter.generate(
+    prompt_ids,
+    reasoning_format=ReasoningFormat.from_tokenizer(tokenizer),
+    config=ReasoningConfig(policy="fixed", budget=1024),
+    max_new_tokens=16000,
+)
+```
+
+See [`example/example_reasoning_compression.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/example_reasoning_compression.py),
+[`example/vllm_inference/example_reasoning_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_reasoning_vllm_inference.py)
+and the [Reasoning Compression guide](reasoning-compression.md).

@@ -95,6 +95,7 @@ nav:
       - CPU Inference (llama.cpp / GGUF): user-guide/cpu-inference.md
       - GGUF Export: user-guide/gguf-export.md
       - Evaluation: user-guide/evaluation.md
+      - Reasoning Compression (Experimental): user-guide/reasoning-compression.md
       - Examples: user-guide/examples.md
   - Algorithms:
       - Overview: algorithms/overview.md
@@ -106,6 +107,9 @@ nav:
       - RTN (Round-To-Nearest): algorithms/rtn.md
       - AutoBit (Mixed-Precision ILP): algorithms/autobit.md
       - JointQ (Joint Optimization): algorithms/jointq.md
+  - Reasoning Compression:
+      - Design: reasoning-compression/design.md
+      - Runtime and vLLM Integration: reasoning-compression/runtime.md
   - API Reference:
       - api/index.md
       - Runner: api/runner.md
@@ -126,6 +130,7 @@ nav:
       - Pre-Process: api/pre_process.md
       - Post-Process: api/post_process.md
       - Evaluation: api/eval.md
+      - Reasoning Compression: api/reasoning.md
       - Utilities: api/utilities.md
   - Contributing: contributing.md
   - Changelog: changelog.md
