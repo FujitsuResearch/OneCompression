@@ -7,9 +7,10 @@ to plain greedy decoding. It is independent of weight quantization and works on
 original or OneComp-quantized models.
 
 !!! warning "Research feature"
-    This release provides the policy/controller API, the budget baselines and
-    ThinkBrake, an adaptive policy that reads only output logits. Probe- and
-    attention-based policies are not included yet.
+    This release provides the policy/controller API, the budget baselines,
+    ThinkBrake (reads only output logits) and the answer-probe policies DEER and
+    stability (Transformers reference backend only). Attention-based policies
+    are not included yet.
 
 ## Policies
 
@@ -19,6 +20,8 @@ original or OneComp-quantized models.
 | `fixed` | reasoning-token count ≥ `budget` | none | Transformers, vLLM | budget baseline |
 | `prompt_budget` | reasoning-token count ≥ a per-prompt `budget` | none | Transformers, vLLM | TALE-like heuristic (not TALE) |
 | `thinkbrake` | at a boundary, the best non-end token's log-probability minus `</think>`'s ≤ `threshold` | none (reads logits decoding already produced) | Transformers, vLLM | [ThinkBrake](../reasoning-compression/papers.md#thinkbrake) |
+| `deer` | a trial answer's geometric-mean confidence > `confidence_threshold` | answer probe per boundary | Transformers | [DEER](../reasoning-compression/papers.md#deer) |
+| `stability` | `stability_window` identical trial answers in a row | answer probe per boundary | Transformers | [Dynasor-inspired](../reasoning-compression/papers.md#certaindex-dynasor) |
 
 When a policy stops, the backend emits the model's own `</think>` marker through
 normal decoding and the model then writes its final answer. Budgets stop as soon
@@ -36,6 +39,26 @@ temperature, 0.6); it does not change decoding, which stays greedy. ThinkBrake
 needs a single-token `</think>`. With greedy decoding the gap at sentence ends
 can stay far above the paper's `threshold`, so ThinkBrake may never trigger;
 choose `threshold` on a development set for your model.
+
+DEER and stability run an *answer probe* at each boundary: the backend appends
+the cue `\n**Final Answer**\n\boxed` to the current reasoning, greedily decodes a
+short trial answer on a temporary branch, and discards it. DEER stops when the
+answer's confidence is high; stability stops when the last `stability_window`
+answers agree. A probe cut off before the closing brace never counts as
+confident or stable. After a stop, the model closes its reasoning with
+`</think>` and writes a fresh final answer; the trial answer is not reused.
+
+```python
+config = ReasoningConfig(policy="deer", confidence_threshold=0.95, boundary="transition")
+```
+
+Probes are extra model work, and every probe token is counted in
+`result.metrics["model_evaluated_tokens"]` (`probe_model_evaluated_tokens`,
+`probe_history`). By default a probe extends the request's own KV cache and
+crops it back afterwards, so it skips re-reading the prefix; pass
+`probe_prefix_reuse=False` to the adapter to re-prefill every probe instead (the
+conservative cost reference). Reuse lowers model compute, but on a serial
+reference backend wall-clock latency is dominated by token-by-token decoding.
 
 `prompt_budget` reads its budget from the config like `fixed`. Substitute the
 per-prompt value from `estimate_prompt_budget` for each request:
@@ -99,8 +122,8 @@ params = SamplingParams(
 ```
 
 Requests without the metadata are untouched, and each request in a batch keeps
-its own state. `none`, `fixed`, `prompt_budget` and `thinkbrake` are supported.
-The processor supports vLLM 0.21.x only (other versions raise
+its own state. `none`, `fixed`, `prompt_budget` and `thinkbrake` are supported;
+probe policies raise `NotImplementedError`. The processor supports vLLM 0.21.x only (other versions raise
 `RuntimeError` at construction, although the `vllm` extra allows
 `>=0.10,<0.22`) and rejects speculative decoding and `n > 1`.
 
@@ -112,9 +135,13 @@ The processor supports vLLM 0.21.x only (other versions raise
 | `budget` | `2048` | fixed, prompt_budget | Reasoning-token budget |
 | `threshold` | `0.1` | thinkbrake | Stop when the logit gap ≤ threshold |
 | `temperature` | `1.0` | thinkbrake | Divides the logit gap (ThinkBrake uses the sampling temperature, 0.6 for Qwen3) |
-| `boundary` | `"sentence"` | thinkbrake | `sentence`, `transition` or `tokens` (budgets ignore it) |
+| `confidence_threshold` | `0.95` | deer | Stop when probe confidence > threshold |
+| `relative_confidence` | `False` | deer | Non-paper variant: also stop on a new confidence maximum |
+| `stability_window` | `3` | stability | Number of identical consecutive answers |
+| `probe_max_tokens` | `128` | deer, stability | Trial-answer length limit; truncated probes are never confident |
+| `boundary` | `"sentence"` | adaptive policies | `sentence`, `transition` or `tokens` (budgets ignore it) |
 | `interval` | `128` | `boundary="tokens"` | Check every N reasoning tokens |
-| `min_reasoning_tokens` | `0` | thinkbrake | No adaptive check before this many reasoning tokens |
+| `min_reasoning_tokens` | `0` | adaptive policies | No adaptive check before this many reasoning tokens |
 
 Boundaries select where adaptive policies look: `sentence` after a token ending
 in `.`, `!`, `?` or a blank line (token-level approximation), `transition`
@@ -123,7 +150,7 @@ reasoning tokens.
 
 ## Examples
 
-- [`example/example_reasoning_compression.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/example_reasoning_compression.py) -- Transformers reference: accuracy, reasoning tokens and latency of none / fixed / prompt_budget / ThinkBrake on a few questions
+- [`example/example_reasoning_compression.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/example_reasoning_compression.py) -- Transformers reference: accuracy, reasoning tokens and latency of none / fixed / prompt_budget / ThinkBrake / DEER / stability on a few questions
 - [`example/vllm_inference/example_reasoning_vllm_inference.py`](https://github.com/FujitsuResearch/OneCompression/blob/main/example/vllm_inference/example_reasoning_vllm_inference.py) -- vLLM batch with per-request policies
 
 ## Further reading
