@@ -4,11 +4,13 @@
 
 from .base import NonePolicy, ReasoningPolicy
 from .budget import BudgetPolicy
+from .thinkbrake import ThinkBrakePolicy
 
 POLICIES = {
     "none": NonePolicy,
     "fixed": BudgetPolicy,
     "prompt_budget": BudgetPolicy,
+    "thinkbrake": ThinkBrakePolicy,
 }
 
 
@@ -21,5 +23,6 @@ __all__ = [
     "BudgetPolicy",
     "NonePolicy",
     "ReasoningPolicy",
+    "ThinkBrakePolicy",
     "make_policy",
 ]

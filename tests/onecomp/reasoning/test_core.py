@@ -92,6 +92,19 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(c.is_boundary(s))
         self.assertEqual(c.decide(s, {}).reason, "reasoning_budget")
 
+    def test_thinkbrake_gap_direction(self):
+        s = RequestState("a", ReasoningFormat((10,), (20,)))
+        c = ReasoningCompressionController(ReasoningConfig(policy="thinkbrake", threshold=0.1))
+        self.assertEqual(c.decide(s, {"logit_margin": 0.2}).kind, "continue")
+        s.append(1)
+        self.assertEqual(c.decide(s, {"logit_margin": 0.05}).kind, "stop")
+        self.assertEqual(s.interventions[0]["reason"], "end_logit_gap")
+
+    def test_thinkbrake_without_margin_continues(self):
+        s = RequestState("a", ReasoningFormat((10,), (20,)))
+        c = ReasoningCompressionController(ReasoningConfig(policy="thinkbrake", threshold=10))
+        self.assertEqual(c.decide(s, {"logit_margin": None}).kind, "continue")
+
     def test_boundaries(self):
         s = RequestState("a", ReasoningFormat((10,), (20,)))
         s.append(1, "done.\n")
@@ -134,6 +147,10 @@ class CoreTests(unittest.TestCase):
             {"interval": 0},
             {"boundary": "paragraph"},
             {"budget": True},
+            {"threshold": float("nan")},
+            {"threshold": True},
+            {"temperature": 0},
+            {"temperature": float("inf")},
         ):
             with self.assertRaises((ValueError, TypeError)):
                 ReasoningConfig.from_dict(values)
