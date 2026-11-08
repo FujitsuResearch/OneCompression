@@ -6,11 +6,19 @@ import pytest
 import torch
 
 pytest.importorskip("vllm")
-from vllm import SamplingParams
-from vllm.v1.sample.logits_processor.interface import BatchUpdate, MoveDirectionality
 
 from onecomp.reasoning import ReasoningConfig, ReasoningFormat
 from onecomp.runtime.vllm import VLLMReasoningAdapter
+
+# Every test here, not only the fixture, depends on the 0.21 batching API.
+try:
+    VLLMReasoningAdapter.check_version()
+except RuntimeError as error:
+    pytest.skip(str(error), allow_module_level=True)
+
+from vllm import SamplingParams
+from vllm.v1.sample.logits_processor.interface import BatchUpdate, MoveDirectionality
+
 from onecomp.runtime.vllm.logits_processor import ReasoningLogitsProcessor
 
 FORMAT = ReasoningFormat((2,), (3,))
@@ -18,10 +26,6 @@ FORMAT = ReasoningFormat((2,), (3,))
 
 @pytest.fixture
 def processor():
-    try:
-        VLLMReasoningAdapter.check_version()
-    except RuntimeError as error:
-        pytest.skip(str(error))
     return ReasoningLogitsProcessor(SimpleNamespace(speculative_config=None), "cpu", False)
 
 

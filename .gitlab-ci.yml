@@ -175,7 +175,7 @@ test:onecomp:
       - JOB_LABEL: pre-process
         PYTEST_TARGET: "tests/onecomp/pre_process/ tests/onecomp/calibration/ tests/onecomp/lpcd/"
       - JOB_LABEL: core
-        PYTEST_TARGET: "tests/onecomp/runner/ tests/onecomp/post_process/ tests/onecomp/utils/ tests/onecomp/test_make_grouped_module.py tests/onecomp/test_runner_check.py tests/onecomp/test_eval_quantized_vs_dequantized.py tests/onecomp/test_qep_general_consistency.py tests/onecomp/test_cumulative_error_regression.py tests/onecomp/test_qep_gptq_regression.py"
+        PYTEST_TARGET: "tests/onecomp/runner/ tests/onecomp/post_process/ tests/onecomp/utils/ tests/onecomp/test_make_grouped_module.py tests/onecomp/test_runner_check.py tests/onecomp/test_eval_quantized_vs_dequantized.py tests/onecomp/test_qep_general_consistency.py tests/onecomp/test_cumulative_error_regression.py tests/onecomp/test_qep_gptq_regression.py tests/onecomp/reasoning/ tests/onecomp/runtime/"
       - JOB_LABEL: vllm
         PYTEST_TARGET: "tests/vllm_plugins/"
 
