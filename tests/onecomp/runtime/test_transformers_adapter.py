@@ -196,6 +196,37 @@ def test_streamed_text_flushes_a_character_cut_by_eos():
     assert "".join(events) == result.text == "a�"
 
 
+def test_thinkbrake_adaptive_stop():
+    _, result = run(
+        ReasoningConfig(policy="thinkbrake", boundary="tokens", interval=1, threshold=20)
+    )
+    assert result.state.reasoning_tokens == 1
+    assert result.state.signals[0]["logit_margin"] == 14
+    assert result.state.interventions[0]["reason"] == "end_logit_gap"
+    assert result.final_answer == "42<eos>"
+
+
+def test_thinkbrake_rejected_margins_keep_vanilla_tokens():
+    _, raw = run()
+    model, result = run(ReasoningConfig(policy="thinkbrake", threshold=-20))
+    assert result.state.generated_token_ids == raw.state.generated_token_ids
+    # The default sentence boundary fires after every "."; at the last one the
+    # model itself is about to emit </think>, so the margin turns negative.
+    assert [signal["logit_margin"] for signal in result.state.signals] == [14, 14, -14]
+    assert result.state.interventions == []
+    assert sum(model.forward_lengths) == result.metrics["model_evaluated_tokens"]
+
+
+def test_thinkbrake_rejects_multitoken_end():
+    adapter = TransformersReasoningAdapter(ScriptedLM(), TinyTokenizer())
+    with pytest.raises(ValueError, match="singleton"):
+        adapter.generate(
+            [1],
+            reasoning_format=ReasoningFormat((2,), (3, 12)),
+            config=ReasoningConfig(policy="thinkbrake"),
+        )
+
+
 def test_none_matches_native_greedy_tiny_qwen3():
     from transformers import Qwen3Config, Qwen3ForCausalLM
 

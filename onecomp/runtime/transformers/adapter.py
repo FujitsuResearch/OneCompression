@@ -23,6 +23,7 @@ from onecomp.reasoning import (
     RequestState,
 )
 from onecomp.reasoning.actions import StopAction
+from onecomp.reasoning.signals import logit_observation
 
 
 @dataclass
@@ -140,7 +141,13 @@ class TransformersReasoningAdapter:
         if eos_ids.intersection(reasoning_format.end_token_ids):
             raise ValueError("Reasoning end tokens must differ from EOS to allow a final answer")
         controller = ReasoningCompressionController(config) if config is not None else None
+        policy = controller.policy if controller is not None else None
         observe = controller is not None and config.policy != "none"
+        singleton_end = len(reasoning_format.end_token_ids) == 1
+        if observe and policy.requires_logits and not singleton_end:
+            raise ValueError("Adaptive output-logit signals require a singleton end marker")
+        # Recording-only margins are skipped when the end marker spans several tokens.
+        uses_logits = observe and policy.uses_logits and singleton_end
         state = RequestState(request_id, reasoning_format)
         generated: list[int] = []
         queued: deque[int] = deque()
@@ -177,7 +184,9 @@ class TransformersReasoningAdapter:
                 boundary = controller.is_boundary(state, next_text)
                 metrics["controller_overhead_s"] += perf_counter() - decision_started
                 if boundary:
-                    self._intervene(controller, state, queued, metrics)
+                    self._intervene(
+                        controller, state, logits, queued, metrics, uses_logits=uses_logits
+                    )
             token_id = queued.popleft() if queued else int(torch.argmax(logits).item())
             generated.append(token_id)
             last = token_id in eos_ids or index + 1 == max_new_tokens
@@ -224,10 +233,17 @@ class TransformersReasoningAdapter:
         state.timing.update({key: value for key, value in metrics.items() if key.endswith("_s")})
         return GenerationResult(state=state, text=text, final_answer=answer, metrics=metrics)
 
-    def _intervene(self, controller, state, queued, metrics):
-        """Decide at one boundary and queue the action's tokens."""
+    def _intervene(self, controller, state, logits, queued, metrics, *, uses_logits):
+        """Observe one boundary, decide, and queue the action's tokens."""
         decision_started = perf_counter()
-        decision = controller.decide(state, {})
+        observation = (
+            logit_observation(
+                logits, state.format.end_token_ids[0], temperature=controller.config.temperature
+            )
+            if uses_logits
+            else {}
+        )
+        decision = controller.decide(state, observation)
         metrics["controller_overhead_s"] += perf_counter() - decision_started
         action_started = perf_counter()
         if decision.kind == "stop":
