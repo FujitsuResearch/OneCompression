@@ -2,6 +2,7 @@
 
 """One policy class per stopping method, selected by ``ReasoningConfig.policy``."""
 
+from .asag import AsagPolicy
 from .base import NonePolicy, ReasoningPolicy
 from .budget import BudgetPolicy
 from .deer import DeerPolicy
@@ -15,6 +16,7 @@ POLICIES = {
     "thinkbrake": ThinkBrakePolicy,
     "deer": DeerPolicy,
     "stability": StabilityPolicy,
+    "asag_reference": AsagPolicy,
 }
 
 
@@ -24,6 +26,7 @@ def make_policy(config) -> ReasoningPolicy:
 
 __all__ = [
     "POLICIES",
+    "AsagPolicy",
     "BudgetPolicy",
     "DeerPolicy",
     "NonePolicy",
