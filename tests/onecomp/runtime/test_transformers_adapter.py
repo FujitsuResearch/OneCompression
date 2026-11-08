@@ -20,11 +20,17 @@ class TinyTokenizer:
         5: ".",
         6: "42",
         7: "<eos>",
+        8: "{",
+        9: "}",
+        10: "probe",
         12: ">",
     }
 
     def decode(self, ids, **_):
         return "".join(self.pieces.get(int(i), "?") for i in ids)
+
+    def encode(self, text, **_):
+        return [10] if "Final Answer" in text else [4]
 
 
 class ScriptedLM(torch.nn.Module):
@@ -40,7 +46,11 @@ class ScriptedLM(torch.nn.Module):
         incoming = input_ids[0].tolist()
         history = list(past_key_values or []) + incoming
         self.forward_lengths.append(len(incoming))
-        if 3 in history:
+        if 10 in history:
+            # Answer probe: "{42}" then EOS after the cue.
+            after_cue = history[history.index(10) + 1 :]
+            next_id = [8, 6, 9, 7][min(len(after_cue), 3)]
+        elif 3 in history:
             next_id = 7 if 6 in history[history.index(3) :] else 6
         else:
             count = max(0, len(history) - 1)
@@ -225,6 +235,82 @@ def test_thinkbrake_rejects_multitoken_end():
             reasoning_format=ReasoningFormat((2,), (3, 12)),
             config=ReasoningConfig(policy="thinkbrake"),
         )
+
+
+def test_probe_replay_counts_all_tokens_and_does_not_change_rejected_trajectory():
+    _, raw = run()
+    model, result = run(
+        ReasoningConfig(
+            policy="deer",
+            boundary="tokens",
+            interval=2,
+            confidence_threshold=1.0,
+            probe_max_tokens=6,
+        )
+    )
+    assert result.state.generated_token_ids == raw.state.generated_token_ids
+    assert result.metrics["probe_tokens"] == 9
+    assert result.metrics["probe_prefill_tokens"] == 4 + 6 + 8
+    assert result.metrics["probe_model_evaluated_tokens"] == 24
+    assert result.metrics["model_evaluated_tokens"] == sum(model.forward_lengths)
+    assert result.metrics["probe_latency_s"] > 0
+    assert len(result.metrics["probe_history"]) == 3
+
+
+def test_incomplete_probe_cannot_stop_and_confidence_excludes_braces():
+    _, result = run(
+        ReasoningConfig(
+            policy="deer",
+            boundary="tokens",
+            interval=2,
+            confidence_threshold=0.5,
+            probe_max_tokens=1,
+        )
+    )
+    assert not result.state.interventions
+    assert all(s["confidence"] is None and not s["probe_complete"] for s in result.state.signals)
+    model, result = run(
+        ReasoningConfig(
+            policy="deer",
+            boundary="tokens",
+            interval=2,
+            confidence_threshold=0.95,
+            probe_max_tokens=6,
+        )
+    )
+    assert result.state.reasoning_tokens == 2
+    assert result.state.probe_answers == ["42"]
+    assert result.state.interventions[0]["reason"] == "probe_confidence"
+    assert result.final_answer == "42<eos>"
+    assert result.metrics["model_evaluated_tokens"] == sum(model.forward_lengths)
+
+
+def test_stability_stops_after_identical_probe_answers():
+    _, result = run(
+        ReasoningConfig(
+            policy="stability",
+            boundary="tokens",
+            interval=2,
+            stability_window=2,
+            probe_max_tokens=6,
+        )
+    )
+    assert result.state.reasoning_tokens == 4
+    assert result.state.probe_answers == ["42", "42"]
+    assert result.state.interventions[0]["reason"] == "answer_stability"
+
+
+def test_probe_policy_accepts_multitoken_end_without_recording_margin():
+    model = ScriptedLM()
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    result = adapter.generate(
+        [1],
+        reasoning_format=ReasoningFormat((2,), (3, 12)),
+        config=ReasoningConfig(policy="deer"),
+        max_new_tokens=30,
+    )
+    assert result.state.signals
+    assert all("logit_margin" not in signal for signal in result.state.signals)
 
 
 def test_none_matches_native_greedy_tiny_qwen3():
