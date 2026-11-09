@@ -1803,9 +1803,13 @@ class Runner:
                     num_experts,
                 )
             else:
-                strip_moe_experts_from_quant_config(quant_config)
                 if fuse_moe_experts(model, self.logger):
                     self.logger.info("Fused MoE expert tensors for vLLM-compatible save")
+
+                strip_moe_experts_from_quant_config(
+                    quant_config,
+                    model,
+                )
 
         # Patch weights and quant config for architectures with shared
         # K/V projections (e.g. Gemma4 attention_k_eq_v) so that vLLM's
@@ -2845,7 +2849,7 @@ class Runner:
                 self.logger.info("Fused MoE expert tensors before save")
             qcfg = getattr(model.config, "quantization_config", None)
             if isinstance(qcfg, dict):
-                strip_moe_experts_from_quant_config(qcfg)
+                strip_moe_experts_from_quant_config(qcfg, model)
 
         if save_format in {"auto", "native"}:
             self._restore_original_composite_config_if_needed(model)

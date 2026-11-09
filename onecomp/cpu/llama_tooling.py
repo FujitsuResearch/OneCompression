@@ -28,7 +28,7 @@ from typing import List, Optional
 logger = getLogger(__name__)
 
 LLAMA_CPP_REPO = "https://github.com/ggml-org/llama.cpp.git"
-LLAMA_CPP_VERSION = "b9370"
+LLAMA_CPP_VERSION = "v0.4.0"
 
 
 def _cache_root() -> str:
@@ -39,6 +39,30 @@ def _cache_root() -> str:
     return root
 
 
+def _cache_matches_version(cache_dir: str) -> bool:
+    """Return whether the cached checkout matches LLAMA_CPP_VERSION."""
+    try:
+        head = subprocess.check_output(
+            ["git", "-C", cache_dir, "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        expected = subprocess.check_output(
+            [
+                "git",
+                "-C",
+                cache_dir,
+                "rev-parse",
+                f"{LLAMA_CPP_VERSION}^{{commit}}",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        return head == expected
+    except (OSError, subprocess.CalledProcessError):
+        return False
+
+
 def get_llama_cpp_dir(auto_clone: bool = True) -> str:
     """Return a path to a llama.cpp source tree, cloning it if necessary."""
     env_dir = os.environ.get("LLAMA_CPP_DIR")
@@ -46,15 +70,28 @@ def get_llama_cpp_dir(auto_clone: bool = True) -> str:
         return env_dir
 
     cache_dir = os.path.join(_cache_root(), "llama.cpp")
-    if os.path.isfile(os.path.join(cache_dir, "convert_hf_to_gguf.py")):
-        return cache_dir
+    convert_script = os.path.join(cache_dir, "convert_hf_to_gguf.py")
+
+    if os.path.isfile(convert_script):
+        if _cache_matches_version(cache_dir):
+            return cache_dir
+
+        if not auto_clone:
+            raise FileNotFoundError(
+                "Llama.cpp not found at the requested version. Set $LLAMA_CPP_DIR or allow auto_clone."
+            )
+
+        logger.info(
+            "Cached llama.cpp does not match %s; removing %s", LLAMA_CPP_VERSION, cache_dir
+        )
+        shutil.rmtree(cache_dir)
 
     if not auto_clone:
         raise FileNotFoundError(
-            "llama.cpp not found. Set $LLAMA_CPP_DIR to a checkout, or allow auto_clone."
+            "Llama.cpp not found at the requested version. Set $LLAMA_CPP_DIR or allow auto_clone."
         )
 
-    logger.info("Cloning llama.cpp (shallow) into %s", cache_dir)
+    logger.info("Cloning llama.cpp %s into %s", LLAMA_CPP_VERSION, cache_dir)
     subprocess.run(
         ["git", "clone", "--depth", "1", "-b", LLAMA_CPP_VERSION, LLAMA_CPP_REPO, cache_dir],
         check=True,
@@ -75,6 +112,7 @@ def run_convert_hf_to_gguf(
     out_gguf: str,
     outtype: str = "f16",
     extra_args: Optional[List[str]] = None,
+    no_mtp: bool = False,
 ) -> str:
     """Run llama.cpp's convert_hf_to_gguf.py on a dense HF model directory.
 
@@ -92,16 +130,21 @@ def run_convert_hf_to_gguf(
         "--outtype",
         outtype,
     ]
+    if no_mtp:
+        cmd.append("--no-mtp")
+
     if extra_args:
         cmd += extra_args
 
     env = dict(os.environ)
     gguf_py = os.path.join(llama_dir, "gguf-py")
+
     if os.path.isdir(gguf_py):
         env["PYTHONPATH"] = gguf_py + os.pathsep + env.get("PYTHONPATH", "")
 
     logger.info("Running: %s", " ".join(cmd))
     subprocess.run(cmd, check=True, env=env)
+
     if not os.path.isfile(out_gguf):
         raise RuntimeError(f"convert_hf_to_gguf did not produce {out_gguf}")
     return out_gguf

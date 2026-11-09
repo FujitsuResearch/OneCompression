@@ -46,7 +46,7 @@ def push_to_hub(
 
     Examples:
         >>> from onecomp.export import generate_model_card, push_to_hub
-        >>> card = generate_model_card("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+        >>> card = generate_model_card("TinyLlama/TinyLlama-1.1B-Chat-v1.0", repo_id="user/tinyllama-onecomp")
         >>> push_to_hub("./quantized_model", "user/tinyllama-onecomp", card)
         'https://huggingface.co/user/tinyllama-onecomp'
     """
