@@ -11,6 +11,13 @@
   counting. Quantization is faster, especially for quantizers that spend little time
   per layer, such as RTN and GPTQ. Quantization results are unchanged.
 
+### Tests
+
+- Added a `BaseQuantizeSpec` test that fails if `quantize_layer` calls `gc.collect()`
+  explicitly, plus MDBF cases that also run ADMM, gradient refinement and
+  activation-aware initialization, so that the removed per-layer calls are not added
+  back.
+
 ## [v1.5.0(WIP)+feature/issue-58-low-memory-loader] 2026-10-21
 
 ### Enhancement
