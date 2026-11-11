@@ -8,6 +8,8 @@ of skipped, and packaged as a ``GPTQResult`` so it flows through the same
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
+import math
+
 import pytest
 import torch
 import torch.nn as nn
@@ -64,17 +66,18 @@ class TestRtnFallbackResult:
             result = _rtn_fallback_result(module, quantizer, "mlp.experts.0.down_proj")
             assert result.sym is sym
 
-    def test_scales_and_qzeros_are_transposed_to_group_major(self):
+    @pytest.mark.parametrize("groupsize", [8, 12, 64])
+    def test_scales_and_qzeros_are_transposed_to_group_major(self, groupsize):
         """RTN's raw scale/zero are (out_features, num_groups); GPTQResult
 
         expects (num_groups, out_features).
         """
-        out_features, in_features, groupsize = 16, 32, 8
+        out_features, in_features = 16, 32
         module = _linear(in_features=in_features, out_features=out_features)
         quantizer = GPTQ(wbits=4, groupsize=groupsize, sym=True)
         result = _rtn_fallback_result(module, quantizer, "mlp.experts.0.down_proj")
 
-        num_groups = in_features // groupsize
+        num_groups = math.ceil(in_features / groupsize)
         assert result.scales.shape == (num_groups, out_features)
         assert result.qzeros.shape == (num_groups, out_features)
         assert result.qweight.shape == (out_features, in_features)
@@ -85,7 +88,7 @@ class TestRtnFallbackResult:
         result = _rtn_fallback_result(module, quantizer, "mlp.experts.0.down_proj")
         assert result.dequantized_weight.shape == module.weight.data.shape
 
-    @pytest.mark.parametrize("groupsize", [-1, 32])
+    @pytest.mark.parametrize("groupsize", [-1, 32, 12, 64])
     def test_compute_dequantized_weight_roundtrip(self, groupsize):
         """The packaged qweight/scales/qzeros must reconstruct a weight
 

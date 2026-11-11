@@ -7,6 +7,23 @@
 - Load GPTQ and mixed GPTQ checkpoints of Qwen3 and Llama models with low host memory in `load_quantized_model()` ([#58](https://github.com/FujitsuResearch/OneCompression/issues/58)). Instead of building a dense model on CPU and reading the whole checkpoint, the loader plans the load from the safetensors headers on an empty (meta) model and then reads the tensors one at a time onto their final device. On an RTX 4090 host, loading a 4-bit GPTQ Qwen3-8B checkpoint onto the GPU peaked at 2.2 GiB of host memory instead of 19.7 GiB. Existing calls need no change: other checkpoints are still loaded by the previous loader, after a warning. The new keyword-only `load_strategy` argument (`"auto"`, `"streaming"`, `"legacy"`) and `onecomp.StreamingUnsupportedError` control this fallback. See [Low-memory loading](docs/api/quantized_model_loader.md#low-memory-loading) in the API reference for the supported checkpoints, the strategies and the memory requirements. Accelerate 1.9.0 or later is now required, because the new loader passes `clear_cache` to `set_module_tensor_to_device`.
 
 ## [v1.5.0] 2026-mm-dd
+## [v1.4.2(WIP)+fix/rtn-ragged-group] 2026-11-05
+
+### Enhancement
+
+- `RTN` now accepts a `groupsize` that does not divide a layer's input size; the last group of
+  each row is shorter, as in GPTQ. vLLM still requires the input size to be a multiple of
+  `groupsize`.
+
+### Bug Fixes
+
+- Fixed QEP quantization stopping with `ValueError` when an MoE expert received no calibration
+  tokens and `groupsize` did not divide its input size (e.g. Gemma 4 26B-A4B expert `down_proj`
+  at the `auto_run` default `groupsize=128`). The RTN fallback now quantizes a shorter last
+  group, as GPTQ does. The same fix lets AutoBit's `ilp` and `activation_aware` assignment
+  handle such layers instead of failing in `setup()`.
+
+## [v1.4.2] 2026-mm-dd
 
 ## [v1.4.1] 2026-10-28
 
