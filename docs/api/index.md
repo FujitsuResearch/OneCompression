@@ -32,6 +32,8 @@ The following are available directly from `import onecomp`:
 
 Evaluation (`onecomp-eval`, vLLM + MT-Bench / throughput) is documented separately:
 [Evaluation user guide](../user-guide/evaluation.md) and [Evaluation API](eval.md).
+Runtime reasoning compression (`onecomp.reasoning`) is documented in the
+[Reasoning Compression user guide](../user-guide/reasoning-compression.md) and [API](reasoning.md).
 
 ## Module Structure
 
@@ -60,6 +62,10 @@ onecomp/
     quantized_model_loader.py  # QuantizedModelLoader
     log.py                 # setup_logger
     utils/                 # Calibration, perplexity, accuracy utilities
+    reasoning/             # Runtime reasoning compression (see api/reasoning.md)
+        policies/          # One module per stopping method
+        signals/           # Signal protocol for backend observations
+    runtime/               # Reasoning backends: transformers/ (reference), vllm/ (logits processor)
 eval/                      # onecomp-eval harness (see api/eval.md)
     schema.py              # EvalConfig, TaskResult, per-eval configs
     orchestrator/          # vLLM server, subprocess dispatch, aggregation

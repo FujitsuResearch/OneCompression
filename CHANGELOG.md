@@ -1,5 +1,18 @@
 # Change log
 
+## [Unreleased]
+
+### New Features
+
+- **Runtime reasoning compression (experimental)**: new `onecomp.reasoning` and
+  `onecomp.runtime` packages shorten the thinking phase of reasoning models
+  (e.g. Qwen3) at inference time without training. This release provides the
+  policy/controller API and the budget baselines (fixed and prompt-based
+  budgets). A greedy Transformers reference backend and a vLLM 0.21 logits
+  processor apply them per request. Compression is disabled by default. See the
+  [reasoning compression guide](docs/user-guide/reasoning-compression.md) and the
+  [example](example/example_reasoning_compression.py).
+
 ## [v1.5.0(WIP)+feature/issue-58-low-memory-loader] 2026-10-21
 
 ### Enhancement
