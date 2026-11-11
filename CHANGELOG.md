@@ -1,5 +1,16 @@
 # Change log
 
+## [v1.4.3(WIP)+fix/release-expert-hessians] 2026-11-11
+
+### Bug Fixes
+
+- Fixed QEP quantization of MoE models keeping the expert Hessians of a layer on the device
+  until the next layer's expert Hessians had been computed, which raised the peak device
+  memory of the second and later layers. Each expert Hessian is now released once that expert
+  is quantized. Quantization results are unchanged unless a layer calls the same expert Linear
+  more than once in a forward pass; such a Linear is now quantized once instead of once per
+  call.
+
 ## [v1.4.3] 2026-mm-dd
 
 ## [v1.4.2] 2026-11-12

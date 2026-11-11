@@ -444,6 +444,9 @@ def run_quantize_with_qep_arch(
                 expert_modules_q.extend(targets)
             else:
                 regular_pairs.append((group_q, group_f))
+        # make_grouped_module records a Linear on every call, and the expert loop below pops each
+        # Hessian, so a Linear listed twice would raise KeyError.
+        expert_modules_q = list(dict.fromkeys(expert_modules_q))
 
         # make_grouped_module only sees modules whose forward hook fired for
         # its single calibration sample, so unrouted experts are missing
@@ -559,7 +562,9 @@ def run_quantize_with_qep_arch(
             )
             for module_q in expert_modules_q:
                 name = quantizer.module_to_name[module_q]
-                entry = expert_hessians[module_q]
+                # Pop instead of indexing, and del below: otherwise the dict and the loop
+                # variables keep this block's expert Hessians on the device into the next block.
+                entry = expert_hessians.pop(module_q)
                 if entry is None:
                     fallback_quantizer = _resolve_gptq_for_rtn_fallback(quantizer, module_q)
                     if fallback_quantizer is not None:
@@ -597,6 +602,7 @@ def run_quantize_with_qep_arch(
                         delta_hatX=None,
                         nsamples=nsamples_expert if quantizer.flag_nsamples else None,
                     )
+                    del H, entry
                 try:
                     dtype = module_q.weight.data.dtype
                     module_q.weight.data = (
