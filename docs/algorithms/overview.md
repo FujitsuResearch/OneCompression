@@ -27,7 +27,7 @@ where \(W\) is the original weight matrix and \(X\) is the input activation matr
 | [**MDBF**](mdbf.md)   | ~1--2 (binary) | Required | Multi-Envelope Double Binary Factorization: \(W \approx \sum_{p} F^{(p)} G^{(p)}\) with multi-scale amplitude envelopes |
 | [**RTN**](rtn.md)     | Arbitrary | Not required | Round-To-Nearest baseline |
 | [**AutoBit**](autobit.md) | Mixed-precision | Required | ILP-based per-layer bit-width assignment under a VRAM budget |
-| [**JointQ**](jointq.md) | Arbitrary | Required | Joint optimization of assignments and scale parameters |
+| [**JointQ**](jointq.md) | 1--4 | Required | Joint optimization of assignments and scale parameters |
 | **QuIP**   | Arbitrary | Required | Quantization with Incoherence Processing |
 | **ARB**    | Arbitrary | Required | Adaptive Rounding with Binary search |
 | **CQ**     | Arbitrary | Required | Combinatorial quantization |
@@ -40,7 +40,8 @@ where \(W\) is the original weight matrix and \(X\) is the input activation matr
 of any layer-wise quantizer. It compensates for the error that propagates from one layer to
 the next during sequential quantization.
 
-QEP can be combined with any quantizer:
+QEP can be combined with quantizers that declare QEP support. JointQ does not
+support QEP and must be run with `qep=False`.
 
 ```python
 runner = Runner(

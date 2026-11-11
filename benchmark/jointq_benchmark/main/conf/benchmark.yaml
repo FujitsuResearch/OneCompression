@@ -1,0 +1,25 @@
+model_path: null
+model_device: cuda:0
+
+output_dir: null
+
+max_length: 2048
+num_calibration_samples: 1024
+calibration_strategy: drop_rand
+calibration_seed: 0
+calibration_batch_size: 64
+
+jointq:
+  num_layers: null
+  symmetric: true
+
+calc_ppl: true
+calc_original_ppl: true
+calc_acc: true
+calc_original_acc: true
+
+hydra:
+  run:
+    dir: ${output_dir}
+  job:
+    chdir: true

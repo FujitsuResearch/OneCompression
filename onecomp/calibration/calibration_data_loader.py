@@ -105,6 +105,7 @@ def prepare_calibration_dataset(
             strategy,
             seed,
             use_quality_filter=use_quality_filter,
+            shuffle_documents=calibration_config.shuffle_documents,
             logger=logger,
         )
     elif name_lower == "wikitext2":
@@ -115,6 +116,7 @@ def prepare_calibration_dataset(
             num_calibration_samples,
             strategy,
             seed,
+            shuffle_documents=calibration_config.shuffle_documents,
             logger=logger,
         )
     elif os.path.exists(calibration_dataset):
@@ -128,6 +130,7 @@ def prepare_calibration_dataset(
             seed,
             text_key=text_key,
             max_documents=max_documents,
+            shuffle_documents=calibration_config.shuffle_documents,
             logger=logger,
         )
     else:
@@ -173,6 +176,7 @@ def _load_from_hub(
 
     text_key = calibration_config.text_key
     max_documents = calibration_config.max_documents
+    shuffle_documents = calibration_config.shuffle_documents
 
     local_name = hf_id.replace("/", "__")
 
@@ -204,6 +208,9 @@ def _load_from_hub(
         )
     if col != text_key:
         logger.info("Using column '%s' (requested '%s')", col, text_key)
+
+    if shuffle_documents:
+        data = data.shuffle(seed=calibration_config.seed)
 
     texts = [t for t in data[col] if t and isinstance(t, str) and t.strip()]
     if max_documents and len(texts) > max_documents:

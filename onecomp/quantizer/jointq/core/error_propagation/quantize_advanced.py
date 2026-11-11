@@ -85,6 +85,8 @@ def quantize_advanced(
     batch_size : int or None, optional
         The batch size to use for quantization.
         If None, all rows are optimized together without splitting. Default is None.
+    epsilon : float, optional
+        The epsilon for numerical stability. Default is 1e-8.
     max_iter : int, optional
         The maximum number of iterations for the optimization loop. Default is 10.
     log_level : int, optional

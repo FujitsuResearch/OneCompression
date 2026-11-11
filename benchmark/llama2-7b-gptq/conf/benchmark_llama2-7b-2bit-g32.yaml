@@ -1,0 +1,36 @@
+model_path: null
+model_device: auto
+
+# Output directory
+output_dir: llama2-7b-2bit-g32
+
+# Calibration data parameters
+max_length: 2048
+num_calibration_samples: 1024
+calibration_strategy: drop_rand
+calibration_seed: 0
+calibration_batch_size: 64
+
+# GPTQ parameters
+gptq:
+  num_layers: null
+  bits: 2
+  group_size: 32
+  symmetric: true
+  blocksize: 128
+  percdamp: 0.01
+  q_grid: 600
+  q_norm: 2.4
+
+# Evaluation
+calc_ppl: true
+calc_original_ppl: false
+calc_acc: true
+calc_original_acc: false
+
+# Hydra
+hydra:
+  run:
+    dir: ${output_dir}
+  job:
+    chdir: true
