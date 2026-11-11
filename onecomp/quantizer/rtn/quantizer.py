@@ -17,6 +17,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import transformers
 
 
@@ -80,7 +81,10 @@ def pseudo_quantize_tensor(
     Args:
         w: Weight tensor to quantize.
         n_bit: Number of quantization bits.
-        q_group_size: Group size (-1 means the entire row).
+        q_group_size: Group size (-1 means the entire row). When it does not
+            divide the last dimension, the last group of each row is shorter
+            (the row is zero-padded internally; zero columns change no
+            group's scale or zero point).
         zero_point: If True, asymmetric quantisation. If False,
             symmetric quantisation (min/max symmetrised around zero).
         inplace: Whether to perform in-place operations.
@@ -95,8 +99,9 @@ def pseudo_quantize_tensor(
 
     Returns:
         w_quant: Dequantized weights (floating-point).
-        scale: Scale coefficient.
-        zero_point_val: Zero point.
+        scale: Scale coefficient. Shape ``(rows, ceil(cols / q_group_size))``
+            when ``q_group_size > 0``.
+        zero_point_val: Zero point, with the same shape as ``scale``.
         w_int: Quantized weights (integer values).
     """
     if not inplace:
@@ -106,12 +111,14 @@ def pseudo_quantize_tensor(
     org_w_shape = w.shape
 
     # Configure group size
+    pad_cols = 0
     if q_group_size > 0:
+        pad_cols = -w.shape[-1] % q_group_size
+        if pad_cols:
+            # Pad instead of quantizing the last group separately: each group's range
+            # always includes 0, so zero columns change neither its scale nor its zero point.
+            w = F.pad(w, (0, pad_cols))
         # (out_features, in_features) -> (out_features, num_groups, group_size)
-        if w.shape[-1] % q_group_size != 0:
-            raise ValueError(
-                f"Tensor shape {w.shape[-1]} must be divisible by group size {q_group_size}"
-            )
         w = w.reshape(-1, w.shape[-1] // q_group_size, q_group_size)
     elif perchannel:
         # Treat the entire row as a single group
@@ -173,8 +180,12 @@ def pseudo_quantize_tensor(
     w_quant = dequantize(w_int, scale, zero_point_val)
 
     # Restore original shape
-    w_quant = w_quant.reshape(org_w_shape)
-    w_int = w_int.reshape(org_w_shape)
+    if pad_cols:
+        w_quant = w_quant.reshape(*org_w_shape[:-1], -1)[..., : org_w_shape[-1]].contiguous()
+        w_int = w_int.reshape(*org_w_shape[:-1], -1)[..., : org_w_shape[-1]].contiguous()
+    else:
+        w_quant = w_quant.reshape(org_w_shape)
+        w_int = w_int.reshape(org_w_shape)
     scale = scale.squeeze(-1)
     zero_point_val = zero_point_val.squeeze(-1)
 

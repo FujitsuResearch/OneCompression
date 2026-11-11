@@ -1,5 +1,21 @@
 # Change log
 
+## [v1.4.2(WIP)+fix/rtn-ragged-group] 2026-11-05
+
+### Enhancement
+
+- `RTN` now accepts a `groupsize` that does not divide a layer's input size; the last group of
+  each row is shorter, as in GPTQ. vLLM still requires the input size to be a multiple of
+  `groupsize`.
+
+### Bug Fixes
+
+- Fixed QEP quantization stopping with `ValueError` when an MoE expert received no calibration
+  tokens and `groupsize` did not divide its input size (e.g. Gemma 4 26B-A4B expert `down_proj`
+  at the `auto_run` default `groupsize=128`). The RTN fallback now quantizes a shorter last
+  group, as GPTQ does. The same fix lets AutoBit's `ilp` and `activation_aware` assignment
+  handle such layers instead of failing in `setup()`.
+
 ## [v1.4.2] 2026-mm-dd
 
 ## [v1.4.1] 2026-10-28
