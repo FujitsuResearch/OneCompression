@@ -80,6 +80,8 @@ calib_config = CalibrationConfig(
     max_length=2048,
     num_calibration_samples=256,
     strategy="concat_rand",
+    seed=42,
+    shuffle_documents=True,
 )
 ```
 
@@ -89,12 +91,18 @@ calib_config = CalibrationConfig(
 | `max_length`                | `int`  | Maximum token length per calibration chunk        | `2048`           |
 | `num_calibration_samples`   | `int`  | Target number of calibration samples              | `512`            |
 | `strategy`                  | `str`  | Chunking strategy (see table below)               | `"drop_rand"`    |
-| `seed`                      | `int`  | Random seed for stochastic strategies             | `0`              |
+| `seed`                      | `int`  | Random seed for stochastic strategies and document shuffling | `0`              |
 | `batch_size`                | `int`  | Batch size for chunked calibration forward passes | `None`           |
 | `num_layers_per_group`      | `int`  | Layers processed simultaneously in chunked mode   | `7`              |
 | `text_key`                  | `str`  | Column name when loading custom or Hub datasets   | `"text"`         |
 | `use_quality_filter`        | `bool` | Apply C4 quality filtering                        | `False`          |
 | `max_documents`             | `int`  | Cap on documents loaded from custom/Hub sources   | `10000`          |
+| `shuffle_documents`         | `bool` | Shuffle source documents before filtering, limiting, and chunking | `False`          |
+
+Set `shuffle_documents=True` to vary the source-document order reproducibly with
+`seed`. For sources that stop after collecting enough documents or apply
+`max_documents`, different seeds can also select different document sets. The
+default keeps the original source order and preserves the previous behavior.
 
 ### Calibration Strategies
 
