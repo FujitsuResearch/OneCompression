@@ -10,8 +10,6 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
-import gc
-
 import torch
 import torch.nn as nn
 import transformers
@@ -91,7 +89,6 @@ def run_rtn(
     zero = zero_point.reshape(-1, zero_point.shape[-1]).to(dtype=torch.float16, device="cpu")
 
     del W, Q, Q_int
-    gc.collect()
     torch.cuda.empty_cache()
 
     return {
