@@ -14,8 +14,8 @@ signature, so a verifier needs only the attestation and the model file.
 Integrity is always covered by the file digest and authenticity is covered
 when the verifier pins the expected public key.
 
-The scheme is provided by the optional ``pq`` extra. Install it with
-``pip install onecomp[pq]``.
+The scheme is provided by PyCryptodome's ``MLDSA``/``mldsa`` modules, through
+the optional ``pq`` extra. Install it with ``pip install onecomp[pq]``.
 
 Command line usage::
 
@@ -37,23 +37,36 @@ _MISSING = (
 )
 
 
-def _backend():
-    """Return the ML-DSA backend or raise if the pq extra is not installed."""
+def _public_key_module():
+    """Return Crypto.PublicKey.MLDSA or raise if the pq extra is not installed."""
     try:
-        from dilithium_py.ml_dsa import ML_DSA_65
+        from Crypto.PublicKey import MLDSA
     except ImportError as error:
         raise RuntimeError(_MISSING) from error
-    return ML_DSA_65
+    return MLDSA
+
+
+def _signature_module():
+    """Return Crypto.Signature.mldsa or raise if the pq extra is not installed."""
+    try:
+        from Crypto.Signature import mldsa
+    except ImportError as error:
+        raise RuntimeError(_MISSING) from error
+    return mldsa
 
 
 def generate_keypair():
-    """Return a fresh (public_key, secret_key) pair for the signer."""
-    return _backend().keygen()
+    """Return a fresh (public_key, secret_key) pair for the signer, as raw bytes."""
+    mldsa_keys = _public_key_module()
+    key = mldsa_keys.generate(param_set=mldsa_keys.ML_DSA_65)
+    return key.pk, key.sk
 
 
 def build_attestation(payload, public_key, secret_key):
     """Return a self contained attestation over the payload bytes."""
-    signature = _backend().sign(secret_key, payload, deterministic=True)
+    mldsa_keys = _public_key_module()
+    key = mldsa_keys.construct(param_set=mldsa_keys.ML_DSA_65, sk=secret_key)
+    signature = _signature_module().new(key, deterministic=True).sign(payload)
     return {
         "scheme": SCHEME,
         "issuer": ISSUER,
@@ -80,7 +93,10 @@ def verify_attestation(payload, attestation, expected_public_key=None):
     if expected_public_key is not None and public_key != expected_public_key:
         return False
     try:
-        return bool(_backend().verify(public_key, payload, signature))
+        mldsa_keys = _public_key_module()
+        key = mldsa_keys.construct(param_set=mldsa_keys.ML_DSA_65, pk=public_key)
+        _signature_module().new(key).verify(payload, signature)
+        return True
     except (ValueError, TypeError):
         return False
 

@@ -7,7 +7,7 @@ import tempfile
 
 import pytest
 
-pytest.importorskip("dilithium_py")
+pytest.importorskip("Crypto.Signature.mldsa")
 
 from onecomp import pq_attestation as pqa
 
