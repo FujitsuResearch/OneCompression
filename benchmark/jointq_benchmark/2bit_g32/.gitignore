@@ -1,0 +1,7 @@
+run_*.sh
+logs/
+llama2-7b/
+llama3-8b/
+qwen3-8b/
+qwen3-14b/
+*.png

@@ -180,17 +180,7 @@ class RTN(Quantizer):
         Returns:
             RTNResult: RTN quantization result object containing quantized
                 weights and parameters.
-
-        Raises:
-            ValueError: If groupsize does not divide in_features.
         """
-        if self.groupsize > 0:
-            in_features = module.weight.shape[-1]
-            if in_features % self.groupsize != 0:
-                raise ValueError(
-                    f"groupsize={self.groupsize} does not divide " f"in_features={in_features}."
-                )
-
         result_dict = run_rtn(
             module,
             wbits=self.wbits,

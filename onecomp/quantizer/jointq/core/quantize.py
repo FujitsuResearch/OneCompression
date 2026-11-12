@@ -74,14 +74,15 @@ def quantize(
     symmetric : bool, optional
         Whether to use symmetric quantization. Default is False.
     group_size : int, optional
-        The size of each group. If None, this is set to m. Default is 128.
+        The size of each group. Must divide m. If None, this is set to m.
+        Default is 128.
     batch_size : int or None, optional
         The batch size to use for quantization.
         When None, all rows are optimized together without splitting. Default is None.
     early_stopping_ratio : float, optional
         The ratio for the early stopping. Default is 0.1.
     epsilon : float, optional
-        The epsilon for the quantization. Default is 1e-8.
+        The epsilon for the quantization. Default is 1e-12.
     ils_num_iterations : int, optional
         The number of iterations for the iterated local search. Default is None.
     ils_num_clones : int, optional
@@ -565,8 +566,6 @@ def run_init_local_search(
     -------
     solution : Solution
         The solution.
-    quantizer : Quantizer
-        The quantizer.
 
     Note
     ----

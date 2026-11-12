@@ -9,12 +9,14 @@ import sys
 
 import pytest
 import torch
+import torch.nn.functional as F
 
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from test_module import BaseQuantizeSpec
+from test_module import BaseQuantizeSpec, QuantizeTestHelper
 
+from onecomp.quantizer.gptq.gptq_layer import GPTQLinear
 from onecomp.quantizer.rtn._rtn import RTN, RTNResult
 
 
@@ -32,7 +34,9 @@ class TestRTN(BaseQuantizeSpec):
         # groupsize: -1 or >=1 (validated by validate_params), no explicit upper
         {"groupsize": -1},  # groupsize (no grouping)
         {"groupsize": 1},  # groupsize positive lower boundary
-        {"groupsize": 4},  # groupsize large value (must divide in_features=4)
+        {"groupsize": 3},  # groupsize not dividing in_features=4 (shorter last group)
+        {"groupsize": 4},  # groupsize equal to in_features=4
+        {"groupsize": 8},  # groupsize larger than in_features=4
         # sym: bool
         {"sym": True},
         {"sym": False},
@@ -155,3 +159,30 @@ class TestRTN(BaseQuantizeSpec):
         """Apply quantized weights to a module."""
         dtype = module.weight.data.dtype
         module.weight.data = result.compute_dequantized_weight().to(device).to(dtype)
+
+    def test_ragged_groupsize_inference_layer_matches_dequantized_weight_after_round_trip(
+        self, helper: QuantizeTestHelper
+    ) -> None:
+        """A shorter last group survives the packed GPTQLinear and its state_dict round trip."""
+        helper.seed_everything(123)
+        in_features, out_features, groupsize = 40, 8, 16
+        layer = helper.make_linear(in_features, out_features)
+        inp = helper.make_input(hidden=in_features)
+        quantizer = self.make_quantizer(groupsize=groupsize)
+        result = quantizer.quantize_layer(layer)
+
+        inference_layer = quantizer.create_inference_layer(result, layer, use_gemlite=False)
+        reloaded = GPTQLinear.from_saved_state(
+            inference_layer.state_dict(),
+            in_features=in_features,
+            out_features=out_features,
+            wbits=quantizer.wbits,
+            groupsize=groupsize,
+        )
+        with torch.no_grad():
+            expected = F.linear(inp, result.compute_dequantized_weight().float())
+            output = inference_layer(inp)
+            reloaded_output = reloaded(inp)
+
+        assert (output - expected).abs().max() < 1e-2
+        assert torch.equal(reloaded_output, output)

@@ -12,11 +12,19 @@ from ._cache import load_or_prepare
 from .chunking import prepare_from_texts
 
 
-def load_wikitext_texts(*, split="train", logger=None):
+def load_wikitext_texts(
+    *,
+    split="train",
+    seed=0,
+    shuffle_documents=False,
+    logger=None,
+):
     """Load WikiText-2 raw texts as a list of non-empty text blocks.
 
     Args:
         split: Dataset split (``"train"`` or ``"test"``).
+        seed: Random seed for document shuffling.
+        shuffle_documents: Shuffle documents before removing empty entries.
         logger: Logger (optional).
 
     Returns:
@@ -33,6 +41,8 @@ def load_wikitext_texts(*, split="train", logger=None):
         logger=logger,
     )
     dataset = ds[split]
+    if shuffle_documents:
+        dataset = dataset.shuffle(seed=seed)
 
     texts = [t for t in dataset["text"] if t.strip()]
     logger.info("Loaded %d non-empty WikiText-2 texts", len(texts))
@@ -47,6 +57,7 @@ def prepare_calibration_data(
     strategy,
     seed,
     *,
+    shuffle_documents=False,
     logger=None,
 ):  # pylint: disable=too-many-arguments,too-many-positional-arguments
     """Load WikiText-2 texts and chunk them according to *strategy*.
@@ -58,7 +69,12 @@ def prepare_calibration_data(
         logger = getLogger(__name__)
 
     logger.info("Using WikiText-2 dataset.")
-    texts = load_wikitext_texts(split="train", logger=logger)
+    texts = load_wikitext_texts(
+        split="train",
+        seed=seed,
+        shuffle_documents=shuffle_documents,
+        logger=logger,
+    )
     if strategy in ("drop_head", "drop_rand"):
         logger.warning(
             "WikiText-2 has many short documents; strategy %r would discard most. "

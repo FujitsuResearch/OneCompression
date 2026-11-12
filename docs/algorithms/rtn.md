@@ -77,6 +77,15 @@ See [vLLM Inference](../user-guide/vllm-inference.md) for serving details.
     range of `wbits`, but GPTQ-compatible bit packing and vLLM serving are limited
     to these bit-widths.
 
+!!! note "Group size and vLLM"
+    `groupsize` does not have to divide a layer's input size: the last group of each
+    row is then shorter, as in GPTQ, and OneComp can save, load and run the model.
+    Whatever the `groupsize`, saving with `wbits` in {2, 3, 4, 8} packs the weights,
+    which needs each layer's input and output sizes to be multiples of `32 / wbits`
+    (of 32 for 3-bit).
+    vLLM requires the input size of every quantized layer (per tensor-parallel shard)
+    to be a multiple of `groupsize`, so pick such a group size for vLLM serving.
+
 !!! warning "Rotation-preprocessed RTN models cannot be served with vLLM"
     The SpinQuant-style [Rotation Preprocessing + RTN](../user-guide/examples.md#rotation-preprocessing-rtn)
     flow produces models that vLLM cannot serve, because vLLM does not apply the online
