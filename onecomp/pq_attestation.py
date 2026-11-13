@@ -21,12 +21,23 @@ Command line usage::
 
     python -m onecomp.pq_attestation keygen signer.json
     python -m onecomp.pq_attestation attest signer.json model.pt
-    python -m onecomp.pq_attestation verify model.pt model.pt.attestation.json
+    python -m onecomp.pq_attestation export-public-key signer.json trusted.pub
+    python -m onecomp.pq_attestation verify model.pt model.pt.attestation.json [trusted.pub]
+
+The attestation file carries its own public key, so ``verify`` with no
+trusted key argument only checks that the model matches a signature made
+under *some* key, not that it matches the key you expect. An attacker who
+can replace both the model and its attestation can sign the replacement
+under their own key and still produce a result of ``valid``. Pass a public
+key obtained independently of the attestation, such as the file written by
+``export-public-key`` and distributed out of band, to pin the expected
+signer and catch that case.
 """
 
 import base64
 import hashlib
 import json
+import os
 import sys
 
 SCHEME = "ML-DSA-65"
@@ -101,14 +112,28 @@ def verify_attestation(payload, attestation, expected_public_key=None):
         return False
 
 
+def _owner_only(path, flags):
+    """Opener that creates a file with owner only permissions from the start.
+
+    Setting the mode on open, rather than chmod after the fact, avoids a
+    window where the file briefly has the process default permissions, which
+    is commonly group or world readable under a 022 umask.
+    """
+    return os.open(path, flags, 0o600)
+
+
 def save_signer(path, public_key, secret_key):
-    """Write a signer key file that load_signer reads back."""
+    """Write a signer key file that load_signer reads back.
+
+    The file holds the secret key and is created with owner only (0600)
+    permissions so other local users cannot read it.
+    """
     data = {
         "scheme": SCHEME,
         "public_key": base64.b64encode(public_key).decode("ascii"),
         "secret_key": base64.b64encode(secret_key).decode("ascii"),
     }
-    with open(path, "w", encoding="utf-8") as handle:
+    with open(path, "w", encoding="utf-8", opener=_owner_only) as handle:
         json.dump(data, handle)
 
 
@@ -119,6 +144,24 @@ def load_signer(path):
     public_key = base64.b64decode(data["public_key"])
     secret_key = base64.b64decode(data["secret_key"])
     return public_key, secret_key
+
+
+def save_public_key(path, public_key):
+    """Write just the public key, as base64 text, for out of band distribution.
+
+    Share this file through a channel independent of the attestation, such as
+    a release page or a signed commit, so a verifier can pin the expected
+    signer with the verify CLI's trusted key argument.
+    """
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(base64.b64encode(public_key).decode("ascii") + "\n")
+
+
+def load_public_key(path):
+    """Read a base64 encoded public key written by save_public_key."""
+    with open(path, "r", encoding="utf-8") as handle:
+        text = handle.read().strip()
+    return base64.b64decode(text)
 
 
 def _main(argv):
@@ -137,17 +180,24 @@ def _main(argv):
             json.dump(attestation, handle, indent=2)
         print(f"wrote attestation to {out}")
         return 0
-    if len(argv) == 3 and argv[0] == "verify":
+    if len(argv) == 3 and argv[0] == "export-public-key":
+        public_key, _secret_key = load_signer(argv[1])
+        save_public_key(argv[2], public_key)
+        print(f"wrote public key to {argv[2]}")
+        return 0
+    if len(argv) in (3, 4) and argv[0] == "verify":
         with open(argv[1], "rb") as handle:
             payload = handle.read()
         with open(argv[2], "r", encoding="utf-8") as handle:
             attestation = json.load(handle)
-        ok = verify_attestation(payload, attestation)
+        expected_public_key = load_public_key(argv[3]) if len(argv) == 4 else None
+        ok = verify_attestation(payload, attestation, expected_public_key=expected_public_key)
         print("valid" if ok else "invalid")
         return 0 if ok else 1
     print(
         "usage: python -m onecomp.pq_attestation "
-        "keygen <key> | attest <key> <file> | verify <file> <attestation>"
+        "keygen <key> | attest <key> <file> | export-public-key <key> <out> | "
+        "verify <file> <attestation> [trusted_key]"
     )
     return 2
 
