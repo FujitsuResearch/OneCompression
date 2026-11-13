@@ -12,8 +12,9 @@ For each linear layer, JointQ minimizes:
 \]
 
 where \(Y = WX^T\) is the full-precision output. Unlike GPTQ which quantizes column-by-column,
-JointQ optimizes weight assignments and scale/zero-point parameters simultaneously using
-local search.
+JointQ optimizes weight assignments and scale parameters simultaneously using local search.
+For asymmetric quantization, the zero-point is determined during initialization and remains
+fixed during local search.
 
 The weight is decomposed as:
 
@@ -54,45 +55,24 @@ regularization matrix controlled by `regularization_mode`:
   \(a_i = \bigl(\mathrm{diag}(X^TX)_i \;/\; \mathrm{mean}(\mathrm{diag}(X^TX))\bigr)^{\gamma}\).
   Columns with larger activations receive stronger regularization while
   less important columns are given more freedom, reducing over-protection.
-  Only supported with `lambda_mode="fixed_lambda"`.
 
-JointQ provides two lambda selection modes, selected by `lambda_mode`.
+JointQ uses a single fixed \(\lambda\) for all layers when
+`regularization_lambda` is set. By default, `regularization_lambda=None`
+uses an unregularized first pass.
 
-#### Fixed lambda mode (default)
+For finer control, set `regularization_lambda_by_layer` to override the
+lambda per linear layer type. Keys may be full module names or suffixes such
+as `"self_attn.q_proj"` and `"mlp.down_proj"`. Full-name matches take
+priority; otherwise the longest matching suffix is used. An explicit per-layer
+`0.0` disables regularization for the first pass and remains eligible for the
+fallback retry described below.
 
-Uses a single fixed \(\lambda\) for all layers (`lambda_mode="fixed_lambda"`).
-The default strength is `regularization_lambda=0.1`.
-
-#### Incremental lambda mode
-
-`lambda_mode="incremental_lambda"` tries increasing \(\lambda\) values from
-`lambda_list` for each layer, keeping the solution as long as it improves
-weight error without substantially degrading output error.
-
-For each layer, the algorithm:
-
-1. Quantizes with the first (smallest) \(\lambda\).
-   - If the first candidate uses `lambda=0.0` and its relative weight error
-     is extremely large, JointQ can skip that candidate and move to the next
-     lambda via `incremental_initial_skip_ew_threshold`.
-2. For each subsequent \(\lambda\), re-quantizes using the previous accepted
-   solution as a warm start.
-3. Accepts the candidate if the relative weight error \(E_w\) decreases
-   without the relative output error \(E_y\) worsening beyond tolerance.
-4. Stops at the first rejection and returns the last accepted solution.
-
-The acceptance criteria are:
-
-- Both \(E_w\) and \(E_y\) decreased → accept.
-- \(E_w\) increased → reject.
-- \(E_y\) worsened within `incremental_eps_y` and \(E_w\) improved by at
-  least `incremental_eps_w` → accept.
-- Otherwise → reject.
-
-Where:
-
-- \(E_w = \|W_q - W\|_F^2 \;/\; \|W\|_F^2\)
-- \(E_y = \|(W_q - W) X^T\|_F^2 \;/\; \|W X^T\|_F^2\)
+When `regularization_lambda` is disabled (`None` or `0.0`), JointQ can
+automatically retry a layer with a small fallback lambda if the unregularized
+quantized weight appears unstable. The retry is triggered when
+\(\|W - \hat{W}\|_F^2 / \|W\|_F^2\) is greater than or equal to
+`regularization_retry_threshold`. Set `regularization_retry_lambda=None` to
+disable this fallback.
 
 ## Parameters
 
@@ -100,20 +80,19 @@ Where:
 |-------------------------|----------------|------------------------------------------------------------|----------|
 | `bits`                  | `int`          | Quantization bit-width (1--4)                              | `4`      |
 | `symmetric`             | `bool`         | Symmetric quantization                                     | `False`  |
-| `group_size`            | `int` or `None`| Group size for group-wise quantization (None = per-channel) | `128`    |
-| `lambda_mode`           | `str`          | `"fixed_lambda"` or `"incremental_lambda"`                 | `"fixed_lambda"` |
-| `regularization_lambda` | `float` or `None` | Tikhonov regularization strength (fixed mode)          | `0.1`    |
-| `regularization_mode`  | `str`              | `"identity"` (λI) or `"diagonal"` (λ·diag(a), fixed mode only) | `"diagonal"` |
+| `group_size`            | `int` or `None`| Group size for group-wise quantization; must divide the layer's input dimension (`None` = per-channel) | `128`    |
+| `regularization_lambda` | `float` or `None` | Tikhonov regularization strength                       | `None`   |
+| `regularization_lambda_by_layer` | `dict[str, float]` or `None` | Per-layer lambda overrides by full module name or suffix | `None` |
+| `regularization_mode`  | `str`              | `"identity"` (λI) or `"diagonal"` (λ·diag(a))          | `"diagonal"` |
 | `regularization_gamma` | `float`            | Exponent for diagonal weights (`"diagonal"` mode)      | `0.5`    |
-| `lambda_list`           | `list[float]` or `None` | Lambda values to try (incremental mode)         | `[0.001, 0.01, ..., 0.5]` |
-| `incremental_eps_y`     | `float`        | Max tolerated relative output-error increase               | `0.03`   |
-| `incremental_eps_w`     | `float`        | Min required relative weight-error decrease                | `0.10`   |
-| `incremental_initial_skip_ew_threshold` | `float` or `None` | Skip initial `lambda=0.0` candidate when Ew is too large | `0.3` |
+| `regularization_retry_lambda` | `float` or `None` | Fallback lambda used only when regularization is disabled and the weight-error threshold is exceeded | `0.01` |
+| `regularization_retry_threshold` | `float` or `None` | Retry threshold for \(\|W - \hat{W}\|_F^2 / \|W\|_F^2\) | `0.2` |
 | `actorder`              | `bool`         | Reorder columns by activation magnitude                    | `False`  |
 | `device`                | `torch.device` | Device for computation                                     | `None`   |
 | `enable_clip_optimize`  | `bool`         | Enable Clip-Optimize initialization                        | `True`   |
 | `enable_clip_optimize_ep`| `bool`        | Enable Clip-Optimize with Error Propagation initialization | `False`  |
 | `enable_gptq`           | `bool`         | Enable GPTQ initialization                                 | `True`   |
+| `gptq_use_regularized_hessian` | `bool` | Use the regularized Hessian for GPTQ initialization when regularization is active | `True` |
 | `gptq`                  | `GPTQ` or `None` | Custom GPTQ instance for initial solution generation    | `None`   |
 
 ## Usage
@@ -133,25 +112,41 @@ runner = Runner(model_config=model_config, quantizer=jointq, qep=False)
 runner.run()
 ```
 
-### With incremental lambda
-
-```python
-jointq = JointQ(
-    bits=4,
-    group_size=128,
-    lambda_mode="incremental_lambda",
-)
-```
-
 ### With identity regularization
 
 ```python
 jointq = JointQ(
     bits=4,
     group_size=128,
+  regularization_lambda=0.1,
     regularization_mode="identity",
 )
 ```
+
+### With per-layer regularization
+
+Use `regularization_lambda_by_layer` when attention and MLP projections need
+different regularization strengths:
+
+```python
+jointq = JointQ(
+    bits=4,
+    group_size=128,
+    regularization_lambda_by_layer={
+        "self_attn.q_proj": 0.0,
+        "self_attn.k_proj": 0.0,
+        "self_attn.v_proj": 0.0,
+        "self_attn.o_proj": 0.0,
+        "mlp.gate_proj": 0.05,
+        "mlp.up_proj": 0.05,
+        "mlp.down_proj": 0.01,
+    },
+)
+```
+
+Suffix keys match all corresponding layers, for example
+`"mlp.up_proj"` matches `"model.layers.3.mlp.up_proj"`. If you need to
+override only one layer, use its full module name.
 
 ### With activation ordering
 
@@ -224,6 +219,3 @@ script for an end-to-end quantize → save → serve example.
 - Group-wise quantization (`group_size > 0`) is recommended for accuracy.
   Set `group_size=None` for per-channel quantization.
 - JointQ does not support QEP; create the `Runner` with `qep=False`.
-- Incremental lambda mode runs `quantize()` multiple times per layer (once per
-  lambda value until rejection), so quantization time increases compared to
-  fixed lambda mode.

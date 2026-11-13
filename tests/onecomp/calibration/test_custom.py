@@ -9,7 +9,11 @@ Copyright 2025-2026 Fujitsu Ltd.
 import csv
 import json
 import logging
+import random
 
+import datasets
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from onecomp.calibration.custom import _find_text_column, load_custom_texts
@@ -155,6 +159,99 @@ class TestMaxDocumentsCap:
 
         texts = load_custom_texts(str(path), logger=LOGGER)
         assert len(texts) == 20
+
+    def test_opt_in_shuffle_is_seeded_and_applies_cap(self, tmp_path):
+        data = [{"text": f"Sample {i}"} for i in range(20)]
+        path = tmp_path / "many.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+        first = load_custom_texts(
+            str(path),
+            max_documents=5,
+            seed=42,
+            shuffle_documents=True,
+            logger=LOGGER,
+        )
+        repeated = load_custom_texts(
+            str(path),
+            max_documents=5,
+            seed=42,
+            shuffle_documents=True,
+            logger=LOGGER,
+        )
+        other_seed = load_custom_texts(
+            str(path),
+            max_documents=5,
+            seed=99,
+            shuffle_documents=True,
+            logger=LOGGER,
+        )
+
+        assert len(first) == 5
+        assert first == repeated
+        assert first != other_seed
+
+    def test_seed_does_not_change_default_order(self, tmp_path):
+        data = [{"text": f"Sample {i}"} for i in range(10)]
+        path = tmp_path / "many.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+        first = load_custom_texts(str(path), max_documents=3, seed=42, logger=LOGGER)
+        second = load_custom_texts(str(path), max_documents=3, seed=99, logger=LOGGER)
+
+        assert first == second == [f"Sample {index}" for index in range(10)]
+
+    def test_opt_in_shuffle_does_not_change_global_random_state(self, tmp_path):
+        data = [{"text": f"Sample {i}"} for i in range(10)]
+        path = tmp_path / "many.json"
+        path.write_text(json.dumps(data), encoding="utf-8")
+        random.seed(123)
+        expected = random.Random(123).random()
+
+        load_custom_texts(
+            str(path),
+            seed=42,
+            shuffle_documents=True,
+            logger=LOGGER,
+        )
+
+        assert random.random() == expected
+
+
+class TestDatasetBackedDocumentShuffle:
+    """Verify opt-in sampling uses the full valid-document population."""
+
+    def test_parquet_sampling_is_seeded_and_filters_before_cap(self, tmp_path):
+        texts = ["short"] + [(f"Document {index} " * 8) for index in range(20)]
+        path = tmp_path / "data.parquet"
+        pq.write_table(pa.table({"text": texts}), path)
+
+        first = load_custom_texts(
+            str(path), max_documents=5, seed=42, shuffle_documents=True, logger=LOGGER
+        )
+        repeated = load_custom_texts(
+            str(path), max_documents=5, seed=42, shuffle_documents=True, logger=LOGGER
+        )
+        other_seed = load_custom_texts(
+            str(path), max_documents=5, seed=99, shuffle_documents=True, logger=LOGGER
+        )
+
+        assert len(first) == 5
+        assert first == repeated
+        assert set(first) != set(other_seed)
+        assert "short" not in first
+
+    def test_hf_dataset_filters_before_cap(self, tmp_path):
+        texts = ["short"] * 10 + [(f"Document {index} " * 8) for index in range(10)]
+        path = tmp_path / "dataset"
+        datasets.Dataset.from_dict({"text": texts}).save_to_disk(path)
+
+        selected = load_custom_texts(
+            str(path), max_documents=5, seed=42, shuffle_documents=True, logger=LOGGER
+        )
+
+        assert len(selected) == 5
+        assert all(len(text) > 50 for text in selected)
 
 
 class TestFindTextColumn:

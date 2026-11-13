@@ -28,6 +28,13 @@ def _get_c4_train(logger=None):
     return ds["train"]
 
 
+def _shuffle_dataset(dataset, seed, shuffle_documents):
+    """Return *dataset* in source order or a deterministic shuffled order."""
+    if shuffle_documents:
+        return dataset.shuffle(seed=seed)
+    return dataset
+
+
 def check_text_quality(text, min_chars=100):
     """Check text quality for calibration data.
 
@@ -123,8 +130,10 @@ def load_c4_for_n_samples_min_length(
     min_length,
     *,
     use_filter=False,
+    seed=0,
+    shuffle_documents=False,
     logger=None,
-):
+):  # pylint: disable=too-many-arguments,too-many-locals
     """Collect *num_samples* C4 texts whose token length >= *min_length*.
 
     Intended for no-cross-document strategies (``drop_head`` / ``drop_rand``).
@@ -134,6 +143,8 @@ def load_c4_for_n_samples_min_length(
         num_samples (int): Number of samples to collect.
         min_length (int): Minimum token length (shorter texts are discarded).
         use_filter (bool): Apply quality filtering before length check.
+        seed (int): Random seed for document shuffling.
+        shuffle_documents (bool): Shuffle documents before filtering.
         logger: Logger (optional).
 
     Returns:
@@ -149,7 +160,7 @@ def load_c4_for_n_samples_min_length(
         use_filter,
     )
 
-    dataset = _get_c4_train(logger)
+    dataset = _shuffle_dataset(_get_c4_train(logger), seed, shuffle_documents)
 
     collected: list[str] = []
     scanned = 0
@@ -201,8 +212,10 @@ def load_c4_for_aligned_chunks(
     max_length,
     *,
     use_filter=False,
+    seed=0,
+    shuffle_documents=False,
     logger=None,
-):
+):  # pylint: disable=too-many-arguments,too-many-locals
     """Load enough C4 samples so that the total token count reaches
     *num_calibration_samples* × *max_length*.
 
@@ -213,6 +226,8 @@ def load_c4_for_aligned_chunks(
         num_calibration_samples (int): Target number of chunks.
         max_length (int): Length of each chunk.
         use_filter (bool): Apply quality filtering.
+        seed (int): Random seed for document shuffling.
+        shuffle_documents (bool): Shuffle documents before filtering.
         logger: Logger (optional).
 
     Returns:
@@ -230,7 +245,7 @@ def load_c4_for_aligned_chunks(
         use_filter,
     )
 
-    dataset = _get_c4_train(logger)
+    dataset = _shuffle_dataset(_get_c4_train(logger), seed, shuffle_documents)
 
     texts: list[str] = []
     total_tokens = 0
@@ -275,8 +290,10 @@ def load_c4_texts(
     num_samples,
     *,
     use_filter=False,
+    seed=0,
+    shuffle_documents=False,
     logger=None,
-):
+):  # pylint: disable=too-many-arguments
     """Load *num_samples* C4 texts (simple sequential loading).
 
     Args:
@@ -284,6 +301,8 @@ def load_c4_texts(
             for a consistent interface).
         num_samples (int): Number of samples to load.
         use_filter (bool): Apply quality filtering.
+        seed (int): Random seed for document shuffling.
+        shuffle_documents (bool): Shuffle documents before filtering.
         logger: Logger (optional).
 
     Returns:
@@ -292,7 +311,7 @@ def load_c4_texts(
     if logger is None:
         logger = getLogger(__name__)
 
-    dataset = _get_c4_train(logger)
+    dataset = _shuffle_dataset(_get_c4_train(logger), seed, shuffle_documents)
 
     if not use_filter:
         texts = list(dataset.select(range(min(num_samples, len(dataset))))["text"])
@@ -328,6 +347,7 @@ def prepare_calibration_data(
     seed,
     *,
     use_quality_filter=False,
+    shuffle_documents=False,
     logger=None,
 ):  # pylint: disable=too-many-arguments,too-many-positional-arguments
     """Load C4 texts and chunk them according to *strategy*.
@@ -340,6 +360,7 @@ def prepare_calibration_data(
         strategy: Chunking strategy.
         seed: Random seed.
         use_quality_filter: Apply text quality filtering.
+        shuffle_documents: Shuffle source documents before selection.
         logger: Logger (optional).
 
     Returns:
@@ -359,6 +380,8 @@ def prepare_calibration_data(
             num_samples=num_calibration_samples,
             min_length=max_length,
             use_filter=use_quality_filter,
+            seed=seed,
+            shuffle_documents=shuffle_documents,
             logger=logger,
         )
     elif strategy == "concat_chunk_align":
@@ -367,6 +390,8 @@ def prepare_calibration_data(
             num_calibration_samples,
             max_length,
             use_filter=use_quality_filter,
+            seed=seed,
+            shuffle_documents=shuffle_documents,
             logger=logger,
         )
     else:
@@ -374,6 +399,8 @@ def prepare_calibration_data(
             tokenizer,
             num_calibration_samples,
             use_filter=use_quality_filter,
+            seed=seed,
+            shuffle_documents=shuffle_documents,
             logger=logger,
         )
 
