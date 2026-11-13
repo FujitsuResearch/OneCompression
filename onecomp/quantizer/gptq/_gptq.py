@@ -6,7 +6,6 @@ Author: Yuma Ichikawa, Keiji Kimura
 
 """
 
-import gc
 import logging
 import re
 from dataclasses import dataclass
@@ -783,7 +782,6 @@ def run_gptq(  # pylint: disable=too-many-positional-arguments
 
     _device = hessian.device
     del hessian, Hinv, matrix_W, Q_int
-    gc.collect()
     empty_cache(_device)
 
     return {
