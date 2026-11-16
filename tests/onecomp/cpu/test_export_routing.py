@@ -528,3 +528,40 @@ def test_hadamard_defold_roundtrip_block():
     w_stored = matmul_hadU_cuda(w_orig, *get_hadK(in_f))
     w_recovered = defold_down_proj_hadamard(w_stored)
     assert torch.allclose(w_orig, w_recovered, atol=1e-4)
+
+
+@pytest.mark.parametrize(
+    ("source_key", "expected_key"),
+    [
+        (
+            "model.language_model.layers.0.mlp.down_proj.weight",
+            "model.layers.0.mlp.down_proj.weight",
+        ),
+        (
+            "model.language_model.layers.0.mlp.down_proj.weight",
+            "model.language_model.layers.0.mlp.down_proj.weight",
+        ),
+        (
+            "model.layers.0.mlp.down_proj.weight",
+            "model.language_model.layers.0.mlp.down_proj.weight",
+        ),
+    ],
+    ids=[
+        "qwen-strip-wrapper",
+        "gemma-keep-wrapper",
+        "add-wrapper",
+    ],
+)
+def test_normalize_dense_state_namespace(source_key, expected_key):
+    from onecomp.cpu.export.dequantize import (
+        _normalize_dense_state_namespace,
+    )
+
+    tensor = torch.zeros(2, 2)
+    result = _normalize_dense_state_namespace(
+        {source_key: tensor},
+        {expected_key},
+    )
+
+    assert set(result) == {expected_key}
+    assert result[expected_key] is tensor

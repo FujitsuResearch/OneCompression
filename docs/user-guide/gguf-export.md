@@ -89,6 +89,9 @@ tensors, which GGUF F16 export cannot consume), converts them to GGUF, and
 removes the temporary directory again.  Expect transient disk usage of one
 extra FP16 copy of the model during the conversion.
 
+The generated model card uses the value passed to `--push-to-hub` in its
+`load_quantized_model(...)` Usage example.
+
 ## Using the exported model with vLLM
 
 vLLM can serve the exported single-file GGUF directly.  Since vLLM
@@ -197,6 +200,7 @@ card = generate_model_card(
     "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     recipe={"method": "AutoBit + QEP", "wbits": 4, "groupsize": 128},
     results={"perplexity (wikitext2)": 8.12, "accuracy (lambada)": 0.65},
+    repo_id="your-name/tinyllama-onecomp",
 )
 push_to_hub("./tinyllama-quant", "your-name/tinyllama-onecomp", model_card=card)
 ```
@@ -208,6 +212,8 @@ as `README.md` (unless one already exists), creates the repository (private
 by default), and uploads the whole save directory.  Authentication uses the
 `token` argument, the cached `huggingface-cli login`, or the `HF_TOKEN`
 environment variable.
+When `repo_id` is provided, the Usage section loads the published quantized
+repository, while `base_model` continues to identify the original model.
 
 ## Validating an exported file
 

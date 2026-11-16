@@ -14,7 +14,9 @@ from types import SimpleNamespace
 import torch
 from torch import nn
 
-_MOE_EXPERT_KEY_RE = re.compile(r"\.mlp\.experts\.")
+_MOE_EXPERT_KEY_RE = re.compile(
+    r"(?:^|\.)(?:[A-Za-z0-9_]*experts)\.\d+" r"\.(?:gate_proj|up_proj|down_proj)(?:\.|$)"
+)
 
 
 class _ExpertMLP(nn.Module):
@@ -208,11 +210,15 @@ def _purge_orphan_parameters(model: nn.Module) -> None:
 
 def _infer_fused_moe_dtype(model: nn.Module) -> torch.dtype | None:
     """Infer the activation dtype used by non-MoE layers in *model*."""
+    fused_names = _fused_moe_module_names(model)
+
     for name, param in model.named_parameters():
-        if ".mlp.experts." in name:
+        if any(name.startswith(f"{fused_name}.") for fused_name in fused_names):
             continue
+
         if param.dtype in (torch.float16, torch.bfloat16):
             return param.dtype
+
     return None
 
 
@@ -230,16 +236,18 @@ def _cast_fused_moe_parameters(model: nn.Module, dtype: torch.dtype | None) -> N
                     param.data = param.detach().to(dtype=dtype)
 
 
+def _is_fused_gate_up_tensor(key: str, tensor: torch.Tensor) -> bool:
+    return key.endswith(".gate_up_proj") and tensor.ndim == 3
+
+
 def _checkpoint_uses_fused_moe(state_dict: dict[str, torch.Tensor]) -> bool:
     """Return True when the checkpoint stores fused 3D expert tensors."""
-    if any(k.endswith(".mlp.experts.gate_up_proj") for k in state_dict):
-        return True
     if "gate_up_proj$" in state_dict or "down_proj$" in state_dict:
+        return True
+    if any(_is_fused_gate_up_tensor(key, tensor) for key, tensor in state_dict.items()):
         return True
     if any(_MOE_EXPERT_KEY_RE.search(k) and ".qweight" in k for k in state_dict):
         return False
-    if any(k.endswith(".mlp.experts.gate_up_proj_bias") for k in state_dict):
-        return True
     return False
 
 
@@ -327,7 +335,16 @@ def verify_saved_moe_checkpoint(save_directory: str | Path) -> int:
         with safe_open(str(shard_path), framework="pt") as f:
             keys.extend(f.keys())
 
-    layer_gate = [k for k in keys if k.endswith(".mlp.experts.gate_up_proj") and ".layers." in k]
+    layer_gate = []
+    for shard_path in shard_paths:
+        with safe_open(str(shard_path), framework="pt") as file:
+            for key in file.keys():
+                if (
+                    key.endswith(".gate_up_proj")
+                    and ".layers." in key
+                    and len(file.get_slice(key).get_shape()) == 3
+                ):
+                    layer_gate.append(key)
     bad_keys = [k for k in keys if k.endswith("$")]
     if bad_keys:
         raise RuntimeError(
@@ -366,7 +383,16 @@ def verify_saved_moe_quant_checkpoint(save_directory: str | Path) -> int:
             "Quant-experts MoE checkpoint has deduped keys: "
             f"{bad_keys[:5]}{'...' if len(bad_keys) > 5 else ''}"
         )
-    fused_dense = [k for k in keys if k.endswith(".mlp.experts.gate_up_proj") and ".layers." in k]
+    fused_dense: list[str] = []
+    for shard_path in shard_paths:
+        with safe_open(str(shard_path), framework="pt") as file:
+            for key in file.keys():
+                if (
+                    key.endswith(".gate_up_proj")
+                    and ".layers." in key
+                    and len(file.get_slice(key).get_shape()) == 3
+                ):
+                    fused_dense.append(key)
     if fused_dense:
         raise RuntimeError(
             "Quant-experts MoE checkpoint unexpectedly contains dense fused "
@@ -617,23 +643,70 @@ def _fuse_one(
     )
 
 
-def strip_moe_experts_from_quant_config(quant_config: dict) -> None:
-    """Remove per-expert MoE entries from a vLLM quantization config."""
+def _fused_moe_module_names(model: nn.Module) -> set[str]:
+    return {
+        name
+        for name, module in model.named_modules()
+        if name and (_is_gpt_oss_experts(module) or _is_fused_experts(module))
+    }
+
+
+def _layer_index_and_suffix(name: str) -> tuple[int, str] | None:
+    match = re.search(r"(?:^|\.)layers\.(\d+)\.(.+)$", name)
+    if match is None:
+        return None
+
+    return int(match.group(1)), match.group(2)
+
+
+def strip_moe_experts_from_quant_config(
+    quant_config: dict,
+    model: nn.Module,
+) -> None:
+    """Remove stale per-expert entries after MoE modules are fused."""
+    fused_names = _fused_moe_module_names(model)
+    if not fused_names:
+        return
+
+    def is_fused_descendant(name: str) -> bool:
+        return any(
+            name != fused_name and name.startswith(f"{fused_name}.") for fused_name in fused_names
+        )
+
     for key in ("modules_in_block_to_quantize", "quantized_layer_names"):
         names = quant_config.get(key)
-        if not names:
+        if not isinstance(names, list):
             continue
-        quant_config[key] = [name for name in names if not _MOE_EXPERT_KEY_RE.search(name)]
+
+        quant_config[key] = [
+            name for name in names if not (isinstance(name, str) and is_fused_descendant(name))
+        ]
+
+    fused_suffixes_by_layer: dict[int, set[str]] = {}
+    for fused_name in fused_names:
+        parsed = _layer_index_and_suffix(fused_name)
+        if parsed is None:
+            continue
+
+        layer_idx, suffix = parsed
+        fused_suffixes_by_layer.setdefault(layer_idx, set()).add(suffix)
 
     quantization_bits = quant_config.get("quantization_bits")
-    if not quantization_bits:
+    if not isinstance(quantization_bits, list):
         return
-    for layer_cfg in quantization_bits:
-        if not isinstance(layer_cfg, dict):
+
+    for layer_idx, layer_config in enumerate(quantization_bits):
+        if not isinstance(layer_config, dict):
             continue
-        for suffix in list(layer_cfg):
-            if suffix.startswith("mlp.experts."):
-                del layer_cfg[suffix]
+
+        fused_suffixes = fused_suffixes_by_layer.get(layer_idx, set())
+
+        for suffix in list(layer_config):
+            if any(
+                suffix != fused_suffix and suffix.startswith(f"{fused_suffix}.")
+                for fused_suffix in fused_suffixes
+            ):
+                del layer_config[suffix]
 
 
 def unfuse_moe_experts(model: nn.Module, logger: logging.Logger) -> bool:
