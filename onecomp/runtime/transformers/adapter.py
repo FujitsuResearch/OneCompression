@@ -201,5 +201,5 @@ class TransformersReasoningAdapter:
         metrics["controller_overhead_s"] += perf_counter() - decision_started
         action_started = perf_counter()
         if decision.kind == "stop":
-            StopAction(state.format).apply(queued)
+            StopAction(state.format, state.pending_end_prefix).apply(queued)
         metrics["intervention_overhead_s"] += perf_counter() - action_started

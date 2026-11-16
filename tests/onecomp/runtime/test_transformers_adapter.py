@@ -98,6 +98,32 @@ def test_fixed_zero_and_multitoken_end_are_cache_consistent():
     assert sum(model.forward_lengths) == result.metrics["model_evaluated_tokens"]
 
 
+class MarkerPrefixLM(ScriptedLM):
+    """Keeps emitting the first token of a two-token end marker."""
+
+    def forward(self, input_ids, past_key_values=None, **_):
+        output = super().forward(input_ids, past_key_values)
+        output.logits.fill_(-7.0)
+        output.logits[0, -1, 3] = 7.0
+        return output
+
+
+def test_budget_completes_a_partial_multitoken_end_marker():
+    model = MarkerPrefixLM()
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    result = adapter.generate(
+        [1],
+        config=ReasoningConfig(policy="fixed", budget=1),
+        reasoning_format=ReasoningFormat((2,), (3, 12)),
+        max_new_tokens=8,
+    )
+    assert result.state.generated_token_ids[:2] == [3, 12]
+    assert result.state.interventions[0]["kind"] == "stop"
+    assert result.state.phase == "answer"
+    assert (result.state.reasoning_tokens, result.state.marker_tokens) == (0, 2)
+    assert sum(model.forward_lengths) == result.metrics["model_evaluated_tokens"]
+
+
 def test_none_matches_native_greedy_tiny_qwen3():
     from transformers import Qwen3Config, Qwen3ForCausalLM
 

@@ -38,6 +38,21 @@ class CoreTests(unittest.TestCase):
         self.assertFalse(s.pending_end_marker)
         self.assertEqual(s.reasoning_tokens, 2)
 
+    def test_budget_stop_completes_a_persistent_partial_end_marker(self):
+        s = RequestState("a", ReasoningFormat((10,), (20, 21, 22)))
+        c = ReasoningCompressionController(ReasoningConfig(policy="fixed", budget=1))
+        for token in (20, 20, 21):
+            s.append(token)
+        self.assertEqual(s.pending_end_prefix, 2)
+        self.assertTrue(c.is_boundary(s))
+        self.assertEqual(c.decide(s, {}).kind, "stop")
+        pending = []
+        StopAction(s.format, s.pending_end_prefix).apply(pending)
+        self.assertEqual(pending, [22])
+        s.append(22)
+        self.assertEqual(s.phase, "answer")
+        self.assertEqual((s.reasoning_tokens, s.marker_tokens), (1, 3))
+
     def test_independent_interleaved_requests(self):
         fmt = ReasoningFormat((10,), (20,))
         a, b = RequestState("a", fmt), RequestState("b", fmt)

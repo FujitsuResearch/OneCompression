@@ -24,6 +24,7 @@ from onecomp.reasoning import (
     ReasoningFormat,
     RequestState,
 )
+from onecomp.reasoning.actions import StopAction
 
 from .adapter import VLLMReasoningAdapter
 
@@ -130,7 +131,8 @@ class ReasoningLogitsProcessor(LogitsProcessor):
             if not request.forced and request.controller.is_boundary(request.state):
                 decision = request.controller.decide(request.state, {})
                 if decision.kind == "stop":
-                    request.forced.extend(request.state.format.end_token_ids)
+                    state = request.state
+                    StopAction(state.format, state.pending_end_prefix).apply(request.forced)
                 elif decision.kind != "continue":
                     raise RuntimeError("Unsupported intervention in vLLM logits adapter")
             if request.forced:

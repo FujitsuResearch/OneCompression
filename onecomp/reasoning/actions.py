@@ -20,8 +20,9 @@ class ReasoningAction(ABC):
 
 
 class StopAction(ReasoningAction):
-    def __init__(self, reasoning_format):
-        self.token_ids = reasoning_format.end_token_ids
+    def __init__(self, reasoning_format, emitted=0):
+        # ``emitted`` end-marker tokens are already in the output; force only the rest.
+        self.token_ids = reasoning_format.end_token_ids[emitted:]
 
     def apply(self, pending_tokens):
         pending_tokens.extend(self.token_ids)

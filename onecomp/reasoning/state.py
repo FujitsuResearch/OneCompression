@@ -63,10 +63,18 @@ class RequestState:
         return len(self.generated_token_ids)
 
     @property
-    def pending_end_marker(self):
+    def pending_end_prefix(self):
+        """Length of the longest end-marker prefix that the generated tokens end with."""
         ids = self.generated_token_ids
         end = self.format.end_token_ids
-        return any(tuple(ids[-i:]) == end[:i] for i in range(1, min(len(end), len(ids) + 1)))
+        for i in range(min(len(end) - 1, len(ids)), 0, -1):
+            if tuple(ids[-i:]) == end[:i]:
+                return i
+        return 0
+
+    @property
+    def pending_end_marker(self):
+        return self.pending_end_prefix > 0
 
     def append(self, token_id: int, text: str = ""):
         self.generated_token_ids.append(int(token_id))

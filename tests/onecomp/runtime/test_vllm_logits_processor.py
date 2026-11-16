@@ -98,6 +98,19 @@ def test_multitoken_marker_advances_only_after_sampled_output(processor):
     assert processor.requests[0].state.marker_tokens == 2
 
 
+def test_budget_completes_a_partial_multitoken_end_marker(processor):
+    output = []
+    update(processor, size=1, added=[(0, params(1, ReasoningFormat((2,), (3, 4))), [1], output)])
+    output.extend([3, 3])
+    processor.update_state(None)
+    # Only the missing marker token is forced, not a second full marker.
+    assert processor.apply(torch.zeros(1, 10)).argmax().item() == 4
+    output.append(4)
+    processor.update_state(None)
+    assert processor.apply(torch.zeros(1, 10)).eq(0).all()
+    assert processor.requests[0].state.phase == "answer"
+
+
 def test_async_placeholders_are_consumed_once_replaced(processor):
     # vLLM's async scheduler shows -1 to update_state and fills it in before apply.
     output = []

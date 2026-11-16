@@ -18,14 +18,16 @@ class ReasoningCompressionController:
 
     def is_boundary(self, state, next_token_text=""):
         c = self.config
-        if state.phase != "reasoning" or state.pending_end_marker:
+        if state.phase != "reasoning":
             return False
         if state.last_decision_boundary == state.total_generated_tokens:
             return False
+        # Budgets are hard limits; their stop completes a partially emitted end marker.
         forced = self.policy.forced_boundary(state)
         if forced is not None:
             return forced
-        if state.reasoning_tokens < c.min_reasoning_tokens:
+        # Adaptive checks wait while the model may be writing the end marker itself.
+        if state.pending_end_marker or state.reasoning_tokens < c.min_reasoning_tokens:
             return False
         return self.boundary.detect(state, next_token_text)
 
@@ -36,7 +38,7 @@ class ReasoningCompressionController:
         started = perf_counter()
         if self.config.policy == "none":
             return Decision()
-        if state.phase != "reasoning" or state.pending_end_marker:
+        if state.phase != "reasoning":
             return Decision()
         values = dict(observation)
         # Labels belong to offline analysis only; reject accidental leakage.
