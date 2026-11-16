@@ -11,7 +11,10 @@ including a model returned by OneComp's `QuantizedModelLoader`. It uses one
 greedy trajectory, an actual KV cache, and batch size one. Requests own their
 state and caches. Parallel forwards through the same model instance are not
 promised; use separate inference workers. The callback emits each visible token
-once, including forced reasoning-end markers.
+once, including forced reasoning-end markers. Its text is decoded incrementally:
+a token that ends inside a multi-byte character (byte-level BPE) gets an empty
+string, and the next token carries the completed character, so the streamed
+texts concatenate to the decoded output.
 
 The `None` controller and `policy="none"` paths produce identical tokens; a CPU
 test also compares the adapter's output with `Qwen3ForCausalLM.generate` on the

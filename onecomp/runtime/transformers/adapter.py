@@ -33,14 +33,40 @@ class GenerationResult:
     metrics: dict[str, Any]
 
 
+class _TextStream:
+    """Incremental detokenization that holds back incomplete characters.
+
+    Byte-level BPE can split one character across tokens, and decoding such a
+    token alone yields U+FFFD. Each push re-decodes from the last emitted chunk
+    and returns only text whose characters are complete (empty otherwise).
+    """
+
+    def __init__(self, decode: Callable[[Sequence[int]], str]):
+        self._decode = decode
+        self._ids: list[int] = []
+        self._prefix = 0
+        self._read = 0
+
+    def push(self, token_id: int) -> str:
+        self._ids.append(token_id)
+        prefix_text = self._decode(self._ids[self._prefix : self._read])
+        new_text = self._decode(self._ids[self._prefix :])
+        if len(new_text) <= len(prefix_text) or new_text.endswith("�"):
+            return ""
+        self._prefix, self._read = self._read, len(self._ids)
+        return new_text[len(prefix_text) :]
+
+
 class TransformersReasoningAdapter:
     """Greedy batch-size-one generation for an already-loaded causal LM.
 
     Distinct calls own their caches and controller state. A model object itself
     is not promised to support parallel forwards; use independent workers for
     simultaneous reference requests. No serving throughput claim follows from
-    this serial runtime. ``on_token`` receives every visible token, including
-    forced markers, exactly once and supports streaming consumers.
+    this serial runtime. ``on_token(token_id, text)`` is called exactly once per
+    visible token, including forced markers, and supports streaming consumers.
+    ``text`` holds newly completed characters; it is empty while a multi-byte
+    character is still incomplete, so the concatenated texts match the output.
     """
 
     def __init__(self, model: Any, tokenizer: Any):
@@ -136,6 +162,7 @@ class TransformersReasoningAdapter:
         output = self._forward(prompt_ids)
         cache = output.past_key_values
         logits = output.logits[0, -1].float()
+        text_stream = _TextStream(self._decode)
         for index in range(max_new_tokens):
             if observe and not queued:
                 decision_started = perf_counter()
@@ -150,7 +177,7 @@ class TransformersReasoningAdapter:
                     self._intervene(controller, state, queued, metrics)
             token_id = queued.popleft() if queued else int(torch.argmax(logits).item())
             generated.append(token_id)
-            token_text = self._decode([token_id])
+            token_text = text_stream.push(token_id)
             state.append(token_id, token_text)
             if on_token is not None:
                 on_token(token_id, token_text)

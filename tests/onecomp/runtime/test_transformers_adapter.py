@@ -124,6 +124,49 @@ def test_budget_completes_a_partial_multitoken_end_marker():
     assert sum(model.forward_lengths) == result.metrics["model_evaluated_tokens"]
 
 
+class ByteTokenizer:
+    """One token per UTF-8 byte, so multi-byte characters span several tokens."""
+
+    eos_token_id = 0
+
+    def decode(self, ids, **_):
+        return bytes(i for i in ids if i).decode("utf-8", errors="replace")
+
+
+class ReplayLM(torch.nn.Module):
+    """Emits a fixed token script, one token per forward."""
+
+    def __init__(self, script):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.zeros(1))
+        self.generation_config = SimpleNamespace(eos_token_id=0)
+        self.script = script
+        self.steps = 0
+
+    def forward(self, input_ids, past_key_values=None, **_):
+        logits = torch.full((1, input_ids.shape[1], 256), -7.0)
+        logits[0, -1, self.script[self.steps]] = 7.0
+        self.steps += 1
+        return SimpleNamespace(logits=logits, past_key_values=past_key_values)
+
+
+def test_streamed_text_waits_for_complete_multibyte_characters():
+    text = "é\u9b31🦜."  # 2-, 3- and 4-byte UTF-8 characters
+    script = list(text.encode()) + [0]
+    events = []
+    result = TransformersReasoningAdapter(ReplayLM(script), ByteTokenizer()).generate(
+        [1],
+        reasoning_format=ReasoningFormat((254,), (255,)),
+        max_new_tokens=len(script),
+        on_token=lambda token_id, token_text: events.append((token_id, token_text)),
+    )
+    assert [token_id for token_id, _ in events] == script
+    assert all("�" not in token_text for _, token_text in events)
+    assert "".join(token_text for _, token_text in events) == result.text == text
+    # Text is held back until a character's last byte arrives.
+    assert [token_text for _, token_text in events][:3] == ["", "é", ""]
+
+
 def test_none_matches_native_greedy_tiny_qwen3():
     from transformers import Qwen3Config, Qwen3ForCausalLM
 
