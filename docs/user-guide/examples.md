@@ -159,6 +159,25 @@ print(f"Original model perplexity: {original_ppl}")
 print(f"Dequantized model perplexity: {dequantized_ppl}")
 ```
 
+To use different JointQ regularization strengths for attention and MLP
+projections, pass suffix-based overrides:
+
+```python
+jointq = JointQ(
+    bits=4,
+    group_size=128,
+    regularization_lambda_by_layer={
+        "self_attn.q_proj": 0.0,
+        "self_attn.k_proj": 0.0,
+        "self_attn.v_proj": 0.0,
+        "self_attn.o_proj": 0.0,
+        "mlp.gate_proj": 0.05,
+        "mlp.up_proj": 0.05,
+        "mlp.down_proj": 0.01,
+    },
+)
+```
+
 ## Custom Calibration Data
 
 Use `CalibrationConfig` to specify a custom calibration dataset:

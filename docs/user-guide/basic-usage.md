@@ -169,9 +169,10 @@ runner.save_quantized_model("./output/quantized")
 
 !!! note "vLLM serving is method-specific"
     `save_quantized_model()` produces a model loadable by the OneComp loader for any
-    quantizer that supports saving (see the table below). vLLM serving, however, is only
-    available for methods with a vLLM plugin -- currently `dbf` and `mixed_gptq`. See
-    [vLLM Inference](vllm-inference.md) for the supported methods.
+    quantizer that supports saving (see the table below). vLLM serving is available for
+    `gptq` checkpoints through vLLM's built-in GPTQ plugin and for `dbf` and
+    `mixed_gptq` checkpoints through OneComp plugins. See [vLLM Inference](vllm-inference.md)
+    for bit-width and model-specific restrictions.
 
 !!! note "Quantizer feature support"
     `save_quantized_model()`, `create_quantized_model()`, and quantized-model PPL/ACC evaluation

@@ -20,7 +20,7 @@ import torch
 
 logger = getLogger(__name__)
 
-from onecomp.utils.device import cleanup_memory
+from onecomp.utils.device import empty_cache
 
 from .initialize import MDBFParams
 from .utils import (
@@ -319,6 +319,6 @@ def refine_amplitude_gradient(
         del H_for_display
     for A_sign, B_sign in sign_params:
         del A_sign, B_sign
-    cleanup_memory()
+    empty_cache()
 
     return optimized_params, W_recon_final.to(dtype)

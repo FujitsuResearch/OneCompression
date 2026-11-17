@@ -4,6 +4,7 @@ __pycache__
 dist/
 build/
 models
+.github/prompts/
 .vscode/
 .cursor/rules/benchmark-directory.mdc
 .cursor/rules/example-workflow.mdc

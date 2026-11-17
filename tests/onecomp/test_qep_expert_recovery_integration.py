@@ -231,7 +231,7 @@ def test_expert_never_selected_falls_back_to_rtn(monkeypatch, caplog):
     assert all(quantizer.results[n].actorder is False for n in names)
 
 
-@pytest.mark.parametrize("groupsize", [-1, 2])
+@pytest.mark.parametrize("groupsize", [-1, 2, 12])
 def test_rtn_fallback_weight_is_actually_applied_to_the_module(monkeypatch, caplog, groupsize):
     """The RTN-fallback ``GPTQResult`` must actually flow into the module's
 

@@ -21,32 +21,20 @@ python -c "import hydra; print(hydra.__version__)"
 
 | Directory | Description |
 |---|---|
+| [llama2-7b-gptq/](llama2-7b-gptq/) | Llama-2-7B GPTQ (4bit/3bit x gs128/per-channel) |
 | [llama3-8b-gptq/](llama3-8b-gptq/) | Llama-3-8B GPTQ (4bit/3bit × gs128/per-channel) |
-| [llama3-8b-jointq/](llama3-8b-jointq/) | Llama-3-8B JointQ (4bit/3bit × gs128/per-channel) |
 | [llama3-8b-qep-gptq/](llama3-8b-qep-gptq/) | Llama-3-8B QEP+GPTQ (4bit/3bit × gs128/per-channel) |
 | [llama3-8b-various/](llama3-8b-various/) | Llama-3-8B Various quantizers with default parameters (no QEP) |
 | [qwen3-8b-gptq/](qwen3-8b-gptq/) | Qwen3-8B GPTQ (4bit/3bit × gs128/per-channel) |
-| [qwen3-8b-jointq/](qwen3-8b-jointq/) | Qwen3-8B JointQ (4bit/3bit × gs128/per-channel) |
 | [qwen3-14b-gptq/](qwen3-14b-gptq/) | Qwen3-14B GPTQ (4bit/3bit × gs128/per-channel) |
-| [qwen3-14b-jointq/](qwen3-14b-jointq/) | Qwen3-14B JointQ (4bit/3bit × gs128/per-channel) |
+| [jointq_benchmark/](jointq_benchmark/) | JointQ benchmark suite across supported models and ablations |
 
-## Results Summary
+## JointQ Benchmark Suite
 
-### GPTQ vs. JointQ
+The JointQ suite contains self-contained configurations and results for:
 
-- Referenced GPTQ directories:
-  - [`llama3-8b-gptq/`](llama3-8b-gptq/)
-  - [`qwen3-8b-gptq/`](qwen3-8b-gptq/)
-  - [`qwen3-14b-gptq/`](qwen3-14b-gptq/)
-- Referenced JointQ directories:
-  - [`llama3-8b-jointq/`](llama3-8b-jointq/)
-  - [`qwen3-8b-jointq/`](qwen3-8b-jointq/)
-  - [`qwen3-14b-jointq/`](qwen3-14b-jointq/)
-- GPTQ rows use the `num_calibration_samples=1024`, `max_length=2048` results from each GPTQ benchmark README.
-- JointQ diagonal rows use `λ=0.05` (4-bit) / `λ=0.1` (3-bit) for gs128, and `λ=0.01` (4-bit) / `λ=0.1` (3-bit) for per-channel.
-- JointQ diagonal+mse+actorder rows use the same `λ` values.
-- Values are judged separately within the `gs128` and `per-channel` groups in each table.
-- `PPL` / `Time` mark the best value in each group in bold.
-- Accuracy columns mark the best value in each group in bold, and values that match or exceed `Original` are marked with `*`.
-
-Comparison tables will be populated after re-running both GPTQ and JointQ benchmarks.
+- [main/](jointq_benchmark/main/): selected 4-bit and 3-bit configurations
+- [2bit_g32/](jointq_benchmark/2bit_g32/): 2-bit, group-size-32 configuration
+- [actorder_mse/](jointq_benchmark/actorder_mse/): activation-ordering and GPTQ MSE ablation
+- [unregularization/](jointq_benchmark/unregularization/): regularization-disabled ablation
+- [calibration_stability/](jointq_benchmark/calibration_stability/): stability with small calibration datasets across JointQ and GPTQ

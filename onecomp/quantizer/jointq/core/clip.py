@@ -183,9 +183,9 @@ def calculate_scales_and_zero_point(matrix, symmetric, lower_bound, upper_bound)
     Returns
     -------
     scales : torch.Tensor
-        The scales of the quantization, shape (p, m).
+        The scales of the quantization, shape (p,).
     zero_point : torch.Tensor
-        The zero point of the quantization, shape (p, m).
+        The zero point of the quantization, shape (p,).
 
     """
     if symmetric:

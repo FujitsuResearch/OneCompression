@@ -1,6 +1,0 @@
-run_*.sh
-logs/
-qwen3-14b-incremental/
-qwen3-14b-incremental-actorder-mse/
-qwen3-14b-fixed-lam*/
-qwen3-14b-diagonal-lam*/

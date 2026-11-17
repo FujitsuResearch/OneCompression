@@ -1,0 +1,30 @@
+model_path: null
+model_device: cuda:0
+
+output_dir: null
+
+bits: 4
+max_length: 2048
+num_calibration_samples: 64
+calibration_strategy: drop_rand
+calibration_seed: 0
+shuffle_documents: true
+calibration_batch_size: 64
+
+jointq:
+  num_layers: null
+  symmetric: true
+
+gptq:
+  num_layers: null
+  symmetric: true
+  blocksize: 128
+  percdamp: 0.01
+  q_grid: 600
+  q_norm: 2.4
+
+hydra:
+  run:
+    dir: ${output_dir}
+  job:
+    chdir: true

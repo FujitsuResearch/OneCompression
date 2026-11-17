@@ -50,12 +50,58 @@ def _find_text_column(column_names, text_key="text") -> Optional[str]:
     return None
 
 
+def _shuffle_and_limit_texts(texts, max_documents, seed, shuffle_documents):
+    """Shuffle and limit an in-memory text list when explicitly requested."""
+    if not shuffle_documents:
+        return texts
+
+    texts = list(texts)
+    random.Random(seed).shuffle(texts)
+    if max_documents and len(texts) > max_documents:
+        return texts[:max_documents]
+    return texts
+
+
+def _sample_parquet_documents(parquet_files, column_key, max_documents, seed):
+    """Reservoir-sample valid Parquet texts without loading them all at once."""
+    import pyarrow.parquet as pq  # pylint: disable=import-outside-toplevel
+
+    if max_documents <= 0:
+        return []
+
+    rng = random.Random(seed)
+    texts: list[str] = []
+    valid_documents = 0
+
+    for parquet_path in parquet_files:
+        parquet_file = pq.ParquetFile(parquet_path)
+        for row_group_index in range(parquet_file.metadata.num_row_groups):
+            table = parquet_file.read_row_group(row_group_index, columns=[column_key])
+            for value in table.column(column_key):
+                text = value.as_py()
+                if not text or len(text) <= 50:
+                    continue
+
+                valid_documents += 1
+                if len(texts) < max_documents:
+                    texts.append(text)
+                    continue
+
+                replacement_index = rng.randrange(valid_documents)
+                if replacement_index < max_documents:
+                    texts[replacement_index] = text
+
+    rng.shuffle(texts)
+    return texts
+
+
 def _load_from_parquet_files(
     parquet_files: List[str],
     text_key: str = "text",
     max_documents: int = 10000,
     seed: int = 0,
-) -> List[str]:
+    shuffle_documents: bool = False,
+) -> List[str]:  # pylint: disable=too-many-arguments
     """Load texts from one or more Parquet files efficiently.
 
     Only reads the text column and samples row groups to avoid loading
@@ -67,6 +113,9 @@ def _load_from_parquet_files(
     column_key = _find_text_column(schema.names, text_key)
     if column_key is None:
         raise ValueError(f"No text column found in parquet. Available: {schema.names}")
+
+    if shuffle_documents:
+        return _sample_parquet_documents(parquet_files, column_key, max_documents, seed)
 
     texts: list[str] = []
     docs_per_file = max(1, max_documents // len(parquet_files))
@@ -124,7 +173,8 @@ def _load_from_hf_dataset(
     text_key: str = "text",
     max_documents: int = 10000,
     seed: int = 0,
-) -> List[str]:
+    shuffle_documents: bool = False,
+) -> List[str]:  # pylint: disable=too-many-arguments
     """Load texts from a HuggingFace Dataset directory."""
     ds = datasets.load_from_disk(data_path)
 
@@ -138,7 +188,10 @@ def _load_from_hf_dataset(
         raise ValueError(f"No text column found. Available: {data.column_names}")
 
     total_docs = len(data)
-    if total_docs > max_documents:
+    if shuffle_documents:
+        data = data.shuffle(seed=seed)
+        indices = range(total_docs)
+    elif total_docs > max_documents:
         random.seed(seed)
         indices = sorted(random.sample(range(total_docs), max_documents))
     else:
@@ -149,6 +202,8 @@ def _load_from_hf_dataset(
         decoded = _decode_text(data[int(idx)][column_key])
         if decoded and len(decoded) > 50:
             texts.append(decoded)
+            if shuffle_documents and len(texts) >= max_documents:
+                break
 
     return texts
 
@@ -159,8 +214,9 @@ def load_custom_texts(
     text_key: str = "text",
     max_documents: int = 10000,
     seed: int = 0,
+    shuffle_documents: bool = False,
     logger=None,
-) -> List[str]:
+) -> List[str]:  # pylint: disable=too-many-arguments
     """Load text data from various file formats.
 
     Args:
@@ -168,6 +224,7 @@ def load_custom_texts(
         text_key: Column / key name for the text field.
         max_documents: Maximum number of documents to load.
         seed: Random seed for sampling.
+        shuffle_documents: Shuffle documents before applying the limit.
         logger: Logger (optional).
 
     Returns:
@@ -204,10 +261,17 @@ def load_custom_texts(
                 text_key,
                 max_documents,
                 seed,
+                shuffle_documents,
             )
 
         logger.info("Loading as HuggingFace Dataset from: %s", data_path)
-        return _load_from_hf_dataset(data_path, text_key, max_documents, seed)
+        return _load_from_hf_dataset(
+            data_path,
+            text_key,
+            max_documents,
+            seed,
+            shuffle_documents,
+        )
 
     ext = os.path.splitext(data_path)[1].lower()
 
@@ -216,8 +280,10 @@ def load_custom_texts(
         with open(data_path, "r", encoding="utf-8") as f:
             content = f.read()
         if "\n\n" in content:
-            return [t.strip() for t in content.split("\n\n") if t.strip()]
-        return [content.strip()] if content.strip() else []
+            texts = [t.strip() for t in content.split("\n\n") if t.strip()]
+        else:
+            texts = [content.strip()] if content.strip() else []
+        return _shuffle_and_limit_texts(texts, max_documents, seed, shuffle_documents)
 
     if ext == ".json":
         logger.info("Loading JSON file: %s", data_path)
@@ -236,7 +302,8 @@ def load_custom_texts(
                 texts = val
             elif val is not None:
                 texts = [val]
-        return [t for t in texts if t and isinstance(t, str)]
+        texts = [t for t in texts if t and isinstance(t, str)]
+        return _shuffle_and_limit_texts(texts, max_documents, seed, shuffle_documents)
 
     if ext in (".jsonl", ".ndjson"):
         logger.info("Loading JSON Lines file: %s", data_path)
@@ -254,7 +321,8 @@ def load_custom_texts(
                         texts.append(obj)
                 except json.JSONDecodeError:
                     continue
-        return [t for t in texts if t and isinstance(t, str)]
+        texts = [t for t in texts if t and isinstance(t, str)]
+        return _shuffle_and_limit_texts(texts, max_documents, seed, shuffle_documents)
 
     if ext in (".csv", ".tsv"):
         delimiter = "\t" if ext == ".tsv" else ","
@@ -266,7 +334,8 @@ def load_custom_texts(
                 col = _find_text_column(row.keys(), text_key)
                 if col and row[col]:
                     texts.append(row[col])
-        return [t for t in texts if t and isinstance(t, str)]
+        texts = [t for t in texts if t and isinstance(t, str)]
+        return _shuffle_and_limit_texts(texts, max_documents, seed, shuffle_documents)
 
     if ext == ".parquet":
         logger.info("Loading Parquet file: %s", data_path)
@@ -275,6 +344,7 @@ def load_custom_texts(
             text_key,
             max_documents,
             seed,
+            shuffle_documents,
         )
 
     if ext == ".arrow":
@@ -283,7 +353,8 @@ def load_custom_texts(
         col = _find_text_column(ds.column_names, text_key)
         if col is None:
             raise ValueError(f"No text column found. Available: {ds.column_names}")
-        return [t for t in ds[col] if t and isinstance(t, str)]
+        texts = [t for t in ds[col] if t and isinstance(t, str)]
+        return _shuffle_and_limit_texts(texts, max_documents, seed, shuffle_documents)
 
     raise ValueError(
         f"Unsupported format: {ext}\n"
@@ -303,6 +374,7 @@ def prepare_calibration_data(
     *,
     text_key="text",
     max_documents=10000,
+    shuffle_documents=False,
     logger=None,
 ):  # pylint: disable=too-many-arguments,too-many-positional-arguments
     """
@@ -322,6 +394,7 @@ def prepare_calibration_data(
         text_key=text_key,
         max_documents=max_documents,
         seed=seed,
+        shuffle_documents=shuffle_documents,
         logger=logger,
     )
     if not texts:

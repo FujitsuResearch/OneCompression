@@ -76,6 +76,12 @@ class TestJointQ(BaseQuantizeSpec):
             "ils_num_clones": 1,
             "ils_num_channels": None,
         },
+        # regularization retry parameters
+        {"regularization_retry_lambda": 0.01},
+        {"regularization_retry_lambda": None},
+        {"regularization_retry_threshold": 0.0},
+        {"regularization_retry_threshold": 0.2},
+        {"regularization_retry_threshold": None},
         # all class defaults
         {
             "bits": 4,
@@ -109,34 +115,6 @@ class TestJointQ(BaseQuantizeSpec):
             "ils_num_clones": 100,
             "ils_num_channels": 10000,
         },
-        # lambda_mode: fixed_lambda (explicit)
-        {"lambda_mode": "fixed_lambda"},
-        # lambda_mode: incremental_lambda with defaults
-        {"lambda_mode": "incremental_lambda"},
-        # lambda_mode: incremental_lambda with custom lambda_list
-        {"lambda_mode": "incremental_lambda", "lambda_list": [0.0, 0.1, 0.5]},
-        # lambda_mode: incremental_lambda with single-element lambda_list
-        {"lambda_mode": "incremental_lambda", "lambda_list": [0.5]},
-        # lambda_mode: incremental_lambda with custom eps values
-        {
-            "lambda_mode": "incremental_lambda",
-            "incremental_eps_y": 0.0,
-            "incremental_eps_w": 0.0,
-        },
-        # lambda_mode: incremental_lambda with large eps values
-        {
-            "lambda_mode": "incremental_lambda",
-            "incremental_eps_y": 1.0,
-            "incremental_eps_w": 1.0,
-        },
-        {
-            "lambda_mode": "incremental_lambda",
-            "incremental_initial_skip_ew_threshold": 1.0,
-        },
-        {
-            "lambda_mode": "incremental_lambda",
-            "incremental_initial_skip_ew_threshold": None,
-        },
     ]
     abnormal_parameters = [
         {"bits": 0},  # below lower boundary (bits >= 1)
@@ -152,27 +130,9 @@ class TestJointQ(BaseQuantizeSpec):
             "ils_enabled": True,
             "ils_num_channels": 0,
         },  # below lower boundary (ils_num_channels >= 1 or None)
-        {"lambda_mode": "invalid_mode"},  # invalid lambda_mode
-        {
-            "lambda_mode": "incremental_lambda",
-            "lambda_list": [],
-        },  # empty lambda_list
-        {
-            "lambda_mode": "incremental_lambda",
-            "lambda_list": [-1.0, 0.5],
-        },  # negative value in lambda_list
-        {
-            "lambda_mode": "incremental_lambda",
-            "incremental_eps_y": -0.1,
-        },  # negative eps_y
-        {
-            "lambda_mode": "incremental_lambda",
-            "incremental_eps_w": -0.1,
-        },  # negative eps_w
-        {
-            "lambda_mode": "incremental_lambda",
-            "incremental_initial_skip_ew_threshold": -0.1,
-        },  # negative initial Ew threshold
+        {"regularization_retry_lambda": 0.0},  # must be > 0 or None
+        {"regularization_retry_lambda": -0.01},  # must be > 0 or None
+        {"regularization_retry_threshold": -0.01},  # must be >= 0 or None
     ]
 
     def make_quantizer(self, **params):
@@ -262,142 +222,56 @@ class TestJointQ(BaseQuantizeSpec):
         result = self._quantize_with_calculated_hessian(q, layer, inp)
         self.check_quantize_layer(result, layer)
 
-    # ------------------------------------------------------------------
-    # incremental_lambda mode tests
-    # ------------------------------------------------------------------
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    def test_incremental_lambda_basic(self, helper):
-        """Verify incremental_lambda mode completes and returns a valid result."""
-        device = "cuda"
-        layer = helper.make_linear(128, 128, device=device, dtype=torch.float32)
-        inp = helper.make_input(batch=1, seq=1, hidden=128, device=device, dtype=torch.float32)
+@pytest.mark.skipif(not HAS_JOINTQ, reason="jointq package not installed")
+def test_regularization_lambda_by_layer_resolves_exact_and_suffix():
+    """Per-layer lambda overrides support full names and longest suffix matches."""
+    q = JointQ(
+        regularization_lambda=0.2,
+        regularization_lambda_by_layer={
+            "model.layers.0.self_attn.q_proj": 0.05,
+            "self_attn.q_proj": 0.0,
+            "q_proj": 0.3,
+        },
+    )
 
-        q = self.make_quantizer(
-            bits=4,
-            symmetric=False,
-            group_size=128,
-            lambda_mode="incremental_lambda",
-            lambda_list=[0.01, 0.5, 1.0],
-            log_level=1,
-        )
-        result = self._quantize_with_calculated_hessian(q, layer, inp)
-        self.check_quantize_layer(result, layer)
+    assert q._resolve_regularization_lambda("model.layers.0.self_attn.q_proj") == (
+        0.05,
+        True,
+    )
+    assert q._resolve_regularization_lambda("model.layers.1.self_attn.q_proj") == (
+        0.0,
+        True,
+    )
+    assert q._resolve_regularization_lambda("model.layers.1.mlp.down_proj") == (
+        0.2,
+        False,
+    )
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    def test_incremental_lambda_single_step(self, helper):
-        """Verify incremental_lambda with a single lambda value works."""
-        device = "cuda"
-        layer = helper.make_linear(128, 128, device=device, dtype=torch.float32)
-        inp = helper.make_input(batch=1, seq=1, hidden=128, device=device, dtype=torch.float32)
 
-        q = self.make_quantizer(
-            bits=4,
-            symmetric=False,
-            group_size=128,
-            lambda_mode="incremental_lambda",
-            lambda_list=[0.2],
-        )
-        result = self._quantize_with_calculated_hessian(q, layer, inp)
-        self.check_quantize_layer(result, layer)
+@pytest.mark.skipif(not HAS_JOINTQ, reason="jointq package not installed")
+def test_regularization_lambda_by_layer_zero_keeps_retry_enabled():
+    """An explicit per-layer 0.0 should still allow fallback retry."""
+    q = JointQ(
+        regularization_retry_lambda=0.01,
+        regularization_retry_threshold=0.2,
+    )
 
-    def test_accept_candidate_both_decrease(self):
-        """Rule 1: both Ew and Ey decrease -> accept."""
-        accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.10,
-            ey_prev=0.05,
-            ew_new=0.08,
-            ey_new=0.04,
-            eps_y=0.03,
-            eps_w=0.10,
-        )
-        assert accepted is True
-        assert "both decreased" in reason
+    assert q._should_retry_with_regularization(0.0)
 
-    def test_accept_candidate_ew_increase(self):
-        """Rule 2: Ew increased -> reject."""
-        accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.10,
-            ey_prev=0.05,
-            ew_new=0.11,
-            ey_new=0.04,
-            eps_y=0.03,
-            eps_w=0.10,
-        )
-        assert accepted is False
-        assert "Ew increased" in reason
 
-    def test_accept_candidate_tradeoff_accept(self):
-        """Rule 3: Ey worsened within eps_y, Ew improved by at least eps_w -> accept."""
-        accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.20,
-            ey_prev=0.05,
-            ew_new=0.17,
-            ey_new=0.051,
-            eps_y=0.03,
-            eps_w=0.10,
-        )
-        assert accepted is True
-        assert "tolerance" in reason
+@pytest.mark.skipif(not HAS_JOINTQ, reason="jointq package not installed")
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        ["self_attn.q_proj"],
+        {1: 0.0},
+        {"self_attn.q_proj": -0.1},
+        {"self_attn.q_proj": None},
+    ],
+)
+def test_regularization_lambda_by_layer_validation(overrides):
+    q = JointQ(regularization_lambda_by_layer=overrides)
 
-    def test_accept_candidate_tradeoff_reject_ey_too_large(self):
-        """Rule 3 fail: Ey worsened beyond eps_y -> reject."""
-        accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.20,
-            ey_prev=0.05,
-            ew_new=0.17,
-            ey_new=0.06,
-            eps_y=0.03,
-            eps_w=0.10,
-        )
-        assert accepted is False
-        assert "eps_y" in reason
-
-    def test_accept_candidate_tradeoff_reject_ew_insufficient(self):
-        """Rule 3 fail: Ew did not improve enough -> reject."""
-        accepted, reason = JointQ._accept_candidate(
-            ew_prev=0.20,
-            ey_prev=0.05,
-            ew_new=0.19,
-            ey_new=0.051,
-            eps_y=0.03,
-            eps_w=0.10,
-        )
-        assert accepted is False
-        assert "eps_w" in reason
-
-    def test_accept_candidate_ew_equal_ey_equal(self):
-        """Edge case: Ew and Ey unchanged -> reject (no strict decrease)."""
-        accepted, _ = JointQ._accept_candidate(
-            ew_prev=0.10,
-            ey_prev=0.05,
-            ew_new=0.10,
-            ey_new=0.05,
-            eps_y=0.03,
-            eps_w=0.10,
-        )
-        assert accepted is False
-
-    def test_accept_candidate_no_eps(self):
-        """Without eps parameters, rule 3 cannot fire; only rules 1-2 apply."""
-        # Ey worsened, Ew improved, but no eps -> reject
-        accepted, _ = JointQ._accept_candidate(
-            ew_prev=0.20,
-            ey_prev=0.05,
-            ew_new=0.17,
-            ey_new=0.051,
-        )
-        assert accepted is False
-        # Both decrease -> still accept
-        accepted, _ = JointQ._accept_candidate(
-            ew_prev=0.20,
-            ey_prev=0.05,
-            ew_new=0.17,
-            ey_new=0.04,
-        )
-        assert accepted is True
-
-    def test_initial_zero_lambda_skip_guard_default(self):
-        """Initial zero-lambda skip guard defaults to 30% Ew."""
-        q = self.make_quantizer(lambda_mode="incremental_lambda")
-        assert q.incremental_initial_skip_ew_threshold == 0.3
+    with pytest.raises(ValueError, match="regularization_lambda_by_layer"):
+        q.validate_params()

@@ -11,7 +11,6 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
-import gc
 import logging
 
 import torch
@@ -211,14 +210,12 @@ def run_onebit(
         del W_reconstructed, a, b, W_sign
         if not use_balancing:
             del W
-        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         raise ValueError("NaN or Inf detected in quantized weights")
 
     if not use_balancing:
         del W
-    gc.collect()
     torch.cuda.empty_cache()
     del W_reconstructed, a, b, W_sign
 

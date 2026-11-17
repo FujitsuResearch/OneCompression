@@ -9,12 +9,14 @@ Copyright 2025-2026 Fujitsu Ltd.
 import logging
 from unittest.mock import MagicMock, patch
 
+import datasets
 import pytest
 import torch
 
 from onecomp.calibration import CalibrationConfig
 from onecomp.calibration.calibration_data_loader import (
     _KNOWN_DATASET_NAMES,
+    _load_from_hub,
     prepare_calibration_dataset,
 )
 from onecomp.calibration.chunking import _VALID_CALIBRATION_STRATEGIES
@@ -57,6 +59,7 @@ class TestRouting:
             model=MagicMock(),
         )
         mock_c4.assert_called_once()
+        assert mock_c4.call_args.kwargs["shuffle_documents"] is False
 
     @patch("onecomp.calibration.calibration_data_loader.c4.prepare_calibration_data")
     def test_c4_case_insensitive(self, mock_c4):
@@ -85,10 +88,14 @@ class TestRouting:
         prepare_calibration_dataset(
             tokenizer=tokenizer,
             device=torch.device("cpu"),
-            calibration_config=CalibrationConfig(calibration_dataset="wikitext2"),
+            calibration_config=CalibrationConfig(
+                calibration_dataset="wikitext2",
+                shuffle_documents=True,
+            ),
             model=MagicMock(),
         )
         mock_wt.assert_called_once()
+        assert mock_wt.call_args.kwargs["shuffle_documents"] is True
 
     @patch("os.path.exists", return_value=True)
     @patch("onecomp.calibration.calibration_data_loader.custom.prepare_calibration_data")
@@ -104,10 +111,12 @@ class TestRouting:
             device=torch.device("cpu"),
             calibration_config=CalibrationConfig(
                 calibration_dataset="/data/my_corpus.txt",
+                shuffle_documents=True,
             ),
             model=MagicMock(),
         )
         mock_custom.assert_called_once()
+        assert mock_custom.call_args.kwargs["shuffle_documents"] is True
 
     @patch("os.path.exists", return_value=False)
     @patch("onecomp.calibration.calibration_data_loader._load_from_hub")
@@ -143,6 +152,50 @@ class TestInvalidStrategy:
                 ),
                 model=MagicMock(),
             )
+
+
+class TestHubDocumentShuffle:
+    """Verify shuffling happens before the Hub document cap."""
+
+    @patch("onecomp.calibration.calibration_data_loader.prepare_from_texts")
+    @patch("onecomp.calibration.calibration_data_loader.load_or_prepare")
+    def test_default_preserves_source_order(self, mock_load, mock_prepare):
+        mock_load.return_value = datasets.Dataset.from_dict(
+            {"text": [f"text-{index}" for index in range(10)]}
+        )
+        mock_prepare.side_effect = lambda texts, *_args: texts
+
+        result = _load_from_hub(
+            "owner/data",
+            MagicMock(),
+            torch.device("cpu"),
+            CalibrationConfig(max_documents=4),
+        )
+
+        assert result == ["text-0", "text-1", "text-2", "text-3"]
+
+    @patch("onecomp.calibration.calibration_data_loader.prepare_from_texts")
+    @patch("onecomp.calibration.calibration_data_loader.load_or_prepare")
+    def test_seeded_shuffle_changes_capped_document_set(self, mock_load, mock_prepare):
+        mock_load.return_value = datasets.Dataset.from_dict(
+            {"text": [f"text-{index}" for index in range(20)]}
+        )
+        mock_prepare.side_effect = lambda texts, *_args: texts
+
+        def load(seed):
+            return _load_from_hub(
+                "owner/data",
+                MagicMock(),
+                torch.device("cpu"),
+                CalibrationConfig(
+                    max_documents=5,
+                    seed=seed,
+                    shuffle_documents=True,
+                ),
+            )
+
+        assert load(42) == load(42)
+        assert load(42) != load(99)
 
 
 class TestFinalizeCalibrationInputs:

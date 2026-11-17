@@ -4,6 +4,8 @@ Tests for CalibrationConfig dataclass.
 Copyright 2025-2026 Fujitsu Ltd.
 """
 
+from dataclasses import asdict
+
 import pytest
 
 from onecomp.calibration import CalibrationConfig
@@ -19,6 +21,7 @@ class TestCalibrationConfigDefaults:
         assert cfg.num_calibration_samples == 512
         assert cfg.strategy == "drop_rand"
         assert cfg.seed == 0
+        assert cfg.shuffle_documents is False
         assert cfg.batch_size is None
         assert cfg.num_layers_per_group == 7
         assert cfg.text_key == "text"
@@ -36,6 +39,7 @@ class TestCalibrationConfigOverride:
             num_calibration_samples=256,
             strategy="concat_chunk",
             seed=42,
+            shuffle_documents=True,
             batch_size=64,
             num_layers_per_group=14,
             text_key="content",
@@ -47,6 +51,7 @@ class TestCalibrationConfigOverride:
         assert cfg.num_calibration_samples == 256
         assert cfg.strategy == "concat_chunk"
         assert cfg.seed == 42
+        assert cfg.shuffle_documents is True
         assert cfg.batch_size == 64
         assert cfg.num_layers_per_group == 14
         assert cfg.text_key == "content"
@@ -59,6 +64,30 @@ class TestCalibrationConfigOverride:
         assert cfg.seed == 99
         assert cfg.calibration_dataset == "c4"
         assert cfg.num_calibration_samples == 512
+
+    def test_serialization_includes_shuffle_documents(self):
+        assert asdict(CalibrationConfig(shuffle_documents=True))["shuffle_documents"] is True
+
+    def test_existing_positional_arguments_keep_their_meaning(self):
+        cfg = CalibrationConfig(
+            "wikitext2",
+            1024,
+            128,
+            "concat_chunk",
+            7,
+            16,
+            3,
+            "content",
+            True,
+            500,
+        )
+
+        assert cfg.batch_size == 16
+        assert cfg.num_layers_per_group == 3
+        assert cfg.text_key == "content"
+        assert cfg.use_quality_filter is True
+        assert cfg.max_documents == 500
+        assert cfg.shuffle_documents is False
 
 
 class TestCalibrationConfigTopLevelExport:

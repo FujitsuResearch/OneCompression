@@ -20,7 +20,6 @@ where A, B ∈ {-1, 0, 1} are sparse sign matrices satisfying SVID constraints.
 Optimized using ADMM (Alternating Direction Method of Multipliers).
 """
 
-import gc
 import logging
 from logging import getLogger
 from typing import Dict, Optional, Tuple
@@ -776,7 +775,6 @@ def run_dbf_original(
         )
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        gc.collect()
 
         # Additional code
         weight_results = {

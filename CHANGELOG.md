@@ -13,6 +13,24 @@
   [reasoning compression guide](docs/user-guide/reasoning-compression.md) and the
   [example](example/example_reasoning_compression.py).
 
+## [v1.5.0(WIP)+perf/drop-quantizer-gc-collect] 2026-11-05
+
+### Enhancement
+
+- Removed the full `gc.collect()` calls that GPTQ, RTN, DBF, MDBF, ARB, CQ, QBB, QuIP
+  and OneBit made for every quantized linear layer (several per layer in MDBF and in
+  QuIP with `incoh_mode="had"`). Each call scanned every object Python tracks, adding
+  overhead to every layer, while intermediate tensors are already freed by reference
+  counting. Quantization is faster, especially for quantizers that spend little time
+  per layer, such as RTN and GPTQ. Quantization results are unchanged.
+
+### Tests
+
+- Added a `BaseQuantizeSpec` test that fails if `quantize_layer` calls `gc.collect()`
+  explicitly, plus MDBF cases that also run ADMM, gradient refinement and
+  activation-aware initialization, so that the removed per-layer calls are not added
+  back.
+
 ## [v1.5.0(WIP)+feature/issue-58-low-memory-loader] 2026-10-21
 
 ### Enhancement
@@ -20,6 +38,70 @@
 - Load GPTQ and mixed GPTQ checkpoints of Qwen3 and Llama models with low host memory in `load_quantized_model()` ([#58](https://github.com/FujitsuResearch/OneCompression/issues/58)). Instead of building a dense model on CPU and reading the whole checkpoint, the loader plans the load from the safetensors headers on an empty (meta) model and then reads the tensors one at a time onto their final device. On an RTX 4090 host, loading a 4-bit GPTQ Qwen3-8B checkpoint onto the GPU peaked at 2.2 GiB of host memory instead of 19.7 GiB. Existing calls need no change: other checkpoints are still loaded by the previous loader, after a warning. The new keyword-only `load_strategy` argument (`"auto"`, `"streaming"`, `"legacy"`) and `onecomp.StreamingUnsupportedError` control this fallback. See [Low-memory loading](docs/api/quantized_model_loader.md#low-memory-loading) in the API reference for the supported checkpoints, the strategies and the memory requirements. Accelerate 1.9.0 or later is now required, because the new loader passes `clear_cache` to `set_module_tensor_to_device`.
 
 ## [v1.5.0] 2026-mm-dd
+
+## [v1.4.2] 2026-11-12
+
+### JointQ
+
+- **Breaking change:** Removed the `incremental_lambda` mode and its `lambda_mode`, `lambda_list`,
+  `incremental_eps_y`, `incremental_eps_w`, and `incremental_initial_skip_ew_threshold`
+  parameters. `JointQResult.accepted_lambda` was removed with this mode.
+- **Breaking change:** Changed the default `regularization_lambda` from `0.1` to `None`, so the first
+  quantization pass is unregularized unless regularization is explicitly configured.
+- Added per-layer regularization overrides through `regularization_lambda_by_layer`,
+  with full module-name and longest-suffix matching.
+- Added an automatic regularization retry for unregularized layers whose relative weight
+  error reaches `regularization_retry_threshold`; configure the fallback with
+  `regularization_retry_lambda` or set it to `None` to disable the retry.
+- Added `gptq_use_regularized_hessian` to align GPTQ initialization with the regularized
+  local-search objective when regularization is active.
+- Added opt-in post-LS group-swap optimization as a **beta feature under development**,
+  controlled by `enable_group_swap`, `swap_rho`, and `swap_min_improvement`.
+- Added `objective_value` to `JointQResult` and its statistics output.
+- Improved the beta group-swap implementation with GPU-batched candidate evaluation,
+  top-k candidate selection, FP32 lookup tables with FP64 commit checks, per-swap
+  improvement thresholds, and second-LS-pass skipping when no swap is accepted.
+- Added reproducible benchmark suites for the main evaluation, 2-bit/group-size-32,
+  activation-order MSE, calibration stability, and unregularized configurations under
+  `benchmark/jointq_benchmark/`.
+- Updated the algorithm and usage documentation for the fixed-lambda workflow, per-layer
+  regularization, fallback retries, and regularized GPTQ initialization.
+- Added and updated tests for regularization, objective reporting, and beta group-swap
+  behavior.
+
+### New Features
+
+- Add opt-in, seed-based calibration document shuffling while preserving the existing source order by default.
+- Add `plot_relative_output_squared_errors()` for block-wise output-error comparisons across quantization methods (`onecomp/analyzer/quantization_error.py`).
+- Add `plot_output_squared_error_sum_ratios()` for projection-category error ratios relative to the first method (`onecomp/analyzer/output_squared_error.py`).
+
+### Enhancements
+
+- `RTN` now accepts a `groupsize` that does not divide a layer's input size; the last group of
+  each row is shorter, as in GPTQ. vLLM still requires the input size to be a multiple of
+  `groupsize`.
+
+### Bug Fixes
+
+- Fixed QEP quantization stopping with `ValueError` when an MoE expert received no calibration
+  tokens and `groupsize` did not divide its input size (e.g. Gemma 4 26B-A4B expert `down_proj`
+  at the `auto_run` default `groupsize=128`). The RTN fallback now quantizes a shorter last
+  group, as GPTQ does. The same fix lets AutoBit's `ilp` and `activation_aware` assignment
+  handle such layers instead of failing in `setup()`.
+
+### Benchmarking
+
+- Added and reorganized GPTQ benchmarks for Llama 2 7B, Llama 3 8B, Qwen3 8B, and Qwen3
+  14B, including 2-bit/group-size-32 configurations and consolidated result summaries.
+
+### Documentation
+
+- Documented reproducible calibration document shuffling and its default source-order
+  behavior.
+
+### Tests
+
+- Added and updated coverage for analyzer plots and calibration document shuffling.
 
 ## [v1.4.1] 2026-10-28
 

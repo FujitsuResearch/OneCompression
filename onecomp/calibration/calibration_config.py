@@ -33,7 +33,7 @@ class CalibrationConfig:
             ``"drop_head"``, ``"drop_rand"``.
         seed (int):
             Random seed used by stochastic strategies
-            (e.g. ``"drop_rand"``).
+            (e.g. ``"drop_rand"``) and document shuffling.
         batch_size (int or None):
             Batch size for chunked calibration forward passes.
             ``None`` means a single forward pass with all data.
@@ -50,6 +50,10 @@ class CalibrationConfig:
             Apply C4 quality filtering (ignored for non-C4 sources).
         max_documents (int):
             Cap on documents loaded from custom files or Hub datasets.
+        shuffle_documents (bool):
+            Shuffle source documents with ``seed`` before filtering,
+            limiting, or chunking.  Defaults to ``False`` to preserve
+            the source order.
 
     Examples:
         Default configuration (C4 dataset)::
@@ -83,3 +87,4 @@ class CalibrationConfig:
     text_key: str = "text"
     use_quality_filter: bool = False
     max_documents: int = 10000
+    shuffle_documents: bool = False

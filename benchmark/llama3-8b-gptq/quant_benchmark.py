@@ -17,6 +17,15 @@ from omegaconf import DictConfig, OmegaConf
 
 from onecomp import GPTQ, CalibrationConfig, ModelConfig, Runner
 
+ACCURACY_TASKS = [
+    "arc_easy",
+    "arc_challenge",
+    "piqa",
+    "winogrande",
+    "hellaswag",
+    "boolq",
+]
+
 
 def create_quantizers(cfg: DictConfig):
     """Create a list of GPTQ quantizers for all combinations of bits × group_size."""
@@ -93,6 +102,7 @@ def main(cfg: DictConfig):
     # Accuracy evaluation
     if cfg.calc_acc:
         runner.benchmark_accuracy(
+            tasks=ACCURACY_TASKS,
             original_model=cfg.calc_original_acc,
             dequantized_model=True,
             quantized_model=False,

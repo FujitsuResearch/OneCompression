@@ -270,6 +270,9 @@ class SolutionLambda(Solution):
         ----------
         vector_lambda : torch.Tensor, optional
             The lambda values for regularization, shape (p,).
+        target_weight_matrix : torch.Tensor, optional
+            The base weight matrix W_0 used by the regularization penalty,
+            shape (p, m).
         **kwargs
             Additional arguments passed to the parent Solution class.
         """
