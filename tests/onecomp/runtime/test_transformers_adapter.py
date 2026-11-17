@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from onecomp.reasoning import ReasoningConfig, ReasoningFormat
@@ -165,6 +166,34 @@ def test_streamed_text_waits_for_complete_multibyte_characters():
     assert "".join(token_text for _, token_text in events) == result.text == text
     # Text is held back until a character's last byte arrives.
     assert [token_text for _, token_text in events][:3] == ["", "é", ""]
+
+
+@pytest.mark.parametrize("cut", range(1, len("é\u9b31🦜".encode())))
+def test_streamed_text_flushes_a_character_cut_by_max_new_tokens(cut):
+    script = list("é\u9b31🦜".encode())
+    events = []
+    result = TransformersReasoningAdapter(ReplayLM(script), ByteTokenizer()).generate(
+        [1],
+        reasoning_format=ReasoningFormat((254,), (255,)),
+        max_new_tokens=cut,
+        on_token=lambda token_id, token_text: events.append(token_text),
+    )
+    assert result.metrics["finish_reason"] == "length"
+    assert len(events) == cut
+    assert "".join(events) == result.text == bytes(script[:cut]).decode(errors="replace")
+
+
+def test_streamed_text_flushes_a_character_cut_by_eos():
+    script = list("a\u9b31".encode())[:2] + [0]
+    events = []
+    result = TransformersReasoningAdapter(ReplayLM(script), ByteTokenizer()).generate(
+        [1],
+        reasoning_format=ReasoningFormat((254,), (255,)),
+        max_new_tokens=8,
+        on_token=lambda token_id, token_text: events.append(token_text),
+    )
+    assert result.metrics["finish_reason"] == "eos"
+    assert "".join(events) == result.text == "a�"
 
 
 def test_none_matches_native_greedy_tiny_qwen3():

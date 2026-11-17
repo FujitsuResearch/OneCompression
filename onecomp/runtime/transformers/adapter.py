@@ -39,6 +39,8 @@ class _TextStream:
     Byte-level BPE can split one character across tokens, and decoding such a
     token alone yields U+FFFD. Each push re-decodes from the last emitted chunk
     and returns only text whose characters are complete (empty otherwise).
+    A ``final`` push flushes everything held back, so a stream cut off inside
+    a character ends with the same U+FFFD as decoding all tokens at once.
     """
 
     def __init__(self, decode: Callable[[Sequence[int]], str]):
@@ -47,11 +49,11 @@ class _TextStream:
         self._prefix = 0
         self._read = 0
 
-    def push(self, token_id: int) -> str:
+    def push(self, token_id: int, final: bool = False) -> str:
         self._ids.append(token_id)
         prefix_text = self._decode(self._ids[self._prefix : self._read])
         new_text = self._decode(self._ids[self._prefix :])
-        if len(new_text) <= len(prefix_text) or new_text.endswith("�"):
+        if not final and (len(new_text) <= len(prefix_text) or new_text.endswith("�")):
             return ""
         self._prefix, self._read = self._read, len(self._ids)
         return new_text[len(prefix_text) :]
@@ -66,7 +68,8 @@ class TransformersReasoningAdapter:
     this serial runtime. ``on_token(token_id, text)`` is called exactly once per
     visible token, including forced markers, and supports streaming consumers.
     ``text`` holds newly completed characters; it is empty while a multi-byte
-    character is still incomplete, so the concatenated texts match the output.
+    character is still incomplete, and the last token's call flushes any held
+    text, so the concatenated texts match the output.
     """
 
     def __init__(self, model: Any, tokenizer: Any):
@@ -177,7 +180,8 @@ class TransformersReasoningAdapter:
                     self._intervene(controller, state, queued, metrics)
             token_id = queued.popleft() if queued else int(torch.argmax(logits).item())
             generated.append(token_id)
-            token_text = text_stream.push(token_id)
+            last = token_id in eos_ids or index + 1 == max_new_tokens
+            token_text = text_stream.push(token_id, final=last)
             state.append(token_id, token_text)
             if on_token is not None:
                 on_token(token_id, token_text)
@@ -187,13 +191,12 @@ class TransformersReasoningAdapter:
             if state.phase == "answer" and metrics["reasoning_latency_s"] is None:
                 self._sync()
                 metrics["reasoning_latency_s"] = perf_counter() - started
-            if token_id in eos_ids:
+            if last:
                 break
-            if index + 1 < max_new_tokens:
-                output = self._forward([token_id], cache)
-                cache = output.past_key_values
-                logits = output.logits[0, -1].float()
-                metrics["normal_decode_model_evaluated_tokens"] += 1
+            output = self._forward([token_id], cache)
+            cache = output.past_key_values
+            logits = output.logits[0, -1].float()
+            metrics["normal_decode_model_evaluated_tokens"] += 1
         self._sync()
         metrics["latency_s"] = perf_counter() - started
         metrics["normal_model_evaluated_tokens"] = (
