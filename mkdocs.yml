@@ -110,6 +110,7 @@ nav:
   - Reasoning Compression:
       - Design: reasoning-compression/design.md
       - Runtime and vLLM Integration: reasoning-compression/runtime.md
+      - Sources: reasoning-compression/papers.md
   - API Reference:
       - api/index.md
       - Runner: api/runner.md

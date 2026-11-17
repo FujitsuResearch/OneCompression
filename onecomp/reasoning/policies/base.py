@@ -48,6 +48,12 @@ class ReasoningPolicy(ABC):
         pass
 
 
+def has_cheap_stop(signals, config):
+    """ThinkBrake margin test: best non-end minus end log-probability <= threshold."""
+    margin = signals.get("logit_margin")
+    return margin is not None and margin <= config.threshold
+
+
 class NonePolicy(ReasoningPolicy):
     """Identity policy: never intervenes and needs no observation."""
 

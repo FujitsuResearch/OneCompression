@@ -2,6 +2,7 @@
 
 """Validated, backend-independent reasoning policy configuration."""
 
+import math
 from dataclasses import asdict, dataclass, fields
 
 from .policies import POLICIES
@@ -9,13 +10,19 @@ from .policies import POLICIES
 
 @dataclass(frozen=True)
 class ReasoningConfig:
-    """Compression is opt-in: the default ``policy="none"`` never intervenes."""
+    """Compression is opt-in: the default ``policy="none"`` never intervenes.
+
+    ``temperature`` scales the ThinkBrake logit gap; it is distinct from decoding
+    temperature (the reference runner is greedy).
+    """
 
     policy: str = "none"
     budget: int = 2048
+    threshold: float = 0.1
     boundary: str = "sentence"
     interval: int = 128
     min_reasoning_tokens: int = 0
+    temperature: float = 1.0
 
     def __post_init__(self):
         if self.policy not in POLICIES:
@@ -28,6 +35,16 @@ class ReasoningConfig:
                 raise ValueError(f"{name} must be a nonnegative integer")
         if type(self.interval) is not int or self.interval < 1:
             raise ValueError("interval must be a positive integer")
+        for name in ("threshold", "temperature"):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"{name} must be finite")
+        if self.temperature <= 0:
+            raise ValueError("temperature must be positive")
 
     @classmethod
     def from_dict(cls, values):

@@ -1,13 +1,14 @@
 """
 
-Example: Runtime reasoning compression in vLLM (fixed / prompt budget)
+Example: Runtime reasoning compression in vLLM (budgets / ThinkBrake)
 
 Registers OneComp's per-request logits processor in a vLLM engine and runs one
 batch in which every request carries its own policy. Requests without
 ``onecomp_reasoning`` metadata are left exactly unchanged.
 
-Supported in vLLM: none, fixed and prompt_budget. For a small accuracy/latency
-experiment over several questions, see example_reasoning_compression.py.
+Supported in vLLM: none, fixed, prompt_budget and thinkbrake. For a small
+accuracy/latency experiment over several questions, see
+example_reasoning_compression.py.
 
 Requirements:
   pip install vllm   (the logits processor was validated against vLLM 0.21.x)
@@ -55,6 +56,8 @@ def main():
         "prompt_budget": replace(
             ReasoningConfig(policy="prompt_budget"), budget=estimate_prompt_budget(QUESTION)
         ),
+        # Stops at a sentence boundary when </think> nearly wins; reads logits only.
+        "thinkbrake": ReasoningConfig(policy="thinkbrake", threshold=0.1, temperature=0.6),
     }
     requests, params = [], []
     for name, config in policies.items():

@@ -14,7 +14,7 @@ from onecomp.reasoning import ReasoningConfig, ReasoningFormat
 
 class VLLMReasoningAdapter:
     processor_path = "onecomp.runtime.vllm.logits_processor:ReasoningLogitsProcessor"
-    supported_policies = frozenset({"none", "fixed", "prompt_budget"})
+    supported_policies = frozenset({"none", "fixed", "prompt_budget", "thinkbrake"})
 
     @staticmethod
     def check_version():
@@ -35,6 +35,8 @@ class VLLMReasoningAdapter:
                 f"vLLM logits hooks do not support {config.policy!r}; use the Transformers "
                 "reference backend."
             )
+        if config.policy == "thinkbrake" and len(reasoning_format.end_token_ids) != 1:
+            raise ValueError("ThinkBrake requires a singleton reasoning-end token")
         return {
             "onecomp_reasoning": {
                 "config": config.to_dict(),
