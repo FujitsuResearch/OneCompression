@@ -57,7 +57,7 @@ the cost of rank and optimization time.
     \(t = \max(n, m)\) the achievable BPW cannot exceed
 
     \[
-    b_{\max} = P \, \frac{s(s + t) + \texttt{scale\_bits} \; l \, (t + 3s)}{st}
+    b_{\max} = P \, \frac{s(s + t) + \mathtt{scale\_bits} \; l \, (t + 3s)}{st}
     \]
 
     A `target_bits` above \(b_{\max}\) is clamped and the layer lands *below* the requested
@@ -82,13 +82,13 @@ With `scale_bits` accounting for the FP16 amplitude storage, the effective bits-
 (BPW) for a chosen rank \(r\) is:
 
 \[
-b_{\text{eff}} = \frac{P \left[\, r(n+m) + \texttt{scale\_bits} \cdot l \,(n + m + 2r) \,\right]}{nm}
+b_{\text{eff}} = \frac{P \left[\, r(n+m) + \mathtt{scale\_bits} \cdot l \,(n + m + 2r) \,\right]}{nm}
 \]
 
 Given a target BPW \(b\), the rank is selected by inverting this relation:
 
 \[
-r = \frac{b\,nm / P - \texttt{scale\_bits} \cdot l \,(n+m)}{(n+m) + 2\,\texttt{scale\_bits} \cdot l}
+r = \frac{b\,nm / P - \mathtt{scale\_bits} \cdot l \,(n+m)}{(n+m) + 2\,\mathtt{scale\_bits} \cdot l}
 \]
 
 `scale_bits` is an **accounting parameter only**: it sizes the rank and the reported BPW to
