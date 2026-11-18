@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from onecomp.reasoning import ReasoningConfig, ReasoningFormat
+from onecomp.reasoning.signals import deer_confidence
 from onecomp.runtime.transformers import TransformersReasoningAdapter
 
 
@@ -20,11 +21,17 @@ class TinyTokenizer:
         5: ".",
         6: "42",
         7: "<eos>",
+        8: "{",
+        9: "}",
+        10: "probe",
         12: ">",
     }
 
     def decode(self, ids, **_):
         return "".join(self.pieces.get(int(i), "?") for i in ids)
+
+    def encode(self, text, **_):
+        return [10] if "Final Answer" in text else [4]
 
 
 class ScriptedLM(torch.nn.Module):
@@ -40,7 +47,11 @@ class ScriptedLM(torch.nn.Module):
         incoming = input_ids[0].tolist()
         history = list(past_key_values or []) + incoming
         self.forward_lengths.append(len(incoming))
-        if 3 in history:
+        if 10 in history:
+            # Answer probe: "{42}" then EOS after the cue.
+            after_cue = history[history.index(10) + 1 :]
+            next_id = [8, 6, 9, 7][min(len(after_cue), 3)]
+        elif 3 in history:
             next_id = 7 if 6 in history[history.index(3) :] else 6
         else:
             count = max(0, len(history) - 1)
@@ -133,20 +144,28 @@ class ByteTokenizer:
     def decode(self, ids, **_):
         return bytes(i for i in ids if i).decode("utf-8", errors="replace")
 
+    def encode(self, text, **_):
+        return list(text.encode())
+
 
 class ReplayLM(torch.nn.Module):
-    """Emits a fixed token script, one token per forward."""
+    """Emits a fixed token script, one token per forward.
 
-    def __init__(self, script):
+    ``peaks`` optionally sets each scripted token's logit (default 7) to vary
+    its selected probability.
+    """
+
+    def __init__(self, script, peaks=None):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.zeros(1))
         self.generation_config = SimpleNamespace(eos_token_id=0)
         self.script = script
+        self.peaks = peaks or [7.0] * len(script)
         self.steps = 0
 
     def forward(self, input_ids, past_key_values=None, **_):
         logits = torch.full((1, input_ids.shape[1], 256), -7.0)
-        logits[0, -1, self.script[self.steps]] = 7.0
+        logits[0, -1, self.script[self.steps]] = self.peaks[self.steps]
         self.steps += 1
         return SimpleNamespace(logits=logits, past_key_values=past_key_values)
 
@@ -227,6 +246,103 @@ def test_thinkbrake_rejects_multitoken_end():
         )
 
 
+def test_probe_replay_counts_all_tokens_and_does_not_change_rejected_trajectory():
+    _, raw = run()
+    model, result = run(
+        ReasoningConfig(
+            policy="deer",
+            boundary="tokens",
+            interval=2,
+            confidence_threshold=1.0,
+            probe_max_tokens=6,
+        )
+    )
+    assert result.state.generated_token_ids == raw.state.generated_token_ids
+    assert result.metrics["probe_tokens"] == 9
+    assert result.metrics["probe_prefill_tokens"] == 4 + 6 + 8
+    assert result.metrics["probe_model_evaluated_tokens"] == 24
+    assert result.metrics["model_evaluated_tokens"] == sum(model.forward_lengths)
+    assert result.metrics["probe_latency_s"] > 0
+    assert len(result.metrics["probe_history"]) == 3
+
+
+def test_incomplete_probe_cannot_stop_and_confidence_excludes_braces():
+    _, result = run(
+        ReasoningConfig(
+            policy="deer",
+            boundary="tokens",
+            interval=2,
+            confidence_threshold=0.5,
+            probe_max_tokens=1,
+        )
+    )
+    assert not result.state.interventions
+    assert all(s["confidence"] is None and not s["probe_complete"] for s in result.state.signals)
+    model, result = run(
+        ReasoningConfig(
+            policy="deer",
+            boundary="tokens",
+            interval=2,
+            confidence_threshold=0.95,
+            probe_max_tokens=6,
+        )
+    )
+    assert result.state.reasoning_tokens == 2
+    assert result.state.probe_answers == ["42"]
+    assert result.state.interventions[0]["reason"] == "probe_confidence"
+    assert result.final_answer == "42<eos>"
+    assert result.metrics["model_evaluated_tokens"] == sum(model.forward_lengths)
+
+
+@pytest.mark.parametrize("answer", ["é", "\u9b31", "🦜", "x=\u9b31"])
+def test_boxed_content_selects_every_token_of_a_split_character(answer):
+    ids = list(("{" + answer + "}").encode())
+    adapter = TransformersReasoningAdapter(ReplayLM([]), ByteTokenizer())
+    text, content, complete = adapter._boxed_content(ids)
+    # Every byte token between the braces carries answer content.
+    assert (text, content, complete) == (answer, list(range(1, len(ids) - 1)), True)
+
+
+def test_probe_confidence_includes_every_token_of_a_split_character():
+    script = list("{\u9b31}".encode())
+    peaks = [7.0, 7.0, 1.0, 3.0, 7.0]  # distinct probabilities for the 3 bytes of the answer
+    adapter = TransformersReasoningAdapter(ReplayLM(script, peaks), ByteTokenizer())
+    result = adapter.probe([1], ReasoningConfig(policy="deer", probe_max_tokens=8))
+    assert result.complete and result.signals["answer"] == "\u9b31"
+    selected = [
+        torch.softmax(torch.tensor([peak] + [-7.0] * 255), -1)[0].item() for peak in peaks[1:4]
+    ]
+    assert result.confidence == pytest.approx(deer_confidence(selected))
+
+
+def test_stability_stops_after_identical_probe_answers():
+    _, result = run(
+        ReasoningConfig(
+            policy="stability",
+            boundary="tokens",
+            interval=2,
+            stability_window=2,
+            probe_max_tokens=6,
+        )
+    )
+    assert result.state.reasoning_tokens == 4
+    assert result.state.probe_answers == ["42", "42"]
+    assert result.state.interventions[0]["reason"] == "answer_stability"
+
+
+def test_probe_policy_accepts_multitoken_end_without_recording_margin():
+    model = ScriptedLM()
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    result = adapter.generate(
+        [1],
+        reasoning_format=ReasoningFormat((2,), (3, 12)),
+        config=ReasoningConfig(policy="deer"),
+        max_new_tokens=30,
+    )
+    assert result.state.signals
+    assert all("logit_margin" not in signal for signal in result.state.signals)
+
+
 def test_none_matches_native_greedy_tiny_qwen3():
     from transformers import Qwen3Config, Qwen3ForCausalLM
 
@@ -256,3 +372,70 @@ def test_none_matches_native_greedy_tiny_qwen3():
         max_new_tokens=8,
     )
     assert result.state.generated_token_ids == native[0, prompt.shape[1] :].tolist()
+
+
+def _tiny_qwen3():
+    from transformers import Qwen3Config, Qwen3ForCausalLM
+
+    torch.manual_seed(17)
+    return Qwen3ForCausalLM(
+        Qwen3Config(
+            vocab_size=32,
+            hidden_size=16,
+            intermediate_size=32,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            num_key_value_heads=1,
+            head_dim=8,
+            max_position_embeddings=128,
+            eos_token_id=31,
+            pad_token_id=0,
+        )
+    ).eval()
+
+
+def test_cache_branch_probe_matches_replay_and_restores_cache_exactly():
+    model = _tiny_qwen3()
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    prefix = [1, 4, 5, 4, 5, 4]
+    config = ReasoningConfig(policy="deer", probe_max_tokens=4)
+    with torch.inference_mode():
+        cache = adapter._forward(prefix).past_key_values
+    before = [(layer.keys.clone(), layer.values.clone()) for layer in cache.layers]
+    branched = adapter.probe(prefix, config, cache=cache)
+    replayed = adapter.probe(prefix, config)
+    for (keys, values), layer in zip(before, cache.layers):
+        assert torch.equal(keys, layer.keys) and torch.equal(values, layer.values)
+    assert branched.token_ids == replayed.token_ids
+    assert branched.reused_prefix_tokens > 0 and replayed.reused_prefix_tokens == 0
+    assert branched.model_evaluated_tokens < replayed.model_evaluated_tokens
+
+
+def test_prefix_reuse_keeps_main_trajectory_and_reduces_probe_compute():
+    results = []
+    for reuse in (True, False):
+        adapter = TransformersReasoningAdapter(
+            _tiny_qwen3(), TinyTokenizer(), probe_prefix_reuse=reuse
+        )
+        results.append(
+            adapter.generate(
+                [1, 5, 9],
+                reasoning_format=FORMAT,
+                config=ReasoningConfig(
+                    policy="deer",
+                    boundary="tokens",
+                    interval=2,
+                    confidence_threshold=1.0,
+                    probe_max_tokens=3,
+                ),
+                max_new_tokens=10,
+            )
+        )
+    reused, replayed = results
+    assert reused.state.generated_token_ids == replayed.state.generated_token_ids
+    assert reused.metrics["probe_reused_prefix_tokens"] > 0
+    assert replayed.metrics["probe_reused_prefix_tokens"] == 0
+    assert (
+        reused.metrics["probe_model_evaluated_tokens"]
+        < replayed.metrics["probe_model_evaluated_tokens"]
+    )

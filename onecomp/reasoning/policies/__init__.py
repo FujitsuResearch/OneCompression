@@ -4,6 +4,8 @@
 
 from .base import NonePolicy, ReasoningPolicy
 from .budget import BudgetPolicy
+from .deer import DeerPolicy
+from .stability import StabilityPolicy
 from .thinkbrake import ThinkBrakePolicy
 
 POLICIES = {
@@ -11,6 +13,8 @@ POLICIES = {
     "fixed": BudgetPolicy,
     "prompt_budget": BudgetPolicy,
     "thinkbrake": ThinkBrakePolicy,
+    "deer": DeerPolicy,
+    "stability": StabilityPolicy,
 }
 
 
@@ -21,8 +25,10 @@ def make_policy(config) -> ReasoningPolicy:
 __all__ = [
     "POLICIES",
     "BudgetPolicy",
+    "DeerPolicy",
     "NonePolicy",
     "ReasoningPolicy",
+    "StabilityPolicy",
     "ThinkBrakePolicy",
     "make_policy",
 ]

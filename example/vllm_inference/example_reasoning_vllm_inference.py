@@ -6,9 +6,10 @@ Registers OneComp's per-request logits processor in a vLLM engine and runs one
 batch in which every request carries its own policy. Requests without
 ``onecomp_reasoning`` metadata are left exactly unchanged.
 
-Supported in vLLM: none, fixed, prompt_budget and thinkbrake. For a small
-accuracy/latency experiment over several questions, see
-example_reasoning_compression.py.
+Supported in vLLM: none, fixed, prompt_budget and thinkbrake. Probe-based
+policies (deer, stability) need the Transformers reference backend and are
+rejected here. For a small accuracy/latency experiment over several questions,
+see example_reasoning_compression.py.
 
 Requirements:
   pip install vllm   (the logits processor was validated against vLLM 0.21.x)

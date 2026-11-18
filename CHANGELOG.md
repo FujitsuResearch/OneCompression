@@ -17,6 +17,11 @@
   is nearly the most likely next token. It reads only the logits that decoding
   already produces, so it adds no model forward, and runs in both the
   Transformers reference backend and the vLLM logits processor.
+- **Answer-probe reasoning policies (experimental)**: `policy="deer"` stops when
+  a trial answer, decoded on a temporary branch, is confident, and
+  `policy="stability"` stops when consecutive trial answers agree. Probes reuse
+  the request's KV cache and restore it exactly, and their cost is counted in
+  `model_evaluated_tokens`. Transformers reference backend only.
 
 ## [v1.5.0(WIP)+perf/drop-quantizer-gc-collect] 2026-11-05
 

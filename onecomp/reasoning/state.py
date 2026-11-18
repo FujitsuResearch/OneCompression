@@ -48,6 +48,10 @@ class RequestState:
     boundaries: list[int] = field(default_factory=list)
     signals: list[dict] = field(default_factory=list)
     interventions: list[dict] = field(default_factory=list)
+    probe_answers: list[str] = field(default_factory=list)
+    probe_confidences: list[float] = field(default_factory=list)
+    probe_tokens: int = 0
+    probe_model_evaluated_tokens: int = 0
     final_answer: str = ""
     timing: dict = field(default_factory=dict)
     last_text: str = ""

@@ -31,6 +31,23 @@ with the cache updated for each token before the next forward. There is no cache
 rewind. The maximum generation length can still interrupt a marker or final
 answer; `finish_reason="length"` and the token counters retain that fact.
 
+Answer probes (DEER, stability) branch from the live request cache. The adapter
+forwards the DEER cue on top of the `DynamicCache`, decodes the trial answer,
+then crops the cache back to the prefix length. The main trajectory's cache is
+therefore restored bit-for-bit; a test checks tensor equality and identical
+trajectories with and without reuse. Probe cost counts every forwarded cue and
+answer token (`probe_model_evaluated_tokens`); the cached prefix it reuses is
+reported as `probe_reused_prefix_tokens`. Caches that cannot be cropped exactly
+(sliding-window layers, custom caches) fall back to a full-prefix replay in a
+new cache, as does `probe_prefix_reuse=False`. Replay is the conservative cost
+reference; branching matches prefix-cached serving such as the official vLLM
+DEER implementation. Probability scoring excludes tokens containing only box
+delimiters or whitespace; a token overlapping both a delimiter and answer
+content remains included. A truncated or empty box cannot trigger a
+confidence/stability stop. After a stop decision, the original reasoning stream
+gets its end marker and produces a fresh final answer, following DEER's
+described action rather than returning the disposable trial answer.
+
 Timings use `perf_counter` and CUDA synchronization at measurement boundaries
 when a CUDA device exists. Controller and intervention times have their own
 fields. Synchronization overhead and KV bytes remain null when not measured; no
@@ -67,7 +84,8 @@ policies skip decoding. Linguistic boundaries decode token fragments; they are
 approximations, not a universal sentence parser.
 
 Supported policies are listed in `VLLMReasoningAdapter.supported_policies`
-(none, fixed, prompt budget and ThinkBrake); others fail explicitly. The processor is
+(none, fixed, prompt budget and ThinkBrake). Probe policies fail explicitly: a
+logits hook cannot fork and replay a request to decode a trial answer. The processor is
 restricted to vLLM 0.21.x, `n=1`, and no speculative decoding. An end marker may
 not also be an EOS/stop token. These are capability guards, not evidence that
 untested modes work. Worker-local trace state is not transported through the

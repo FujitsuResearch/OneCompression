@@ -19,10 +19,14 @@ class ReasoningConfig:
     policy: str = "none"
     budget: int = 2048
     threshold: float = 0.1
+    confidence_threshold: float = 0.95
     boundary: str = "sentence"
     interval: int = 128
     min_reasoning_tokens: int = 0
     temperature: float = 1.0
+    probe_max_tokens: int = 128
+    stability_window: int = 3
+    relative_confidence: bool = False
 
     def __post_init__(self):
         if self.policy not in POLICIES:
@@ -33,9 +37,11 @@ class ReasoningConfig:
             value = getattr(self, name)
             if type(value) is not int or value < 0:
                 raise ValueError(f"{name} must be a nonnegative integer")
-        if type(self.interval) is not int or self.interval < 1:
-            raise ValueError("interval must be a positive integer")
-        for name in ("threshold", "temperature"):
+        for name in ("interval", "probe_max_tokens", "stability_window"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        for name in ("threshold", "confidence_threshold", "temperature"):
             value = getattr(self, name)
             if (
                 isinstance(value, bool)
@@ -43,8 +49,12 @@ class ReasoningConfig:
                 or not math.isfinite(value)
             ):
                 raise ValueError(f"{name} must be finite")
+        if not 0 <= self.confidence_threshold <= 1:
+            raise ValueError("confidence_threshold must be in [0, 1]")
         if self.temperature <= 0:
             raise ValueError("temperature must be positive")
+        if type(self.relative_confidence) is not bool:
+            raise ValueError("relative_confidence must be boolean")
 
     @classmethod
     def from_dict(cls, values):

@@ -5,7 +5,17 @@ import math
 import pytest
 import torch
 
-from onecomp.reasoning.signals import logit_observation
+from onecomp.reasoning.signals import deer_confidence, logit_observation
+
+
+def test_deer_confidence_is_geometric_mean_of_content_probabilities():
+    assert deer_confidence([0.25, 1.0]) == pytest.approx(0.5)
+    assert math.isclose(deer_confidence([1e-200] * 50), 1e-200, rel_tol=1e-12)
+    assert deer_confidence([0, 1]) == 0
+    assert deer_confidence([]) is None
+    for invalid in ([math.nan], [math.inf], [-0.1], [1.01]):
+        with pytest.raises(ValueError):
+            deer_confidence(invalid)
 
 
 @pytest.mark.parametrize("as_tensor", [False, True])

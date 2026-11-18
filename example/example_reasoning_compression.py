@@ -4,13 +4,15 @@ Example: Runtime reasoning compression with the Transformers reference backend
 
 A small experiment: runs a few math questions with policies that shorten a
 thinking model's reasoning, then reports per policy the accuracy, reasoning
-tokens, total model-token evaluations and wall-clock latency. Every policy
-decodes greedily from the same prompts.
+tokens, total model-token evaluations (including answer probes) and wall-clock
+latency. Every policy decodes greedily from the same prompts.
 
   - none:          vanilla generation (identical tokens to disabled compression)
   - fixed:         force </think> after a fixed reasoning-token budget
   - prompt_budget: a per-question budget from a TALE-like length heuristic
   - thinkbrake:    stop at a sentence boundary when </think> nearly wins (logits only)
+  - deer:          at each "Wait", probe a trial answer; stop if it is confident
+  - stability:     probe every 256 tokens; stop after three identical answers
 
 Edit QUESTIONS and POLICIES to try other settings. The reference backend is
 serial and batch-size one. For serving, use the vLLM logits processor (see
@@ -54,6 +56,9 @@ POLICIES = [
     ReasoningConfig(policy="prompt_budget"),
     # ThinkBrake's Qwen3 setting: gap threshold 0.1 at the paper's temperature 0.6.
     ReasoningConfig(policy="thinkbrake", threshold=0.1, temperature=0.6),
+    # DEER's setting: probe before "Wait"/"Alternatively", stop above 0.95 confidence.
+    ReasoningConfig(policy="deer", confidence_threshold=0.95, boundary="transition"),
+    ReasoningConfig(policy="stability", boundary="tokens", interval=256, stability_window=3),
 ]
 
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map="auto")

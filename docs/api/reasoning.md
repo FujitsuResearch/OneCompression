@@ -25,12 +25,16 @@ described in the [Reasoning Compression user guide](../user-guide/reasoning-comp
         - NonePolicy
         - BudgetPolicy
         - ThinkBrakePolicy
+        - DeerPolicy
+        - StabilityPolicy
 
 ## Signals
 
 ::: onecomp.reasoning.ReasoningSignal
 
 ::: onecomp.reasoning.signals.logit_observation
+
+::: onecomp.reasoning.signals.deer_confidence
 
 ## Backends
 
