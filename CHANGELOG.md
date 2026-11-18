@@ -26,6 +26,14 @@
 
 ## [v1.5.0] 2026-mm-dd
 
+### Formal agent context compaction
+
+- Added the production `onecomp.compaction` `formal-v1` profile with durable SQLite WAL archives, integrity and provenance checks, stable catalogs, explicit migration from JSONL, bounded exact recovery, and efficient chunk/range reads without duplicating stored bodies.
+- Added standalone compaction and provider APIs with host-authoritative budgeting, guarded transcript replacement, summary preservation, and updated PostToolUse, Codex, OpenCode, and OpenHands integrations.
+- Hardened MCP and archive operations with authenticated tenant-bound sessions, TTL/capacity limits, leases, safe pagination/search, immutable responses, validated tool inputs, and compatibility routing for legacy clients.
+- Added the `onecomp-arc` operational CLI, atomic and redacted reports, white-base PNG/SVG dashboards, deterministic CPU benchmarks, and sandbox-safe hook recall and export workflows.
+- Expanded reliability, privacy, Unicode, concurrency, restart, migration, provider-boundary, CLI, MCP, visualization, and native-SDK tests, while tightening package discovery and torch-free imports.
+
 ## [v1.4.2] 2026-11-12
 
 ### JointQ

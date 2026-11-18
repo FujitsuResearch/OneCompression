@@ -6,9 +6,14 @@ Author: Akihiro Yoshida
 
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
-import torch
+try:
+    import torch
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    torch = None
 
 _BYTES_PER_GB = 1e9
 
@@ -100,7 +105,7 @@ def weight_memory_gb(
 
 
 def _per_channel_meta(
-    model: "torch.nn.Module",
+    model: "torch.nn.Module | Any",
     quantizable_ratio: float,
     scale_bits: int = 16,
     zero_bits: int = None,
@@ -121,6 +126,8 @@ def _per_channel_meta(
             default for ``zero_bits`` (packed at ``wbits`` in the
             AutoGPTQ format).
     """
+    if torch is None:
+        raise ModuleNotFoundError("torch is required for VRAM bitwidth estimation")
     if zero_bits is None:
         zero_bits = wbits
     meta_per_param = scale_bits + zero_bits
@@ -154,7 +161,7 @@ class VRAMBitwidthEstimation:
 
 
 def estimate_target_bitwidth(
-    model: torch.nn.Module,
+    model: "torch.nn.Module | Any",
     vram_ratio: float = 0.70,
     *,
     total_vram_gb: float = None,
@@ -171,6 +178,9 @@ def estimate_target_bitwidth(
     ``nvidia-smi``), multiplies by ``vram_ratio``, and solves for the
     largest bitwidth whose total memory (weights **+** scale/zero
     metadata) stays within that budget.
+
+    This function requires ``torch`` at runtime; missing torch raises a
+    clear ModuleNotFoundError when the function is invoked.
 
     In GPTQ's packed inference format (AutoGPTQ convention):
 

@@ -21,6 +21,7 @@ python -c "import hydra; print(hydra.__version__)"
 
 | Directory | Description |
 |---|---|
+| [compaction/](compaction/) | CPU-only formal compaction benchmark and body-free run dashboard |
 | [llama2-7b-gptq/](llama2-7b-gptq/) | Llama-2-7B GPTQ (4bit/3bit x gs128/per-channel) |
 | [llama3-8b-gptq/](llama3-8b-gptq/) | Llama-3-8B GPTQ (4bit/3bit × gs128/per-channel) |
 | [llama3-8b-qep-gptq/](llama3-8b-qep-gptq/) | Llama-3-8B QEP+GPTQ (4bit/3bit × gs128/per-channel) |

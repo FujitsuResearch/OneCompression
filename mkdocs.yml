@@ -87,6 +87,8 @@ nav:
       - Basic Usage: user-guide/basic-usage.md
       - macOS / MPS: user-guide/mps.md
       - CLI: user-guide/cli.md
+      - Context Compaction: user-guide/arc-compaction.md
+      - MCP Server: user-guide/mcp-server.md
       - Configuration: user-guide/configuration.md
       - Pre-Process (Rotation): user-guide/pre-process.md
       - Post-Process (Global PTQ / Block-wise PTQ / Router Fine-Tuning / LoRA SFT): user-guide/post-process.md
@@ -106,6 +108,8 @@ nav:
       - RTN (Round-To-Nearest): algorithms/rtn.md
       - AutoBit (Mixed-Precision ILP): algorithms/autobit.md
       - JointQ (Joint Optimization): algorithms/jointq.md
+  - Design:
+      - Formal Compaction Architecture: design/compaction-architecture.md
   - API Reference:
       - api/index.md
       - Runner: api/runner.md
@@ -127,5 +131,6 @@ nav:
       - Post-Process: api/post_process.md
       - Evaluation: api/eval.md
       - Utilities: api/utilities.md
+      - Compaction: api/compaction.md
   - Contributing: contributing.md
   - Changelog: changelog.md
