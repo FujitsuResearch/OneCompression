@@ -4,6 +4,9 @@ Hydra-driven evaluation harness for models served through vLLM (`onecomp-eval` C
 
 For installation, MT-Bench data download, judge API keys, and CLI examples, see the [Evaluation user guide](../user-guide/evaluation.md).
 
+For MT-Bench and LLM-as-a-judge evaluation, see
+[Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena](https://arxiv.org/abs/2306.05685).
+
 !!! note "`ModelConfig` here is eval-specific"
     `onecomp.eval.ModelConfig` only holds the model path/name for evaluation.
     It is not the same as `onecomp.ModelConfig` used for quantization.

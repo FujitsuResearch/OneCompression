@@ -135,6 +135,7 @@ default keeps the original source order and preserves the previous behavior.
 ## QEPConfig
 
 `QEPConfig` controls Quantization Error Propagation behavior.
+For the method, see [Arai & Ichikawa, NeurIPS 2025](https://openreview.net/forum?id=a3l3K9khbL).
 
 ```python
 from onecomp import QEPConfig
@@ -162,6 +163,7 @@ qep_config = QEPConfig(
 ## LPCDConfig
 
 `LPCDConfig` controls Layer-Projected Coordinate Descent (LPCD) refinement.
+For the method, see [Ichikawa et al., 2025](https://arxiv.org/abs/2512.01546).
 
 ```python
 from onecomp import LPCDConfig

@@ -141,6 +141,10 @@ using sign STE. `mdbf_ste_k` controls the sharpness of the smooth gradient
 surrogate, and `dbf_lr` is the learning rate for both MDBF amplitudes and binary
 factors.
 
+For the underlying MDBF quantizer, see
+[Ichikawa et al., 2025](https://arxiv.org/abs/2512.24545)
+and the [MDBF guide](../algorithms/mdbf.md).
+
 ```python
 from onecomp import CalibrationConfig, GlobalPTQ, MDBF, ModelConfig, Runner
 
@@ -450,6 +454,9 @@ uses the normal `save_quantized_model()` and `load_quantized_model()` workflow.
 ---
 
 ## LoRA SFT: Accuracy Recovery
+
+For the underlying low-rank adaptation method, see
+[LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685).
 
 The most common use case is recovering accuracy lost during quantization. Provide a general-purpose dataset (e.g., WikiText-2) to fine-tune the quantized model:
 

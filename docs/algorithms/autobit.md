@@ -3,6 +3,10 @@
 AutoBit is a mixed-precision quantization method that automatically assigns optimal per-layer
 bit-widths under a memory budget using Integer Linear Programming (ILP).
 
+!!! abstract "Reference"
+    AutoBit is described in the
+    [OneComp technical report (Ichikawa et al., 2026)](https://arxiv.org/abs/2603.28845).
+
 ## Algorithm
 
 Given a target average bit-width \(b^*\) (estimated from available VRAM or specified manually),

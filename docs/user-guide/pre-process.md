@@ -4,6 +4,10 @@ Rotation preprocessing applies SpinQuant/OstQuant-style rotation matrices to mod
 before quantization, reducing quantization error. This is particularly effective for
 low-bit quantization (e.g., 3-bit).
 
+For the underlying methods, see
+[SpinQuant](https://arxiv.org/abs/2405.16406) and
+[OstQuant](https://arxiv.org/abs/2501.13987).
+
 ## Overview
 
 The rotation preprocessing pipeline:
