@@ -126,14 +126,16 @@ def save_signer(path, public_key, secret_key):
     """Write a signer key file that load_signer reads back.
 
     The file holds the secret key and is created with owner only (0600)
-    permissions so other local users cannot read it.
+    permissions so other local users cannot read it. An existing file is
+    never overwritten, since it would keep its old permissions, so this
+    raises FileExistsError instead.
     """
     data = {
         "scheme": SCHEME,
         "public_key": base64.b64encode(public_key).decode("ascii"),
         "secret_key": base64.b64encode(secret_key).decode("ascii"),
     }
-    with open(path, "w", encoding="utf-8", opener=_owner_only) as handle:
+    with open(path, "x", encoding="utf-8", opener=_owner_only) as handle:
         json.dump(data, handle)
 
 
@@ -167,7 +169,11 @@ def load_public_key(path):
 def _main(argv):
     if len(argv) == 2 and argv[0] == "keygen":
         public_key, secret_key = generate_keypair()
-        save_signer(argv[1], public_key, secret_key)
+        try:
+            save_signer(argv[1], public_key, secret_key)
+        except FileExistsError:
+            print(f"refusing to overwrite existing signer {argv[1]}", file=sys.stderr)
+            return 1
         print(f"wrote {SCHEME} signer to {argv[1]}")
         return 0
     if len(argv) == 3 and argv[0] == "attest":

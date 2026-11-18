@@ -71,6 +71,37 @@ def test_signer_file_is_owner_only():
     assert mode == 0o600
 
 
+def test_signer_file_not_written_over_existing_readable_file():
+    public_key, secret_key = pqa.generate_keypair()
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "signer.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("existing")
+        os.chmod(path, 0o644)
+        with pytest.raises(FileExistsError):
+            pqa.save_signer(path, public_key, secret_key)
+        with open(path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+    assert content == "existing"
+    assert mode == 0o644
+
+
+def test_cli_keygen_refuses_existing_file(capsys):
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "signer.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("existing")
+        os.chmod(path, 0o644)
+
+        code = pqa._main(["keygen", path])
+        with open(path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+    assert code == 1
+    assert content == "existing"
+    assert "refusing to overwrite" in capsys.readouterr().err
+
+
 def test_public_key_file_roundtrip():
     public_key, _secret_key = pqa.generate_keypair()
     with tempfile.TemporaryDirectory() as directory:
