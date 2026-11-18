@@ -1,3 +1,56 @@
+test:compaction-core:
+  image: python:3.12
+  stage: test
+  variables:
+    PYTHONDONTWRITEBYTECODE: "1"
+    PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  before_script:
+    - python -m pip install --quiet --no-deps -e .
+    - python -m pip install --quiet pytest build "matplotlib>=3.10.8"
+  script:
+    - >-
+      python -m pytest -q
+      tests/onecomp/test_public_imports.py
+      tests/onecomp/compaction
+      tests/onecomp/analyzer/test_compaction_analyzer.py
+      tests/onecomp/mcp/test_compaction_tools.py
+      tests/onecomp/mcp/test_compaction_only_entrypoint.py
+      tests/onecomp/mcp/test_modern_protocol.py
+      tests/onecomp/mcp/test_multi_agent_coding_workflow.py
+      tests/onecomp/mcp/test_session_registry.py
+    - python -m build --wheel
+    - >-
+      python -c "from pathlib import Path; import zipfile;
+      wheel=max(Path('dist').glob('onecomp-*.whl'), key=lambda p: p.stat().st_mtime);
+      names=zipfile.ZipFile(wheel).namelist();
+      forbidden=('build/', 'benchmark/', 'example/', 'model_validation/');
+      assert not any(name.startswith(forbidden) for name in names),
+      'generated or repository-only tree leaked into wheel'"
+    - python -m venv /tmp/onecomp-compaction-wheel
+    - /tmp/onecomp-compaction-wheel/bin/pip install --quiet --no-deps dist/*.whl
+    - cd /tmp
+    - /tmp/onecomp-compaction-wheel/bin/onecomp-arc --help >/dev/null
+    - /tmp/onecomp-compaction-wheel/bin/onecomp-mcp --help >/dev/null
+    - /tmp/onecomp-compaction-wheel/bin/onecomp-mcp --compaction-only </dev/null
+    - cd "$CI_PROJECT_DIR"
+  artifacts:
+    when: always
+    paths:
+      - dist/*.whl
+    expire_in: 1 week
+  rules:
+    - changes:
+        - onecomp/__init__.py
+        - onecomp/compaction/**/*
+        - onecomp/analyzer/compaction/**/*
+        - onecomp/mcp/**/*
+        - benchmark/compaction/**/*
+        - tests/onecomp/test_public_imports.py
+        - tests/onecomp/analyzer/**/*
+        - tests/onecomp/compaction/**/*
+        - tests/onecomp/mcp/**/*
+        - pyproject.toml
+        - .gitlab-ci.yml
 include:
   - template: Jobs/SAST.gitlab-ci.yml
   - template: Jobs/Secret-Detection.gitlab-ci.yml

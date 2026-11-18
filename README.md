@@ -66,6 +66,19 @@ Other Hugging Face-compatible models may work but are currently untested.
 
 > **Note:** Support for additional architectures is planned. Contributions and test reports are welcome.
 
+## Agent Context Compaction
+
+`onecomp.compaction` provides a production `formal-v1` profile: every tool
+occurrence commits transactionally to a private SQLite archive, receives a
+fixed-width ID, and can be recovered exactly through bounded full, chunk, or
+range recall. `CompactionRunner` works standalone; authenticated MCP sessions,
+provider-boundary guards, an OpenHands condenser, Claude Code output replacement,
+a generated OpenCode plugin, and a Codex-safe standalone command boundary
+integrate it with agent hosts. Single-run reports and dashboards never include
+observation bodies. See the
+[compaction guide](docs/user-guide/arc-compaction.md) and
+[MCP guide](docs/user-guide/mcp-server.md).
+
 ## 🔧 Installation
 
 ### for users (pip)
@@ -328,6 +341,8 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | CPU Inference | [example_gptq_gguf_cpu.py](./example/cpu_inference/example_gptq_gguf_cpu.py) | Export GPTQ quantized models to GGUF and run CPU inference |
 | | [example_mixed_gptq_gguf_cpu.py](./example/cpu_inference/example_mixed_gptq_gguf_cpu.py) | Export Mixed-GPTQ quantized models to GGUF and run CPU inference |
 | | [example_serve_cpu.py](./example/cpu_inference/example_serve_cpu.py) | Serve a GGUF model with llama.cpp on CPU |
+| MCP | [example_mcp_client.py](./example/example_mcp_client.py) | Minimal stdio JSON-RPC client for MCP tool calls |
+| Context Compaction | [example_arc_engine.py](./example/compaction/example_arc_engine.py) | Minimal LLM-free agent loop with exact observation recall |
 
 ## 🔌 vLLM Inference
 
@@ -366,6 +381,14 @@ See the [GPT-OSS guide](docs/user-guide/gptoss.md) for HF save/load, patch detai
 - For technical questions and feature requests, please use GitHub [Issues](https://github.com/FujitsuResearch/OneCompression/issues).
 - For security vulnerabilities, please **do not** open a public Issue. See our [Security Policy](./SECURITY.md) for how to report them privately.
 - For collaborations, partnerships, and other inquiries, please contact us at [contact-onecompression@cs.jp.fujitsu.com](mailto:contact-onecompression@cs.jp.fujitsu.com).
+
+## Benchmarks
+
+The deterministic CPU-only formal compaction benchmark is in
+[`benchmark/compaction`](benchmark/compaction/README.md). It measures real host
+history replacement, final provider-budget coverage, catalog completeness,
+exact reconstruction, checksums, latency, and generates a body-free run
+dashboard.
 
 ## 📄 License
 

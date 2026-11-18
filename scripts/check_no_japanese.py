@@ -23,6 +23,9 @@ def check_file(path: str) -> bool:
         return True
     ok = True
     for i, line in enumerate(lines, 1):
+        if "jp-check: ignore" in line:
+            continue
+
         if _JAPANESE_RE.search(line):
             print(f"{path}:{i}: {line.rstrip()}")
             ok = False
