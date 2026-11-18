@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from onecomp.reasoning import ReasoningConfig, ReasoningFormat
+from onecomp.reasoning.signals import deer_confidence
 from onecomp.runtime.transformers import TransformersReasoningAdapter
 
 
@@ -143,20 +144,28 @@ class ByteTokenizer:
     def decode(self, ids, **_):
         return bytes(i for i in ids if i).decode("utf-8", errors="replace")
 
+    def encode(self, text, **_):
+        return list(text.encode())
+
 
 class ReplayLM(torch.nn.Module):
-    """Emits a fixed token script, one token per forward."""
+    """Emits a fixed token script, one token per forward.
 
-    def __init__(self, script):
+    ``peaks`` optionally sets each scripted token's logit (default 7) to vary
+    its selected probability.
+    """
+
+    def __init__(self, script, peaks=None):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.zeros(1))
         self.generation_config = SimpleNamespace(eos_token_id=0)
         self.script = script
+        self.peaks = peaks or [7.0] * len(script)
         self.steps = 0
 
     def forward(self, input_ids, past_key_values=None, **_):
         logits = torch.full((1, input_ids.shape[1], 256), -7.0)
-        logits[0, -1, self.script[self.steps]] = 7.0
+        logits[0, -1, self.script[self.steps]] = self.peaks[self.steps]
         self.steps += 1
         return SimpleNamespace(logits=logits, past_key_values=past_key_values)
 
@@ -283,6 +292,27 @@ def test_incomplete_probe_cannot_stop_and_confidence_excludes_braces():
     assert result.state.interventions[0]["reason"] == "probe_confidence"
     assert result.final_answer == "42<eos>"
     assert result.metrics["model_evaluated_tokens"] == sum(model.forward_lengths)
+
+
+@pytest.mark.parametrize("answer", ["é", "\u9b31", "🦜", "x=\u9b31"])
+def test_boxed_content_selects_every_token_of_a_split_character(answer):
+    ids = list(("{" + answer + "}").encode())
+    adapter = TransformersReasoningAdapter(ReplayLM([]), ByteTokenizer())
+    text, content, complete = adapter._boxed_content(ids)
+    # Every byte token between the braces carries answer content.
+    assert (text, content, complete) == (answer, list(range(1, len(ids) - 1)), True)
+
+
+def test_probe_confidence_includes_every_token_of_a_split_character():
+    script = list("{\u9b31}".encode())
+    peaks = [7.0, 7.0, 1.0, 3.0, 7.0]  # distinct probabilities for the 3 bytes of the answer
+    adapter = TransformersReasoningAdapter(ReplayLM(script, peaks), ByteTokenizer())
+    result = adapter.probe([1], ReasoningConfig(policy="deer", probe_max_tokens=8))
+    assert result.complete and result.signals["answer"] == "\u9b31"
+    selected = [
+        torch.softmax(torch.tensor([peak] + [-7.0] * 255), -1)[0].item() for peak in peaks[1:4]
+    ]
+    assert result.confidence == pytest.approx(deer_confidence(selected))
 
 
 def test_stability_stops_after_identical_probe_answers():

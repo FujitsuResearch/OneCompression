@@ -170,7 +170,12 @@ class TransformersReasoningAdapter:
         return restore
 
     def _boxed_content(self, token_ids):
-        """Indices of tokens overlapping boxed answer content, excluding delimiters."""
+        """Indices of tokens overlapping boxed answer content, excluding delimiters.
+
+        A character split across tokens decodes to U+FFFD until its last token, so
+        character offsets are measured only at complete-character prefixes and
+        every token of a split character shares that character's span.
+        """
         text = self._decode(token_ids)
         start = text.find("{")
         if start < 0:
@@ -185,11 +190,17 @@ class TransformersReasoningAdapter:
         if end is None:
             return "", [], False
         selected = []
+        pending = []
         left = 0
         for index in range(len(token_ids)):
-            right = len(self._decode(token_ids[: index + 1]))
+            pending.append(index)
+            prefix = self._decode(token_ids[: index + 1])
+            if prefix.endswith("�") and index + 1 < len(token_ids):
+                continue
+            right = len(prefix)
             if text[max(left, start + 1) : min(right, end)].strip():
-                selected.append(index)
+                selected.extend(pending)
+            pending = []
             left = right
         answer = text[start + 1 : end].strip()
         return answer, selected, bool(answer and selected)
