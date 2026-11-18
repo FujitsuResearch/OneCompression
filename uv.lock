@@ -4033,7 +4033,7 @@ vllm = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate" },
+    { name = "accelerate", specifier = ">=1.9.0" },
     { name = "black", marker = "extra == 'dev'" },
     { name = "conch-triton-kernels", marker = "extra == 'vllm'" },
     { name = "datasets" },

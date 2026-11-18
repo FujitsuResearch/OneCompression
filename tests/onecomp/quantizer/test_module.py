@@ -6,6 +6,8 @@ Author: Keiji Kimura
 """
 
 import random
+from typing import Any
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -236,6 +238,32 @@ class BaseQuantizeSpec:
         r2 = self._quantize_with_calculated_hessian(q, layer2, inp)
 
         self.check_equal_results(r1, r2)
+
+    def _assert_no_explicit_gc_collect(
+        self, params: dict[str, Any], device: str, helper: QuantizeTestHelper
+    ) -> None:
+        """Quantize a small layer with ``params`` and assert that gc.collect() is not called."""
+        if device == "cuda" and not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+
+        layer = helper.make_linear(8, 8, device=device, dtype=torch.float32)
+        inp = helper.make_input(device=device, dtype=torch.float32)
+        q = self.make_quantizer(**params)
+
+        with patch("gc.collect") as mock_collect:
+            self._quantize_with_calculated_hessian(q, layer, inp)
+
+        mock_collect.assert_not_called()
+
+    @pytest.mark.parametrize("device", ["cpu", "cuda"])
+    def test_quantize_layer_does_not_call_gc_collect(
+        self, device: str, helper: QuantizeTestHelper
+    ) -> None:
+        """Validate that quantize_layer makes no explicit gc.collect() call.
+
+        Only explicit calls are checked, not whether reference cycles are reclaimed.
+        """
+        self._assert_no_explicit_gc_collect(self.default_parameter_for_test, device, helper)
 
     def test_parameters_boundary(self, params, helper):
         """Validate behavior at boundary parameter values.

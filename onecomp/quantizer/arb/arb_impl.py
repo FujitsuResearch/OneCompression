@@ -12,7 +12,6 @@ Copyright 2025-2026 Fujitsu Ltd.
 Author: Yuma Ichikawa
 """
 
-import gc
 from logging import getLogger
 from typing import Optional
 
@@ -93,7 +92,6 @@ def run_arb(
     mu = mu.to(dtype=torch.float16, device="cpu")
 
     del W, Q, B, B_int
-    gc.collect()
     torch.cuda.empty_cache()
 
     return {

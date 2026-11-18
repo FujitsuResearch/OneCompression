@@ -9,6 +9,7 @@ Author: Keiji Kimura
 import logging
 import os
 import sys
+from typing import Any
 
 import pytest
 import torch
@@ -16,7 +17,7 @@ import torch
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
-from test_module import BaseQuantizeSpec
+from test_module import BaseQuantizeSpec, QuantizeTestHelper
 
 from onecomp.quantizer.gemlite import is_gemlite_available
 from onecomp.quantizer.mdbf import admm, mdbf_layer
@@ -379,6 +380,27 @@ class TestMDBF(BaseQuantizeSpec):
         ]
         module.MDBF_params = params_list
         module.is_quantized = True
+
+    @pytest.mark.parametrize("device", ["cpu", "cuda"])
+    @pytest.mark.parametrize(
+        "extra_params",
+        [{}, {"activation_aware": True, "P": 1, "act_init": "osvd"}],
+        ids=["weight_only", "activation_aware"],
+    )
+    def test_admm_and_gradient_refine_do_not_call_gc_collect(
+        self, device: str, extra_params: dict[str, Any], helper: QuantizeTestHelper
+    ) -> None:
+        """Validate that ADMM and gradient refinement make no explicit gc.collect() call."""
+        params = {
+            **self.default_parameter_for_test,
+            "use_admm": True,
+            "admm_outer_iters": 1,
+            "admm_inner_iters": 1,
+            "use_gradient_refine": True,
+            "gradient_iters": 1,
+            **extra_params,
+        }
+        self._assert_no_explicit_gc_collect(params, device, helper)
 
 
 def _random_sign(shape, device, dtype=torch.float16):

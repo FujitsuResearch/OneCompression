@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "transformers >= 5.5.0",
-    "accelerate",
+    "accelerate >= 1.9.0",
     "datasets",
     "lm-eval",
     "primefac",
