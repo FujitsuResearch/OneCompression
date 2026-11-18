@@ -3,6 +3,9 @@
 The `onecomp.eval` package runs **serving-time benchmarks** on models loaded through vLLM:
 MT-Bench (default: English; answer generation + OpenAI judge scoring) and a Chat Completions throughput benchmark (TTFT / decode tokens per second).
 
+MT-Bench and its LLM-as-a-judge evaluation are described in
+[Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena](https://arxiv.org/abs/2306.05685).
+
 The pipeline starts **one vLLM server**, runs enabled evaluators **serially** as subprocesses, and writes a combined `summary.json` / `summary.csv` under the output directory.
 
 !!! note "Different from `Runner` evaluation"

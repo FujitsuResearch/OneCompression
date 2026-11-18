@@ -44,8 +44,8 @@ For full control over each step, see the [step-by-step workflow](user-guide/basi
 - **vLLM Integration** -- Serve OneComp-quantized models with [vLLM](https://docs.vllm.ai/): GPTQ, JointQ, and RTN models use vLLM's built-in GPTQ plugin, while DBF and Mixed-GPTQ models are served via OneComp's own plugins. Pair with [Open WebUI](https://github.com/open-webui/open-webui) for a ChatGPT-like chat experience on your local machine. See the [setup guide](user-guide/vllm-inference.md#3-chat-with-open-webui-optional).
 - **Evaluation harness (`onecomp-eval`)** -- After quantization, benchmark served models with MT-Bench (default: English) and optional throughput metrics via a single vLLM server. See [Evaluation](user-guide/evaluation.md).
 - **AutoBit** -- Mixed-precision quantization with ILP-based bitwidth assignment. Automatically estimates the target bitwidth from available VRAM and assigns per-layer bitwidths to minimize quantization error under the memory budget.
-- **JointQ** -- Joint quantization method that optimizes weight assignments and scale parameters simultaneously for improved quantization accuracy. Supports group-wise quantization (e.g., 4-bit, groupsize=128).
-- **MDBF (Multi-Envelope Double Binary Factorization)** -- A binary factorization quantizer that approximates each weight matrix as a sum of multi-path sign matrices with multi-scale FP16 envelopes, generalizing DBF and LittleBit for aggressive low-bit (sub-1-bit) compression. Supports ADMM/gradient refinement, activation-aware initialization, and a GemLite-accelerated 1-bit inference path. See the [MDBF guide](algorithms/mdbf.md) for details.
+- **JointQ** -- Joint quantization method that optimizes weight assignments and scale parameters simultaneously for improved quantization accuracy. Supports group-wise quantization (e.g., 4-bit, groupsize=128). See [Kimura & Ichikawa, 2026](https://arxiv.org/abs/2611.20384) for details.
+- **MDBF (Multi-Envelope Double Binary Factorization)** -- A binary factorization quantizer that approximates each weight matrix as a sum of multi-path sign matrices with multi-scale FP16 envelopes, generalizing DBF and LittleBit for aggressive low-bit (sub-1-bit) compression. Supports ADMM/gradient refinement, activation-aware initialization, and a GemLite-accelerated 1-bit inference path. See [Ichikawa et al., 2025](https://arxiv.org/abs/2512.24545) for details and the [MDBF guide](algorithms/mdbf.md) for usage.
 - **Block-wise PTQ** -- Post-quantization block-wise distillation that minimises intermediate-representation MSE against an FP16 teacher model at Transformer-block granularity. Includes greedy per-block optimisation (Phase 1) and cross-block sliding-window optimisation (Phase 2 CBQ). Supports GPTQ, DBF, and OneBit quantizers.
 - **Global PTQ** -- Globally optimise GPTQ scales/zeros, DBF scaling factors, and MDBF amplitude parameters through KL distillation from a full-precision teacher. Supports optional MDBF binary-factor training with STE, single-device and distributed execution with DeepSpeed, and configurable teacher device placement. See the [Global PTQ guide](user-guide/post-process.md#global-ptq-parameter-optimisation).
 - **MoE Router Fine-Tuning** -- Adapt routing decisions after expert quantization by training only router parameters with next-token prediction loss, while experts and other weights remain frozen. Results use the normal quantized-model save/load workflow. See the [router fine-tuning guide](user-guide/post-process.md#router-fine-tuning-for-quantized-moe-models).
@@ -132,7 +132,7 @@ For full control over each step, see the [step-by-step workflow](user-guide/basi
 
 If you use OneComp in your research, please cite our paper:
 
-OneComp technical report (coming soon on ArXiv):
+[OneComp technical report](https://arxiv.org/abs/2603.28845):
 
 ```bibtex
 @misc{ichikawa2026onecomponelinerevolutiongenerative,
@@ -146,7 +146,7 @@ OneComp technical report (coming soon on ArXiv):
 }
 ```
 
-QEP (Quantization Error Propagation):
+[QEP (Quantization Error Propagation)](https://openreview.net/forum?id=a3l3K9khbL):
 
 ```bibtex
 @inproceedings{
@@ -159,7 +159,7 @@ url={https://openreview.net/forum?id=a3l3K9khbL}
 }
 ```
 
-LPCD (Layer-Projected Coordinate Descent):
+[LPCD (Layer-Projected Coordinate Descent)](https://arxiv.org/abs/2512.01546):
 
 ```bibtex
 @article{ichikawa2025lpcd,
@@ -171,7 +171,7 @@ LPCD (Layer-Projected Coordinate Descent):
 }
 ```
 
-MDBF (Multi-Envelope Double Binary Factorization):
+[MDBF (Multi-Envelope Double Binary Factorization)](https://arxiv.org/abs/2512.24545):
 
 ```bibtex
 @misc{ichikawa2025bitsmultienvelopedoublebinary,
@@ -182,6 +182,20 @@ MDBF (Multi-Envelope Double Binary Factorization):
       archivePrefix={arXiv},
       primaryClass={cs.LG},
       url={https://arxiv.org/abs/2512.24545}, 
+}
+```
+
+[JointQ (Joint Scale-and-Integer Quantization)](https://arxiv.org/abs/2611.20384):
+
+```bibtex
+@misc{kimura2026jointqjointscaleandintegerquantization,
+    title={JointQ: Joint Scale-and-Integer Quantization for Large Language Models},
+    author={Keiji Kimura and Yuma Ichikawa},
+    year={2026},
+    eprint={2611.20384},
+    archivePrefix={arXiv},
+    primaryClass={cs.LG},
+    url={https://arxiv.org/abs/2611.20384},
 }
 ```
 

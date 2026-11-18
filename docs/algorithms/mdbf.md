@@ -5,6 +5,11 @@ paths and rich, multi-scale amplitude *envelopes* around the binary factors. It 
 roughly 1--2 bit quantization, with the achieved bit-width tuned continuously through the
 `target_bits` parameter.
 
+!!! abstract "Reference"
+    Yuma Ichikawa, Yoshihiko Fujisawa, Yudai Fujimoto, Akira Sakai, and Katsuki Fujisawa,
+    "More Than Bits: Multi-Envelope Double Binary Factorization for Extreme Quantization," 2025.
+    [arXiv:2512.24545](https://arxiv.org/abs/2512.24545)
+
 The differences among OneBit, DBF, LittleBit, and MDBF are illustrated below:
 ![Differences among OneBit, DBF, LittleBit, and MDBF](../assets/onebit_formats.png)
 
