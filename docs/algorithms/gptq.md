@@ -7,6 +7,7 @@ by minimizing the layer-wise output error.
     Elias Frantar, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh,
     "GPTQ: Accurate Post-Training Quantization for Generative Pre-Trained Transformers,"
     ICLR 2023.
+    [arXiv:2210.17323](https://arxiv.org/abs/2210.17323)
 
 ## Algorithm
 

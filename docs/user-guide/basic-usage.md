@@ -217,6 +217,8 @@ runner.run()
 ```
 
 See [QEP Algorithm](../algorithms/qep.md) for the theory behind QEP.
+The original method is described in
+[Arai & Ichikawa, NeurIPS 2025](https://openreview.net/forum?id=a3l3K9khbL).
 
 ## Enabling LPCD
 
@@ -250,3 +252,5 @@ runner.run()
     `enable_ud` for stronger but slower refinement.
 
 See [LPCD](../algorithms/lpcd.md) for the algorithm details.
+The original method is described in
+[Ichikawa et al., 2025](https://arxiv.org/abs/2512.01546).

@@ -3,6 +3,10 @@
 Rotation preprocessing reduces quantization error by learning optimal rotation matrices
 (SpinQuant/OstQuant) and absorbing them into model weights before quantization.
 
+For the underlying methods, see [SpinQuant](https://arxiv.org/abs/2405.16406) and
+[OstQuant](https://arxiv.org/abs/2501.13987). See the
+[rotation preprocessing guide](../user-guide/pre-process.md) for usage.
+
 ## `prepare_rotated_model`
 
 ::: onecomp.pre_process.prepare_rotated_model.prepare_rotated_model
