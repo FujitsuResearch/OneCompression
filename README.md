@@ -380,7 +380,7 @@ terms of the installed versions as well.
 
 [OneComp technical report](https://arxiv.org/abs/2603.28845):
 
-```
+```bibtex
 @misc{ichikawa2026onecomponelinerevolutiongenerative,
       title={OneComp: One-Line Revolution for Generative AI Model Compression}, 
       author={Yuma Ichikawa and Keiji Kimura and Akihiro Yoshida and Yudai Fujimoto and Hiroki Tokura and Yamato Arai and Yoshiyuki Ishii and Yusei Kawakami and Genki Shikada and Achille Jacquemond and Yoshihiko Fujisawa and Katsuki Fujisawa and Takumi Honda and Akira Sakai},
@@ -394,7 +394,7 @@ terms of the installed versions as well.
 
 [QEP (Quantization Error Propagation)](https://openreview.net/forum?id=a3l3K9khbL):
 
-```
+```bibtex
 @inproceedings{
 arai2025quantization,
 title={Quantization Error Propagation: Revisiting Layer-Wise Post-Training Quantization},
@@ -407,7 +407,7 @@ url={https://openreview.net/forum?id=a3l3K9khbL}
 
 [LPCD (Layer-Projected Coordinate Descent)](https://arxiv.org/abs/2512.01546):
 
-```
+```bibtex
 @article{ichikawa2025lpcd,
 title={LPCD: Unified Framework from Layer-Wise to Submodule Quantization},
 author={Yuma Ichikawa and Yudai Fujimoto and Akira Sakai},
@@ -419,7 +419,7 @@ url={https://arxiv.org/abs/2512.01546}
 
 [MDBF (Multi-Envelope Double Binary Factorization)](https://arxiv.org/abs/2512.24545):
 
-```
+```bibtex
 @misc{ichikawa2025bitsmultienvelopedoublebinary,
       title={More Than Bits: Multi-Envelope Double Binary Factorization for Extreme Quantization}, 
       author={Yuma Ichikawa and Yoshihiko Fujisawa and Yudai Fujimoto and Akira Sakai and Katsuki Fujisawa},
