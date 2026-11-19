@@ -1,6 +1,6 @@
 # Change log
 
-## [v1.4.3(WIP)+fix/release-expert-hessians] 2026-11-11
+## [v1.4.3] 2026-11-19
 
 ### Bug Fixes
 
@@ -11,7 +11,16 @@
   more than once in a forward pass; such a Linear is now quantized once instead of once per
   call.
 
-## [v1.4.3] 2026-mm-dd
+### Documentation
+
+- Updated paper references and citation links throughout the README and documentation,
+  including the JointQ paper and the published OneComp technical report.
+- Fixed rendering of `scale_bits` in MDBF's bit-width and rank formulas.
+
+### Tests
+
+- Added regression tests for expert Hessian lifetimes across consecutive MoE layers
+  and for expert Linear modules called multiple times in a forward pass.
 
 ## [v1.4.2] 2026-11-12
 
