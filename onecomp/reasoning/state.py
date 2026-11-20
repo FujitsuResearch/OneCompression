@@ -54,6 +54,8 @@ class RequestState:
     probe_model_evaluated_tokens: int = 0
     final_answer: str = ""
     timing: dict = field(default_factory=dict)
+    first_entropy: float | None = None
+    jump_count: int = 0
     last_text: str = ""
     stop_boundary: int | None = None
     token_kinds: list[str] = field(default_factory=list)

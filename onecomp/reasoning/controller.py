@@ -9,6 +9,7 @@ from .actions import Decision
 from .boundaries import make_boundary
 from .config import ReasoningConfig
 from .policies import make_policy
+from .signals import relative_entropy_change
 
 
 class ReasoningCompressionController:
@@ -17,7 +18,7 @@ class ReasoningCompressionController:
         self.boundary = make_boundary(self.config)
         self.policy = make_policy(self.config)
 
-    def is_boundary(self, state, next_token_text=""):
+    def is_boundary(self, state, next_token_text="", *, last_token_forced=False):
         c = self.config
         if state.phase != "reasoning":
             return False
@@ -29,6 +30,9 @@ class ReasoningCompressionController:
             return forced
         # Adaptive checks wait while the model may be writing the end marker itself.
         if state.pending_end_marker or state.reasoning_tokens < c.min_reasoning_tokens:
+            return False
+        # A sentence ending in an inserted jump is not a new model-generated boundary.
+        if c.boundary == "sentence" and last_token_forced:
             return False
         return self.boundary.detect(state, next_token_text)
 
@@ -73,6 +77,17 @@ class ReasoningCompressionController:
             values["answer_stability"] = float(
                 len(answers) == w and bool(answers[0]) and len(set(answers)) == 1
             )
+        entropy = values.get("attention_entropy")
+        if entropy is not None:
+            first = state.first_entropy is None
+            values["first_attention_boundary"] = first
+            if first:
+                state.first_entropy = entropy
+            # Derive the ratio from request-local history; caller-provided values
+            # must not silently use a different denominator or previous boundary.
+            values["relative_entropy"] = (
+                None if first else relative_entropy_change(entropy, state.first_entropy)
+            )
         decision = self.policy.decide(state, values)
         state.last_decision_boundary = boundary
         if not state.boundaries or state.boundaries[-1] != boundary:
@@ -96,5 +111,7 @@ class ReasoningCompressionController:
             )
             if decision.kind == "stop":
                 state.stop_boundary = boundary
+            if decision.kind == "jump":
+                state.jump_count += 1
         state.timing["policy_s"] = state.timing.get("policy_s", 0) + perf_counter() - started
         return decision
