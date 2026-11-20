@@ -8,6 +8,7 @@ import torch
 from onecomp.reasoning import ReasoningConfig, ReasoningFormat
 from onecomp.reasoning.signals import deer_confidence
 from onecomp.runtime.transformers import TransformersReasoningAdapter
+from onecomp.runtime.transformers.adapter import ASAG_JUMP
 
 
 class TinyTokenizer:
@@ -42,12 +43,13 @@ class TinyTokenizer:
 class ScriptedLM(torch.nn.Module):
     """Small deterministic forward fixture; synthetic quality is not a benchmark."""
 
-    def __init__(self):
+    def __init__(self, reasoning_length=6):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.zeros(1))
         self.config = SimpleNamespace(_attn_implementation="eager")
         self.generation_config = SimpleNamespace(eos_token_id=7)
         self.forward_lengths = []
+        self.reasoning_length = reasoning_length
 
     def forward(self, input_ids, past_key_values=None, output_attentions=False, **_):
         incoming = input_ids[0].tolist()
@@ -61,7 +63,7 @@ class ScriptedLM(torch.nn.Module):
             next_id = 7 if 6 in history[history.index(3) :] else 6
         else:
             count = max(0, len(history) - 1)
-            next_id = 3 if count >= 6 else [4, 5][count % 2]
+            next_id = 3 if count >= self.reasoning_length else [4, 5][count % 2]
         logits = torch.full((1, len(incoming), 16), -7.0)
         logits[0, -1, next_id] = 7.0
         attentions = None
@@ -569,6 +571,50 @@ def test_asag_jump_and_bias_follow_normal_cache_path(monkeypatch):
     )
     assert any(i["kind"] == "bias" for i in result.state.interventions)
     assert result.metrics["model_evaluated_tokens"] == sum(model.forward_lengths)
+
+
+@pytest.mark.parametrize(("boundary", "after_jump"), [("sentence", [4, 5]), ("tokens", [])])
+def test_asag_jump_suffix_is_not_a_sentence_boundary(monkeypatch, boundary, after_jump):
+    class JumpTokenizer(TinyTokenizer):
+        pieces = {**TinyTokenizer.pieces, 11: ASAG_JUMP.removesuffix(".\n\n"), 13: ".\n\n"}
+
+        def encode(self, text, **kwargs):
+            if text == ASAG_JUMP:
+                return [11, 13]
+            return super().encode(text, **kwargs)
+
+    adapter = TransformersReasoningAdapter(ScriptedLM(reasoning_length=10), JumpTokenizer())
+    original_probe = adapter.probe
+
+    def trapping_probe(prefix_ids, *args, **kwargs):
+        assert kwargs["cache"] == prefix_ids
+        result = original_probe(prefix_ids, *args, **kwargs)
+        result.signals.update(
+            attention_entropy=10.0, previous_attention=0.2, current_attention=0.1
+        )
+        return result
+
+    monkeypatch.setattr(adapter, "probe", trapping_probe)
+    result = adapter.generate(
+        [1],
+        reasoning_format=FORMAT,
+        config=ReasoningConfig(
+            policy="asag_reference",
+            boundary=boundary,
+            interval=2,
+            confidence_threshold=1.0,
+            probe_max_tokens=6,
+            max_jumps=1,
+        ),
+        max_new_tokens=20,
+    )
+    reasoning = [4, 5, 4, 5, 11, 13, *after_jump]
+    assert result.state.boundaries == [2, 4, len(reasoning)]
+    assert [i["reason"] for i in result.state.interventions] == [
+        "asag_backward_attention",
+        "asag_jump_limit",
+    ]
+    assert result.state.generated_token_ids == [*reasoning, 3, 6, 7]
 
 
 def test_attention_and_confidence_ablations_omit_unneeded_work():

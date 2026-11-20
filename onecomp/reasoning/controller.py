@@ -18,7 +18,7 @@ class ReasoningCompressionController:
         self.boundary = make_boundary(self.config)
         self.policy = make_policy(self.config)
 
-    def is_boundary(self, state, next_token_text=""):
+    def is_boundary(self, state, next_token_text="", *, last_token_forced=False):
         c = self.config
         if state.phase != "reasoning":
             return False
@@ -30,6 +30,9 @@ class ReasoningCompressionController:
             return forced
         # Adaptive checks wait while the model may be writing the end marker itself.
         if state.pending_end_marker or state.reasoning_tokens < c.min_reasoning_tokens:
+            return False
+        # A sentence ending in an inserted jump is not a new model-generated boundary.
+        if c.boundary == "sentence" and last_token_forced:
             return False
         return self.boundary.detect(state, next_token_text)
 

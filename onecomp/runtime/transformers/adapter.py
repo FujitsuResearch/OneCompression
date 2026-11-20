@@ -456,6 +456,7 @@ class TransformersReasoningAdapter:
         cache = output.past_key_values
         logits = output.logits[0, -1].float()
         text_stream = _TextStream(self._decode)
+        last_token_forced = False
         for index in range(max_new_tokens):
             if observe and not queued:
                 decision_started = perf_counter()
@@ -464,7 +465,9 @@ class TransformersReasoningAdapter:
                     if config.boundary == "transition"
                     else ""
                 )
-                boundary = controller.is_boundary(state, next_text)
+                boundary = controller.is_boundary(
+                    state, next_text, last_token_forced=last_token_forced
+                )
                 metrics["controller_overhead_s"] += perf_counter() - decision_started
                 if boundary:
                     logits = self._intervene(
@@ -480,7 +483,8 @@ class TransformersReasoningAdapter:
                         metrics,
                         uses_logits=uses_logits,
                     )
-            token_id = queued.popleft() if queued else int(torch.argmax(logits).item())
+            last_token_forced = bool(queued)
+            token_id = queued.popleft() if last_token_forced else int(torch.argmax(logits).item())
             generated.append(token_id)
             last = token_id in eos_ids or index + 1 == max_new_tokens
             token_text = text_stream.push(token_id, final=last)
