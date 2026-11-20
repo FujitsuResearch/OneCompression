@@ -28,7 +28,7 @@ onecomp/reasoning/
     data.py            boxed-answer extraction and conservative grading
 onecomp/runtime/
     transformers/      serial greedy reference backend
-    vllm/              vLLM 0.21 logits processor
+    vllm/              vLLM logits processor and offline answer-probe adapter
 ```
 
 Each policy class declares what a backend must observe (`uses_logits`,
@@ -37,10 +37,12 @@ Each policy class declares what a backend must observe (`uses_logits`,
 matching policy names. The budget baselines need no observation
 (`uses_logits=False`); ThinkBrake sets `requires_logits`, so backends pass it
 the margin computed from logits they already produced. DEER and stability set
-`uses_probe`, so a backend that can branch a request runs an answer probe at
-each boundary; backends without that capability reject them. ASAG declares
-`requires_attention` (unless an ablation needs none) and chooses probe kinds
-through `probe_options()`. Further adaptive policies are added by registering a
+`uses_probe`: Transformers branches its KV cache when possible, while offline
+vLLM submits a separate request with the same prefix and an answer cue. ASAG
+declares `requires_attention` (unless an ablation needs none) and chooses probe
+kinds through `probe_options()`. Both backends collect its attention signals
+with eager Transformers, while vLLM reads the answer probabilities from its
+own engine. Further adaptive policies are added by registering a
 new class in `POLICIES` without changing this interface. Package `__init__.py` files only re-export.
 
 ## Contracts

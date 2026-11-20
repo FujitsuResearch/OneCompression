@@ -20,13 +20,14 @@
 - **Answer-probe reasoning policies (experimental)**: `policy="deer"` stops when
   a trial answer, decoded on a temporary branch, is confident, and
   `policy="stability"` stops when consecutive trial answers agree. Probes reuse
-  the request's KV cache and restore it exactly, and their cost is counted in
-  `model_evaluated_tokens`. Transformers reference backend only.
+  the request's KV cache and restore it exactly in the Transformers reference
+  backend. The offline vLLM adapter uses independent vLLM requests and can reuse
+  blocks via prefix caching.
 - **Attention-based reasoning policy (experimental)**: `policy="asag_reference"`
   is a reference interpretation of ASAG that combines trial-answer confidence
   with attention-entropy convergence and can bias the next token or jump to a
-  fresh approach. Its attention signals need `attn_implementation="eager"`, and
-  it runs on the Transformers reference backend only.
+  fresh approach. The offline vLLM adapter supports ASAG, using a matching
+  eager Transformers model for the modes that require attention weights.
 
 ## [v1.5.0(WIP)+perf/drop-quantizer-gc-collect] 2026-11-05
 
