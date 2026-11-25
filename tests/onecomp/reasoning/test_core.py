@@ -3,6 +3,8 @@
 import unittest
 from dataclasses import replace
 
+import torch
+
 from onecomp.reasoning import (
     ReasoningCompressionController,
     ReasoningConfig,
@@ -10,7 +12,7 @@ from onecomp.reasoning import (
     RequestState,
     estimate_prompt_budget,
 )
-from onecomp.reasoning.actions import StopAction
+from onecomp.reasoning.actions import JumpAction, LogitMixtureAction, StopAction
 from onecomp.reasoning.boundaries import (
     SentenceBoundaryDetector,
     TokenBoundaryDetector,
@@ -149,7 +151,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(len(s.signals), 1)
 
     def test_incomplete_probes_never_imply_confidence_or_stability(self):
-        for policy in ("deer", "stability"):
+        for policy in ("deer", "stability", "asag_reference"):
             c = ReasoningCompressionController(
                 ReasoningConfig(
                     policy=policy,
@@ -161,9 +163,93 @@ class CoreTests(unittest.TestCase):
             s = RequestState("a", ReasoningFormat((10,), (20,)))
             for _ in range(2):
                 s.append(1)
-                decision = c.decide(s, {"answer": "42", "confidence": 1, "probe_complete": False})
+                decision = c.decide(
+                    s,
+                    {
+                        "answer": "42",
+                        "confidence": 1,
+                        "probe_complete": False,
+                        "attention_entropy": 10,
+                        "relative_entropy": None,
+                    },
+                )
                 self.assertEqual(decision.kind, "continue")
             self.assertEqual(s.probe_confidences, [])
+
+    def test_asag_trap_zero_current_attention(self):
+        state = RequestState("zero", ReasoningFormat((10,), (20,)))
+        controller = ReasoningCompressionController(ReasoningConfig(policy="asag_reference"))
+        result = controller.decide(
+            state,
+            {
+                "relative_entropy": 0.1,
+                "previous_attention": 0.2,
+                "current_attention": 0.0,
+                "backward_ratio": None,
+            },
+        )
+        self.assertEqual(result.kind, "jump")
+
+    def test_asag_reference_first_entropy_and_actions(self):
+        s = RequestState("a", ReasoningFormat((10,), (20,)))
+        c = ReasoningCompressionController(ReasoningConfig(policy="asag_reference"))
+        self.assertEqual(
+            c.decide(s, {"confidence": 0.4, "attention_entropy": 10}).kind, "continue"
+        )
+        s.append(1)
+        self.assertEqual(c.decide(s, {"confidence": 0.4, "attention_entropy": 8}).kind, "bias")
+        self.assertAlmostEqual(s.signals[-1]["relative_entropy"], -0.2)
+        s.append(1)
+        self.assertEqual(
+            c.decide(s, {"confidence": 0.4, "attention_entropy": 11, "backward_ratio": 2}).kind,
+            "jump",
+        )
+        s.append(1)
+        self.assertEqual(
+            c.decide(s, {"confidence": 0.4, "attention_entropy": 11, "backward_ratio": 2}).kind,
+            "stop",
+        )
+        self.assertEqual(s.jump_count, 1)
+
+    def test_first_attention_boundary_has_no_relative_entropy(self):
+        s = RequestState("a", ReasoningFormat((10,), (20,)))
+        c = ReasoningCompressionController(ReasoningConfig(policy="asag_reference"))
+        c.decide(s, {"confidence": 0.4, "attention_entropy": 10})
+        self.assertIsNone(s.signals[-1]["relative_entropy"])
+        self.assertTrue(s.signals[-1]["first_attention_boundary"])
+
+    def test_asag_strict_confidence_first_boundary_and_absent_ratios(self):
+        c = ReasoningCompressionController(ReasoningConfig(policy="asag_reference"))
+        s = RequestState("a", ReasoningFormat((10,), (20,)))
+        self.assertEqual(
+            c.decide(s, {"confidence": 0.95, "attention_entropy": 10}).kind, "continue"
+        )
+        other = RequestState("b", s.format)
+        self.assertEqual(
+            c.decide(other, {"confidence": 0.951, "attention_entropy": 10}).kind, "stop"
+        )
+        s.append(1)
+        self.assertEqual(
+            c.decide(
+                s, {"confidence": 0.99, "attention_entropy": 11, "backward_ratio": None}
+            ).kind,
+            "continue",
+        )
+
+    def test_logit_mixture_and_jump_actions(self):
+        logits = torch.tensor([2.0, 1.0, 0.0])
+        probe = torch.tensor([0.0, 0.0, 1.0])
+        mixed = LogitMixtureAction(probe, weight=0.5).apply(logits)
+        expected = 0.5 * logits.softmax(-1) + 0.5 * probe
+        self.assertTrue(torch.allclose(mixed.exp(), expected))
+        self.assertEqual(LogitMixtureAction(probe, weight=0).apply(logits).argmax().item(), 0)
+        with self.assertRaises(ValueError):
+            LogitMixtureAction(probe, weight=1.5)
+        with self.assertRaises(ValueError):
+            LogitMixtureAction(torch.zeros(3)).apply(logits)
+        pending = [1]
+        JumpAction([5, 6]).apply(pending)
+        self.assertEqual(pending, [1, 5, 6])
 
     def test_boundaries(self):
         s = RequestState("a", ReasoningFormat((10,), (20,)))
@@ -215,6 +301,10 @@ class CoreTests(unittest.TestCase):
             {"probe_max_tokens": 0},
             {"stability_window": 0},
             {"relative_confidence": 1},
+            {"asag_mode": "paper"},
+            {"max_jumps": -1},
+            {"entropy_threshold": float("nan")},
+            {"enable_trap": 1},
         ):
             with self.assertRaises((ValueError, TypeError)):
                 ReasoningConfig.from_dict(values)

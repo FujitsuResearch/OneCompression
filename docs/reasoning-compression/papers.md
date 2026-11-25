@@ -68,6 +68,66 @@ case-sensitive. Probes branch from the live KV cache (equivalent to the official
 implementation's prefix caching). These are reported as a reference
 interpretation, not an exact reproduction of the authors' branch-parallel runtime.
 
+## ASAG
+
+Source: [Li et al., arXiv:2606.15070v1](https://arxiv.org/html/2606.15070v1),
+Equations 2, 5–8, §4, §5.1 and Algorithm 1.
+
+| Component | Paper definition |
+|---|---|
+| Confidence | Arithmetic mean of selected trial-answer token probabilities |
+| Attention | Last four layers, all heads; normalized Shannon entropy summed across query rows/heads/layers |
+| Normalization | Divide entropy by `log(k)`, where `k` is the full key-prefix width |
+| Query window | Probe cue plus an equal number of immediately preceding reasoning tokens (§4.1) |
+| Convergence | `(H - H_first) / H_first < -0.1` |
+| First transition | Confidence `>0.95` permits exit |
+| Later transitions | Both confidence `>0.95` and convergence permit exit |
+| Low-confidence convergence | Mix current next-token probabilities with probe probabilities at weights `0.95/0.05` |
+| Trap | Previous thought's attention per token exceeds current thought's, with entropy change above threshold |
+| Escape | Append a jump prompt; eventually force final-answer transition |
+
+Defaults are BF16, greedy decoding, maximum `16000` new tokens, confidence `0.95`,
+entropy change `-0.1`, jump threshold `1`. Appendix A's 32-row analysis window
+must not be confused with §4.1's cue-sized method window. Attention is observed;
+Equation 7 intervenes in output probabilities, not attention weights.
+
+Exact short cue and jump strings from Appendix D.2:
+
+```python
+probe_cue = "\n\n Final Answer\n\n \\boxed"
+jump_prompt = (
+    "Wait, my previous reasoning is not correct. I should adopt a more concise "
+    "and different approach to reexamine this problem.\n\n"
+)
+```
+
+Implementation choices the paper leaves open, and the choice made by
+`asag_reference`:
+
+- Which probe-position probability vector is retained and how long injection
+  lasts. The paper does not unambiguously define either. OneComp uses the
+  next-token distribution at the first answer-content position inside
+  `\boxed{}` (Eq. 7's `a_r`), for one live decoding step. The position right
+  after the cue is not used because it predicts the `{` delimiter.
+- Whether the jump limit follows the stated maximum or Algorithm 1's inclusive
+  comparison; these admit different numbers of jumps when the counter starts at
+  zero. OneComp allows exactly `max_jumps` (default 1) jumps, then stops.
+- Whether a boundary is detected before or after the marker token is committed.
+  OneComp probes before the transition token is emitted.
+- Whether attention is replayed from a prefix or collected during ordinary
+  decoding, and the complete cost of that replay. OneComp branches the live
+  cache, re-forwards the cue-sized run of preceding reasoning tokens plus the
+  cue with eager attention, and charges all forwarded tokens.
+- A zero initial entropy gives an undefined relative change, represented as
+  missing data; it is not evidence of convergence.
+
+The implementation is an **ASAG reference interpretation** until its conventions
+are cross-validated on a real model and a reported qualitative trend is
+reproduced. Last-four-layer reductions on smaller synthetic models report the
+actual available layer count. An optimized vLLM approximation needs its own
+method identity and evaluation. No fused attention instrumentation is implied by
+the existence of this reference.
+
 ## Certaindex / Dynasor
 
 Source: [Fu et al., NeurIPS 2025](https://proceedings.neurips.cc/paper_files/paper/2025/file/d037fd021c9aace128b8ce25001cdb6c-Paper-Conference.pdf),
