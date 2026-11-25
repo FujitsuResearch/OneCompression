@@ -11,6 +11,7 @@ Copyright 2025-2026 Fujitsu Ltd.
 """
 
 import logging
+import weakref
 
 import pytest
 import torch
@@ -19,7 +20,11 @@ import torch.nn.functional as F
 from transformers.modeling_layers import GradientCheckpointingLayer
 
 from onecomp.qep._qep_config import QEPConfig
-from onecomp.qep._quantize_with_qep_arch import run_quantize_with_qep_arch
+from onecomp.qep._quantize_with_qep_arch import (
+    _compute_per_module_hessians,
+    forward_input,
+    run_quantize_with_qep_arch,
+)
 from onecomp.quantizer.gptq import GPTQ
 
 # in_features of every expert Linear must be divisible by the 4-bit pack factor
@@ -143,7 +148,7 @@ def _is_rtn_fallback(quantizer, name):
     return quantizer.results[name].quantization_time is None
 
 
-def _run_quantized(monkeypatch, caplog):
+def _run_quantized(monkeypatch, caplog, include_layer_keywords: tuple[str, ...] = ("experts",)):
     """Run ``run_quantize_with_qep_arch`` on the toy MoE model above.
 
     Calibration sample 0 (the single sample used for activation grouping)
@@ -165,7 +170,9 @@ def _run_quantized(monkeypatch, caplog):
         _fake_prepare_calibration_dataset,
     )
 
-    quantizer = GPTQ(wbits=4, groupsize=2, sym=True, include_layer_keywords=["experts"])
+    quantizer = GPTQ(
+        wbits=4, groupsize=2, sym=True, include_layer_keywords=list(include_layer_keywords)
+    )
     qep_config = QEPConfig(device="cpu", percdamp=0.01, perccorr=0.5)
 
     caplog.set_level(logging.INFO, logger="onecomp.qep._quantize_with_qep_arch")
@@ -333,3 +340,93 @@ def test_non_gptq_quantizer_skips_expert_with_no_tokens(monkeypatch, caplog):
     skip_logs = [r for r in caplog.records if "skipping" in r.message]
     assert len(skip_logs) == len(names)
     assert not any("falling back to RTN" in r.message for r in caplog.records)
+
+
+@pytest.mark.parametrize(
+    "include_layer_keywords",
+    [("experts",), ("experts.0.", "experts.1.")],
+    ids=["last_expert_target_without_tokens", "last_expert_target_with_tokens"],
+)
+def test_each_expert_hessian_is_released_once_its_expert_is_quantized(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    include_layer_keywords: tuple[str, ...],
+) -> None:
+    """No expert Hessian may still be referenced after its expert is quantized,
+
+    neither when the next expert is quantized nor when the block output is forwarded
+    (twice: quantized and full-precision inputs). Without expert 2, the last expert
+    target is expert 1's down_proj, which has a Hessian, instead of expert 2's
+    down_proj, which has none.
+    """
+    hessian_refs: list[weakref.ref[torch.Tensor]] = []
+    quantized_refs: list[weakref.ref[torch.Tensor]] = []
+    alive_when_quantizing: list[int] = []
+    alive_when_forwarding: list[int] = []
+    quantize_with_qep = GPTQ.quantize_with_qep
+
+    def recording_compute_hessians(
+        *args: object, **kwargs: object
+    ) -> dict[nn.Module, tuple[torch.Tensor, int] | None]:
+        hessians = _compute_per_module_hessians(*args, **kwargs)
+        hessian_refs.extend(weakref.ref(e[0]) for e in hessians.values() if e is not None)
+        return hessians
+
+    def counting_quantize_with_qep(
+        self: GPTQ, module: nn.Module, *args: object, hessian: torch.Tensor, **kwargs: object
+    ) -> None:
+        alive_when_quantizing.append(sum(ref() is not None for ref in quantized_refs))
+        quantized_refs.append(weakref.ref(hessian))
+        quantize_with_qep(self, module, *args, hessian=hessian, **kwargs)
+
+    def counting_forward_input(*args: object, **kwargs: object) -> torch.Tensor:
+        alive_when_forwarding.append(sum(ref() is not None for ref in hessian_refs))
+        return forward_input(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "onecomp.qep._quantize_with_qep_arch._compute_per_module_hessians",
+        recording_compute_hessians,
+    )
+    monkeypatch.setattr(GPTQ, "quantize_with_qep", counting_quantize_with_qep)
+    monkeypatch.setattr(
+        "onecomp.qep._quantize_with_qep_arch.forward_input", counting_forward_input
+    )
+    _run_quantized(monkeypatch, caplog, include_layer_keywords)
+
+    assert len(hessian_refs) == 6
+    assert alive_when_forwarding == [0, 0]
+    assert alive_when_quantizing == [0, 0, 0, 0, 0, 0]
+
+
+def test_expert_linear_called_twice_per_forward_is_quantized_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An expert Linear that one forward calls twice is quantized once.
+
+    Expert 0 reuses its gate_proj as up_proj, so its forward calls that Linear twice.
+    """
+    load_model = _FakeModelConfig.load_model
+    quantize_with_qep = GPTQ.quantize_with_qep
+    quantized_names: list[str] = []
+
+    def load_model_sharing_gate_up(
+        self: _FakeModelConfig, device_map: str | None = None
+    ) -> nn.Module:
+        model = load_model(self, device_map)
+        expert = model.model.layers[0].mlp.experts[0]
+        expert.up_proj = expert.gate_proj
+        return model
+
+    def recording_quantize_with_qep(
+        self: GPTQ, module: nn.Module, *args: object, **kwargs: object
+    ) -> None:
+        quantized_names.append(self.module_to_name[module])
+        quantize_with_qep(self, module, *args, **kwargs)
+
+    monkeypatch.setattr(_FakeModelConfig, "load_model", load_model_sharing_gate_up)
+    monkeypatch.setattr(GPTQ, "quantize_with_qep", recording_quantize_with_qep)
+    model, quantizer = _run_quantized(monkeypatch, caplog)
+
+    with_tokens = _names_for_expert(model, 0) + _names_for_expert(model, 1)
+    assert sorted(quantized_names) == sorted(with_tokens)
+    assert not any(_is_rtn_fallback(quantizer, n) for n in with_tokens)

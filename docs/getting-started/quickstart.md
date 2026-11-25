@@ -134,6 +134,8 @@ _, _, quantized_acc = runner.calculate_accuracy()
 
 ## Using QEP (Quantization Error Propagation)
 
+For the method, see [Arai & Ichikawa, NeurIPS 2025](https://openreview.net/forum?id=a3l3K9khbL).
+
 QEP compensates for error propagation across layers, improving quantization quality
 -- especially at lower bit-widths:
 

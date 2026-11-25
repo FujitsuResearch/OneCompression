@@ -3,6 +3,11 @@
 JointQ is a post-training quantization method that jointly optimizes integer weight assignments
 and scale parameters to minimize the layer-wise reconstruction error.
 
+!!! abstract "Reference"
+    Keiji Kimura and Yuma Ichikawa,
+    "JointQ: Joint Scale-and-Integer Quantization for Large Language Models," 2026.
+    [arXiv:2611.20384](https://arxiv.org/abs/2611.20384)
+
 ## Algorithm
 
 For each linear layer, JointQ minimizes:

@@ -32,6 +32,9 @@ Post-quantization process classes for improving quantized model accuracy.
 
 ## LoRA SFT
 
+For the underlying adapter method, see [LoRA](https://arxiv.org/abs/2106.09685).
+See the [LoRA SFT guide](../user-guide/post-process.md#lora-sft-accuracy-recovery) for usage.
+
 ::: onecomp.post_process.PostProcessLoraSFT
     options:
       show_source: false

@@ -3,6 +3,10 @@
 DBF is an extreme compression method that approximates weight matrices using binary factors,
 achieving approximately 1.5-bit quantization.
 
+!!! abstract "Reference"
+    [Addition is almost all you need: Compressing large language models with double binary factorization](https://openreview.net/forum?id=k5kUKoewdQ).
+    Published in Transactions on Machine Learning Research, 2026.
+
 ## Algorithm
 
 DBF decomposes each weight matrix \(W\) as:

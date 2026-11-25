@@ -70,6 +70,8 @@ See the [CLI Reference](cli.md) for all options.
 
 ## GPTQ with QEP (3-bit)
 
+For the QEP method, see [Arai & Ichikawa, NeurIPS 2025](https://openreview.net/forum?id=a3l3K9khbL).
+
 Quantize a model using GPTQ at 3-bit precision with QEP to improve quality:
 
 ```python
@@ -91,6 +93,8 @@ print(f"Quantized model perplexity: {quantized_ppl}")
 ```
 
 ## GPTQ + QEP + LPCD
+
+For the LPCD method, see [Ichikawa et al., 2025](https://arxiv.org/abs/2512.01546).
 
 Apply LPCD on top of GPTQ + QEP to refine residual-path submodules:
 
@@ -126,6 +130,8 @@ runner.run()
 
 ## GPTQ without QEP
 
+For the GPTQ method, see [Frantar et al., ICLR 2023](https://arxiv.org/abs/2210.17323).
+
 Standard GPTQ quantization without error propagation:
 
 ```python
@@ -135,6 +141,8 @@ runner.run()
 ```
 
 ## JointQ (4-bit, groupsize=128)
+
+For the method, see [Kimura & Ichikawa, 2026](https://arxiv.org/abs/2611.20384).
 
 Quantize a model using JointQ, which jointly optimizes weight assignments and scale parameters:
 
