@@ -129,9 +129,13 @@ vLLM captures these probabilities before applying logits processors. The
 offline adapter rejects custom processors registered on the engine or through
 the `vllm.logits_processors` entry-point group. OneComp's own processor is
 allowed because these requests carry no metadata that activates it.
-Only content from a complete, balanced box enters the confidence and stability
-checks. The main request continues from its original prefix plus any accepted
+Confidence and stability checks score complete, nonempty content from either
+the cue's leading braced argument or an explicit `\boxed{...}` in the trial.
+The main request continues from its original prefix plus any accepted
 intervention. vLLM prefix caching can reuse shared blocks across requests.
+The optional `on_token(token_id, text)` callback reports each accepted token
+in order. Notifications for sampled tokens arrive after each synchronous
+generation chunk, and the remaining final answer can arrive all at once.
 
 ASAG attention modes use an eager Transformers model with matching weights
 and tokenizer. For compatible full-attention caches, it keeps a request-local
@@ -152,8 +156,8 @@ the model emits a new sentence boundary.
 `vllm_main_work` and `vllm_probe_work` record request counts, submitted prompt
 tokens, reported cached tokens and sampled tokens. Those counters include
 lookahead discarded on intervention and samples from distribution queries.
-vLLM stops a trial at a closing brace. If it closes an inner group, the adapter
-resumes the trial from its existing token prefix within the same probe budget.
+vLLM pauses the trial at a closing brace. If the trial has no complete boxed
+answer yet, the adapter resumes from the same token prefix within the probe budget.
 It scores only the contents of a complete box. Evaluated-token estimates sum uncached prompt
 tokens and all but the last sampled token per request, plus eager attention
 forwards. They do not measure vLLM scheduling or hardware work. If the cue will
