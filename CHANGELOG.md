@@ -1,5 +1,33 @@
 # Change log
 
+## [Unreleased]
+
+### New Features
+
+- **Runtime reasoning compression (experimental)**: new `onecomp.reasoning` and
+  `onecomp.runtime` packages shorten the thinking phase of reasoning models
+  (e.g. Qwen3) at inference time without training. This release provides the
+  policy/controller API and the budget baselines (fixed and prompt-based
+  budgets). A greedy Transformers reference backend and a vLLM 0.21 logits
+  processor apply them per request. Compression is disabled by default. See the
+  [reasoning compression guide](docs/user-guide/reasoning-compression.md) and the
+  [example](example/example_reasoning_compression.py).
+- **ThinkBrake reasoning policy (experimental)**: `policy="thinkbrake"` stops
+  reasoning at a sentence or transition boundary when the end-of-thinking token
+  is nearly the most likely next token. It reads only the logits that decoding
+  already produces, so it adds no model forward, and runs in both the
+  Transformers reference backend and the vLLM logits processor.
+- **Answer-probe reasoning policies (experimental)**: `policy="deer"` stops when
+  a trial answer, decoded on a temporary branch, is confident, and
+  `policy="stability"` stops when consecutive trial answers agree. Probes reuse
+  the request's KV cache and restore it exactly, and their cost is counted in
+  `model_evaluated_tokens`. Transformers reference backend only.
+- **Attention-based reasoning policy (experimental)**: `policy="asag_reference"`
+  is a reference interpretation of ASAG that combines trial-answer confidence
+  with attention-entropy convergence and can bias the next token or jump to a
+  fresh approach. Its attention signals need `attn_implementation="eager"`, and
+  it runs on the Transformers reference backend only.
+
 ## [v1.5.0(WIP)+perf/drop-quantizer-gc-collect] 2026-11-05
 
 ### Enhancement

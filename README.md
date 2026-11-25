@@ -343,6 +343,8 @@ See [`notebook/README.md`](./notebook/README.md) for local setup, or the
 | | [example_serve_cpu.py](./example/cpu_inference/example_serve_cpu.py) | Serve a GGUF model with llama.cpp on CPU |
 | MCP | [example_mcp_client.py](./example/example_mcp_client.py) | Minimal stdio JSON-RPC client for MCP tool calls |
 | Context Compaction | [example_arc_engine.py](./example/compaction/example_arc_engine.py) | Minimal LLM-free agent loop with exact observation recall |
+| Reasoning Compression | [example_reasoning_compression.py](./example/example_reasoning_compression.py) | Compare none / fixed / prompt_budget / ThinkBrake / DEER / stability reasoning policies with the Transformers reference backend (experimental) |
+| | [example_reasoning_vllm_inference.py](./example/vllm_inference/example_reasoning_vllm_inference.py) | Per-request reasoning compression policies in a vLLM batch (experimental) |
 
 ## 🔌 vLLM Inference
 
