@@ -32,8 +32,8 @@ class VLLMReasoningAdapter:
     ):
         if config.policy not in cls.supported_policies:
             raise NotImplementedError(
-                f"vLLM logits hooks do not support {config.policy!r}; use the Transformers "
-                "reference backend."
+                f"vLLM logits hooks do not support {config.policy!r}; "
+                "use VLLMProbeReasoningAdapter for offline vLLM generation."
             )
         if config.policy == "thinkbrake" and len(reasoning_format.end_token_ids) != 1:
             raise ValueError("ThinkBrake requires a singleton reasoning-end token")

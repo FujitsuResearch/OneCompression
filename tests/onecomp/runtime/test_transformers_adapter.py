@@ -387,7 +387,7 @@ def test_none_matches_native_greedy_tiny_qwen3():
     assert result.state.generated_token_ids == native[0, prompt.shape[1] :].tolist()
 
 
-def _tiny_qwen3(attention="eager"):
+def _tiny_qwen3(attention="eager", *, max_position_embeddings=128, rope_parameters=None):
     from transformers import Qwen3Config, Qwen3ForCausalLM
 
     torch.manual_seed(17)
@@ -400,7 +400,8 @@ def _tiny_qwen3(attention="eager"):
             num_attention_heads=2,
             num_key_value_heads=1,
             head_dim=8,
-            max_position_embeddings=128,
+            max_position_embeddings=max_position_embeddings,
+            rope_parameters=rope_parameters,
             eos_token_id=31,
             pad_token_id=0,
             attn_implementation=attention,
@@ -432,6 +433,173 @@ def test_cache_branch_probe_matches_replay_and_restores_cache_exactly(policy):
             assert branched.signals[key] == replayed.signals[key]
         for key in ("attention_entropy", "previous_attention", "current_attention"):
             assert branched.signals[key] == pytest.approx(replayed.signals[key], rel=1e-4)
+
+
+def test_attention_session_falls_back_for_falcon_h1_hybrid_cache():
+    from transformers import FalconH1Config, FalconH1ForCausalLM
+
+    model = FalconH1ForCausalLM(
+        FalconH1Config(
+            vocab_size=32,
+            hidden_size=16,
+            intermediate_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            num_key_value_heads=1,
+            mamba_d_ssm=16,
+            mamba_n_heads=2,
+            mamba_d_state=4,
+            mamba_chunk_size=4,
+            attn_implementation="eager",
+        )
+    )
+    adapter = TransformersReasoningAdapter(model, TinyTokenizer())
+    config = ReasoningConfig(policy="asag_reference", asag_mode="attention")
+    prefix = [1, 4, 5, 4, 5]
+    session = adapter.start_attention_probe(config)
+    first = session(prefix, current_span=(1, 5))
+    second = session(prefix + [4, 5], previous_span=(1, 5), current_span=(5, 7))
+
+    assert first.reused_prefix_tokens == second.reused_prefix_tokens == 0
+    assert second.model_evaluated_tokens == 8
+    assert second.signals["attention_key_tokens"] == 8
+
+
+def _dynamic_rope_adapter(tokenizer=None):
+    return TransformersReasoningAdapter(
+        _tiny_qwen3(
+            max_position_embeddings=32,
+            rope_parameters={"rope_type": "dynamic", "factor": 8.0, "rope_theta": 10000.0},
+        ),
+        tokenizer or TinyTokenizer(),
+    )
+
+
+def test_attention_session_and_live_probe_replay_with_dynamic_rope():
+    config = ReasoningConfig(policy="asag_reference", asag_mode="attention")
+    adapter = _dynamic_rope_adapter()
+    reference = _dynamic_rope_adapter()
+    session = adapter.start_attention_probe(config)
+    prefix = torch.randint(1, 31, (127,), generator=torch.Generator().manual_seed(1)).tolist()
+    for end, start in ((27, 0), (63, 27), (127, 63)):
+        ids = prefix[:end]
+        spans = dict(previous_span=(0, start) if start else None, current_span=(start, end))
+        expected = reference.probe(ids, config, answer_probe=False, **spans)
+        actual = session(ids, **spans)
+        assert actual.reused_prefix_tokens == 0
+        assert actual.model_evaluated_tokens == len(ids) + 1
+        for key in ("attention_entropy", "current_attention", "backward_ratio"):
+            assert actual.signals[key] == pytest.approx(expected.signals[key], rel=1e-5)
+
+    live = _dynamic_rope_adapter()
+    with torch.inference_mode():
+        cache = live._forward(prefix).past_key_values
+    result = live.probe(prefix, config, cache=cache, answer_probe=False, **spans)
+    assert result.reused_prefix_tokens == 0
+    assert result.signals["backward_ratio"] == pytest.approx(expected.signals["backward_ratio"])
+
+
+def test_short_dynamic_rope_probe_uses_its_own_length_after_a_long_request():
+    config = ReasoningConfig(policy="asag_reference", asag_mode="attention")
+    adapter = _dynamic_rope_adapter()
+    prefix = torch.randint(1, 31, (384,), generator=torch.Generator().manual_seed(1)).tolist()
+    spans = dict(previous_span=(0, 63), current_span=(63, 127))
+
+    expected = adapter.start_attention_probe(config)(prefix[:127], **spans)
+    adapter.start_attention_probe(config)(prefix)
+    after_long_probe = adapter.start_attention_probe(config)(prefix[:127], **spans)
+
+    # A real long prefill also leaves a longer cached RoPE frequency on the model.
+    with torch.inference_mode():
+        adapter._forward(prefix)
+    rotary = adapter.model.model.rotary_emb
+    before_freq = rotary.inv_freq.clone()
+    after_long_prefill = adapter.start_attention_probe(config)(prefix[:127], **spans)
+
+    for actual in (after_long_probe, after_long_prefill):
+        for key in (
+            "attention_entropy",
+            "previous_attention",
+            "current_attention",
+            "backward_ratio",
+        ):
+            assert actual.signals[key] == pytest.approx(expected.signals[key], rel=1e-5)
+    assert torch.equal(rotary.inv_freq, before_freq)
+    assert int(rotary.max_seq_len_cached) == len(prefix)
+
+
+@pytest.mark.parametrize("fail_probe", [False, True])
+def test_dynamic_rope_probe_restores_live_generation_state(monkeypatch, fail_probe):
+    class MultiTokenCueTokenizer(TinyTokenizer):
+        def encode(self, text, **kwargs):
+            if "Final Answer" in text:
+                return [10] * 4
+            return super().encode(text, **kwargs)
+
+    config = ReasoningConfig(policy="asag_reference", asag_mode="attention")
+    control = _dynamic_rope_adapter()
+    adapter = _dynamic_rope_adapter(MultiTokenCueTokenizer())
+    prefix = torch.randint(1, 31, (41,), generator=torch.Generator().manual_seed(1)).tolist()
+    with torch.inference_mode():
+        control_cache = control._forward(prefix[:-1]).past_key_values
+        cache = adapter._forward(prefix[:-1]).past_key_values
+        expected = control._forward(prefix[-1:], control_cache).logits
+    rotary = adapter.model.model.rotary_emb
+    before_freq = rotary.inv_freq.clone()
+    if fail_probe:
+        forward = adapter._forward
+
+        def fail_after_forward(ids, cache=None, *, attention=False):
+            output = forward(ids, cache, attention=attention)
+            if attention:
+                raise RuntimeError("probe failed")
+            return output
+
+        monkeypatch.setattr(adapter, "_forward", fail_after_forward)
+        with pytest.raises(RuntimeError, match="probe failed"):
+            adapter.probe(prefix[:-1], config, answer_probe=False, cache=cache)
+    else:
+        adapter.probe(prefix[:-1], config, answer_probe=False, cache=cache)
+
+    assert torch.equal(rotary.inv_freq, before_freq)
+    assert int(rotary.max_seq_len_cached) == len(prefix) - 1
+    with torch.inference_mode():
+        actual = adapter._forward(prefix[-1:], cache).logits
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+def test_attention_session_bounds_eager_queries_and_matches_full_replay(monkeypatch):
+    adapter = TransformersReasoningAdapter(_tiny_qwen3(), TinyTokenizer())
+    config = ReasoningConfig(policy="asag_reference", asag_mode="attention")
+    prefix = [1] + [4, 5] * 65
+    extended = prefix + [4, 5, 4, 5]
+    previous_span = (1, len(prefix))
+    current_span = (len(prefix), len(extended))
+    reference = adapter.probe(
+        extended,
+        config,
+        previous_span=previous_span,
+        current_span=current_span,
+        answer_probe=False,
+    )
+    calls = []
+    forward = adapter._forward
+
+    def record_forward(ids, cache=None, *, attention=False):
+        calls.append((len(ids), attention))
+        return forward(ids, cache, attention=attention)
+
+    monkeypatch.setattr(adapter, "_forward", record_forward)
+    session = adapter.start_attention_probe(config)
+    session(prefix, current_span=previous_span)
+    result = session(extended, previous_span=previous_span, current_span=current_span)
+
+    assert calls == [(128, False), (3, False), (2, True), (4, False), (2, True)]
+    assert result.model_evaluated_tokens == 6
+    assert result.signals["attention_key_tokens"] == len(extended) + 1
+    assert result.signals["attention_query_rows"] == 2
+    for key in ("attention_entropy", "previous_attention", "current_attention", "backward_ratio"):
+        assert result.signals[key] == pytest.approx(reference.signals[key], rel=1e-4)
 
 
 def test_prefix_reuse_keeps_main_trajectory_and_reduces_probe_compute():

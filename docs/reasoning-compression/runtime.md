@@ -39,11 +39,13 @@ re-appends the saved key/value slices. The main trajectory's cache is
 therefore restored bit-for-bit; a test checks tensor equality and identical
 trajectories with and without reuse. Probe cost counts every forwarded cue,
 re-forwarded reasoning and answer token (`probe_model_evaluated_tokens`); the cached prefix it reuses is
-reported as `probe_reused_prefix_tokens`. Caches that cannot be cropped exactly
-(sliding-window layers, custom caches) fall back to a full-prefix replay in a
-new cache, as does `probe_prefix_reuse=False`. Replay is the conservative cost
-reference; branching matches prefix-cached serving such as the official vLLM
-DEER implementation. Probability scoring excludes tokens containing only box
+reported as `probe_reused_prefix_tokens`. Caches that cannot be restored from
+key/value slices alone (including sliding-window and hybrid layers), models
+with length-dependent RoPE, and `probe_prefix_reuse=False` use full-prefix
+replay. For length-dependent RoPE, each probe uses frequencies for its own
+sequence length and restores the model's rotary state on exit. Replay is the
+conservative cost reference; branching matches prefix-cached serving such as
+the official vLLM DEER implementation. Probability scoring excludes tokens containing only box
 delimiters or whitespace; a token overlapping both a delimiter and answer
 content remains included. A truncated or empty box cannot trigger a
 confidence/stability stop. After a stop decision, the original reasoning stream
@@ -101,10 +103,9 @@ tokenizer; for transition boundaries it decodes the argmax candidate. Budget
 policies skip decoding. Linguistic boundaries decode token fragments; they are
 approximations, not a universal sentence parser.
 
-Supported policies are listed in `VLLMReasoningAdapter.supported_policies`
-(none, fixed, prompt budget and ThinkBrake). Probe and attention policies fail
-explicitly: a logits hook cannot fork and replay a request to decode a trial
-answer, nor observe attention weights. The processor is
+Logits-processor policies are listed in `VLLMReasoningAdapter.supported_policies`
+(none, fixed, prompt budget and ThinkBrake). A logits hook sees one sampling
+step, so use the offline adapter below for trial-answer decoding. The processor is
 restricted to vLLM 0.21.x, `n=1`, and no speculative decoding. An end marker may
 not also be an EOS/stop token. These are capability guards, not evidence that
 untested modes work. Worker-local trace state is not transported through the
@@ -115,6 +116,52 @@ The installed `SamplingParams.thinking_token_budget` field has no execution-side
 consumer in the inspected Python source. Its presence alone is insufficient to
 claim a working native budget implementation, so this adapter forces explicit
 model-specific marker tokens.
+
+## Offline vLLM probe adapter
+
+`VLLMProbeReasoningAdapter` generates short greedy chunks with `LLM.generate`
+and checks candidate boundaries against the accepted prefix. Sentence and token
+boundary checks run before requesting another chunk. Transition checks use the
+next candidate token. A trial-answer
+request uses that prefix plus the policy cue. It supplies the sampled tokens'
+raw log probabilities for DEER's geometric mean or ASAG's arithmetic mean.
+vLLM captures these probabilities before applying logits processors. The
+offline adapter rejects custom processors registered on the engine or through
+the `vllm.logits_processors` entry-point group. OneComp's own processor is
+allowed because these requests carry no metadata that activates it.
+Confidence and stability checks score complete, nonempty content from either
+the cue's leading braced argument or an explicit `\boxed{...}` in the trial.
+The main request continues from its original prefix plus any accepted
+intervention. vLLM prefix caching can reuse shared blocks across requests.
+The optional `on_token(token_id, text)` callback reports each accepted token
+in order. Notifications for sampled tokens arrive after each synchronous
+generation chunk, and the remaining final answer can arrive all at once.
+
+ASAG attention modes use an eager Transformers model with matching weights
+and tokenizer. For compatible full-attention caches, it keeps a request-local
+KV cache of the accepted prefix, extending it in chunks of at most 128 tokens
+without retaining attention weights. Each attention probe temporarily branches
+that cache and materializes weights only for the cue and the preceding
+cue-length window. The adapter releases the eager KV cache when the request
+enters the answer phase. Models without a compatible full-attention cache, models
+using length-dependent RoPE such as Dynamic RoPE or LongRoPE, and adapters
+configured with `probe_prefix_reuse=False` use full-prefix replay and its
+higher memory cost. ASAG without attention uses vLLM alone. On a bias decision,
+two one-step vLLM requests read
+the full distributions at the live reasoning position and the first trial
+answer-content position. Stop and jump insert tokens into the resumed prefix.
+Sentence checks ignore the inserted jump's last token and resume as soon as
+the model emits a new sentence boundary.
+
+`vllm_main_work` and `vllm_probe_work` record request counts, submitted prompt
+tokens, reported cached tokens and sampled tokens. Those counters include
+lookahead discarded on intervention and samples from distribution queries.
+vLLM pauses the trial at a closing brace. If the trial has no complete boxed
+answer yet, the adapter resumes from the same token prefix within the probe budget.
+It scores only the contents of a complete box. Evaluated-token estimates sum uncached prompt
+tokens and all but the last sampled token per request, plus eager attention
+forwards. They do not measure vLLM scheduling or hardware work. If the cue will
+not fit in the model context, the boundary has no probe evidence.
 
 ## What optimized ASAG would require
 

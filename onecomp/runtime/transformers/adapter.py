@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import inspect
 from collections import deque
-from dataclasses import dataclass
+from collections.abc import Mapping
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, replace
 from time import perf_counter
 from typing import Any, Callable, Sequence
 
 import torch
+from transformers.cache_utils import DynamicCache, DynamicLayer
 
 from onecomp.reasoning import (
     ReasoningCompressionController,
@@ -33,12 +36,85 @@ from onecomp.reasoning.signals import (
     logit_observation,
 )
 
-DEER_PROBE_CUE = "\n**Final Answer**\n\\boxed"
-ASAG_PROBE_CUE = "\n\n Final Answer\n\n \\boxed"
-ASAG_JUMP = (
-    "Wait, my previous reasoning is not correct. I should adopt a more concise "
-    "and different approach to reexamine this problem.\n\n"
+from ..common import (
+    ASAG_JUMP,
+    ASAG_PROBE_CUE,
+    DEER_PROBE_CUE,
+    GenerationResult,
+    TextStream,
+    boxed_content,
 )
+
+
+def _is_length_dependent_rope(rope_type: Any) -> bool:
+    return isinstance(rope_type, str) and ("dynamic" in rope_type or rope_type == "longrope")
+
+
+def _uses_length_dependent_rope(config: Any) -> bool:
+    get_text_config = getattr(config, "get_text_config", None)
+    if get_text_config is not None:
+        config = get_text_config(decoder=True)
+    for field in ("rope_parameters", "rope_scaling"):
+        params = getattr(config, field, None)
+        if not isinstance(params, Mapping):
+            continue
+        # Transformers accepts both a flat configuration and per-layer-type settings.
+        for settings in (params, *params.values()):
+            if isinstance(settings, Mapping):
+                rope_type = settings.get("rope_type", settings.get("type", ""))
+                if _is_length_dependent_rope(rope_type):
+                    return True
+    return False
+
+
+@contextmanager
+def _isolated_probe_rope(model):
+    """Keep Transformers' length-dependent rotary buffers local to a probe."""
+    missing = object()
+    saved = []
+    try:
+        for module in model.modules():
+            rope_type = getattr(module, "rope_type", None)
+            by_layer = rope_type if isinstance(rope_type, Mapping) else {None: rope_type}
+            active = [
+                (layer, kind)
+                for layer, kind in by_layer.items()
+                if _is_length_dependent_rope(kind)
+            ]
+            if not active:
+                continue
+            # The HF update replaces these tensors rather than mutating them in place.
+            names = {"attention_scaling"}
+            for layer, _ in active:
+                prefix = "" if layer is None else f"{layer}_"
+                names.update(
+                    prefix + field
+                    for field in (
+                        "inv_freq",
+                        "original_inv_freq",
+                        "max_seq_len_cached",
+                        "attention_scaling",
+                        "long_inv_freq",
+                    )
+                )
+                if layer is None:
+                    names.add("None_long_inv_freq")  # HF also uses this name for flat LongRoPE.
+            saved.append((module, {name: getattr(module, name, missing) for name in names}))
+            for layer, kind in active:
+                if "dynamic" in kind:
+                    cached_length = (
+                        "max_seq_len_cached" if layer is None else f"{layer}_max_seq_len_cached"
+                    )
+                    # Force the first probe forward to compute frequencies for its own length.
+                    setattr(module, cached_length, 0)
+        yield
+    finally:
+        for module, state in reversed(saved):
+            for name, value in state.items():
+                if value is not missing:
+                    setattr(module, name, value)
+                elif hasattr(module, name):
+                    delattr(module, name)
 
 
 @dataclass
@@ -57,38 +133,52 @@ class ProbeResult:
     reused_prefix_tokens: int = 0
 
 
-@dataclass
-class GenerationResult:
-    state: RequestState
-    text: str
-    final_answer: str
-    metrics: dict[str, Any]
+class _AttentionProbeSession:
+    """Keep an eager KV cache for the growing accepted prefix of one request."""
 
+    def __init__(self, adapter, config, cue_length):
+        self._adapter = adapter
+        self._config = config
+        self._cue_length = cue_length
+        self._cache = None
+        self._cached_prefix = ()
+        self._reuse = adapter._reuse_probe_prefix
 
-class _TextStream:
-    """Incremental detokenization that holds back incomplete characters.
+    @torch.inference_mode()
+    def __call__(self, prefix_ids, *, previous_span=None, current_span=None):
+        started = perf_counter()
+        prefilled = 0
+        cached_length = len(self._cached_prefix)
+        if tuple(prefix_ids[:cached_length]) != self._cached_prefix:
+            raise ValueError("An attention probe session requires a growing accepted prefix")
+        if self._reuse and len(prefix_ids) > self._cue_length:
+            # Cap the eager prefill's query length even at the first boundary.
+            # Subsequent boundaries forward only the newly accepted tokens.
+            for offset in range(cached_length, len(prefix_ids), 128):
+                chunk = prefix_ids[offset : offset + 128]
+                self._cache = self._adapter._forward(chunk, self._cache).past_key_values
+                prefilled += len(chunk)
+                if not self._adapter._can_branch(self._cache):
+                    self._cache = None
+                    self._reuse = False
+                    break
+            self._cached_prefix = tuple(prefix_ids) if self._reuse else ()
 
-    Byte-level BPE can split one character across tokens, and decoding such a
-    token alone yields U+FFFD. Each push re-decodes from the last emitted chunk
-    and returns only text whose characters are complete (empty otherwise).
-    A ``final`` push flushes everything held back, so a stream cut off inside
-    a character ends with the same U+FFFD as decoding all tokens at once.
-    """
-
-    def __init__(self, decode: Callable[[Sequence[int]], str]):
-        self._decode = decode
-        self._ids: list[int] = []
-        self._prefix = 0
-        self._read = 0
-
-    def push(self, token_id: int, final: bool = False) -> str:
-        self._ids.append(token_id)
-        prefix_text = self._decode(self._ids[self._prefix : self._read])
-        new_text = self._decode(self._ids[self._prefix :])
-        if not final and (len(new_text) <= len(prefix_text) or new_text.endswith("�")):
-            return ""
-        self._prefix, self._read = self._read, len(self._ids)
-        return new_text[len(prefix_text) :]
+        result = self._adapter.probe(
+            prefix_ids,
+            self._config,
+            previous_span=previous_span,
+            current_span=current_span,
+            collect_attention=True,
+            answer_probe=False,
+            cache=self._cache,
+        )
+        return replace(
+            result,
+            model_evaluated_tokens=result.model_evaluated_tokens + prefilled,
+            prefill_tokens=result.prefill_tokens + prefilled,
+            latency_s=perf_counter() - started,
+        )
 
 
 class TransformersReasoningAdapter:
@@ -111,6 +201,7 @@ class TransformersReasoningAdapter:
         self.model = model.eval()
         self.tokenizer = tokenizer
         self.probe_prefix_reuse = probe_prefix_reuse
+        self._length_dependent_rope = _uses_length_dependent_rope(getattr(model, "config", None))
         self._supports_logits_to_keep = (
             "logits_to_keep" in inspect.signature(model.forward).parameters
         )
@@ -162,16 +253,21 @@ class TransformersReasoningAdapter:
 
     @staticmethod
     def _can_branch(cache: Any) -> bool:
-        """Full-attention per-layer key/value caches can be cropped and restored exactly."""
-        layers = getattr(cache, "layers", None)
+        """Only branch caches that can be restored with key/value slices alone."""
+        # Some subclasses also store recurrent or quantized state that crop or
+        # update cannot restore from the saved key/value slices.
         return (
-            bool(layers)
-            and hasattr(cache, "crop")
-            and all(
-                hasattr(layer, "keys") and not getattr(layer, "is_sliding", False)
-                for layer in layers
-            )
+            type(cache) is DynamicCache
+            and not cache.offloading
+            and bool(cache.layers)
+            and all(type(layer) is DynamicLayer and layer.is_initialized for layer in cache.layers)
         )
+
+    @property
+    def _reuse_probe_prefix(self) -> bool:
+        # A longer prefix or its probe cue can change RoPE frequencies. Keys
+        # already rotated at the old frequencies cannot be reused in that probe.
+        return self.probe_prefix_reuse and not self._length_dependent_rope
 
     @staticmethod
     def _branch(cache: Any, keep: int) -> Callable[[], None]:
@@ -192,40 +288,12 @@ class TransformersReasoningAdapter:
         return restore
 
     def _boxed_content(self, token_ids):
-        """Indices of tokens overlapping boxed answer content, excluding delimiters.
+        return boxed_content(token_ids, self._decode)
 
-        A character split across tokens decodes to U+FFFD until its last token, so
-        character offsets are measured only at complete-character prefixes and
-        every token of a split character shares that character's span.
-        """
-        text = self._decode(token_ids)
-        start = text.find("{")
-        if start < 0:
-            return "", [], False
-        depth = 0
-        end = None
-        for position in range(start, len(text)):
-            depth += (text[position] == "{") - (text[position] == "}")
-            if depth == 0:
-                end = position
-                break
-        if end is None:
-            return "", [], False
-        selected = []
-        pending = []
-        left = 0
-        for index in range(len(token_ids)):
-            pending.append(index)
-            prefix = self._decode(token_ids[: index + 1])
-            if prefix.endswith("�") and index + 1 < len(token_ids):
-                continue
-            right = len(prefix)
-            if text[max(left, start + 1) : min(right, end)].strip():
-                selected.extend(pending)
-            pending = []
-            left = right
-        answer = text[start + 1 : end].strip()
-        return answer, selected, bool(answer and selected)
+    def start_attention_probe(self, config: ReasoningConfig) -> _AttentionProbeSession:
+        """Create an attention probe for a monotonically growing request prefix."""
+        self._require_eager()
+        return _AttentionProbeSession(self, config, len(self._encode(ASAG_PROBE_CUE)))
 
     @torch.inference_mode()
     def probe(
@@ -264,7 +332,7 @@ class TransformersReasoningAdapter:
         back = len(cue_ids) if collect_attention else 0
         restore = None
         if (
-            self.probe_prefix_reuse
+            self._reuse_probe_prefix
             and cache is not None
             and self._can_branch(cache)
             and cache.get_seq_length() == len(prefix_ids)
@@ -278,7 +346,11 @@ class TransformersReasoningAdapter:
             inputs = prefix_ids + cue_ids
         self._sync()
         started = perf_counter()
-        try:
+        with ExitStack() as cleanup:
+            if restore is not None:
+                cleanup.callback(restore)
+            if self._length_dependent_rope:
+                cleanup.enter_context(_isolated_probe_rope(self.model))
             output = self._forward(inputs, cache, attention=collect_attention)
             self._sync()
             attention_forward_s = perf_counter() - started if collect_attention else 0.0
@@ -333,9 +405,6 @@ class TransformersReasoningAdapter:
                     probe_cache = output.past_key_values
                     logits = output.logits[0, -1].float()
                     decode_evaluations += 1
-        finally:
-            if restore is not None:
-                restore()
         answer, content, complete = self._boxed_content(generated)
         content_probabilities = [probabilities[i] for i in content]
         if not complete:
@@ -455,7 +524,7 @@ class TransformersReasoningAdapter:
         output = self._forward(prompt_ids)
         cache = output.past_key_values
         logits = output.logits[0, -1].float()
-        text_stream = _TextStream(self._decode)
+        text_stream = TextStream(self._decode)
         last_token_forced = False
         for index in range(max_new_tokens):
             if observe and not queued:

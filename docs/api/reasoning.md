@@ -48,3 +48,5 @@ described in the [Reasoning Compression user guide](../user-guide/reasoning-comp
 ::: onecomp.runtime.transformers.TransformersReasoningAdapter
 
 ::: onecomp.runtime.vllm.VLLMReasoningAdapter
+
+::: onecomp.runtime.vllm.VLLMProbeReasoningAdapter
