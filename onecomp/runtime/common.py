@@ -2,6 +2,7 @@
 
 """Shared text and result handling for the reasoning backends."""
 
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
@@ -43,24 +44,27 @@ class TextStream:
 
 
 def boxed_content(token_ids, decode):
-    """Return the first boxed answer and the indices of its content tokens.
+    r"""Return the first complete boxed answer and its content token indices.
+
+    The cue already ends in \boxed, so a leading braced group is its argument.
+    A group elsewhere must follow an explicit \boxed command.
 
     A character split across tokens decodes to U+FFFD until its last token, so
     character offsets are measured only at complete-character prefixes and
     every token of a split character shares that character's span.
     """
     text = decode(token_ids)
-    start = text.find("{")
-    if start < 0:
-        return "", [], False
-    depth = 0
-    end = None
-    for position in range(start, len(text)):
-        depth += (text[position] == "{") - (text[position] == "}")
-        if depth == 0:
-            end = position
+    for match in re.finditer(r"^\s*\{|\\boxed\s*\{", text):
+        start = match.end() - 1
+        depth = 0
+        for end in range(start, len(text)):
+            depth += (text[end] == "{") - (text[end] == "}")
+            if depth == 0:
+                break
+        answer = text[start + 1 : end].strip() if depth == 0 else ""
+        if answer:
             break
-    if end is None:
+    else:
         return "", [], False
     selected = []
     pending = []
@@ -77,5 +81,4 @@ def boxed_content(token_ids, decode):
             break
         pending = []
         left = right
-    answer = text[start + 1 : end].strip()
-    return answer, selected, bool(answer and selected)
+    return answer, selected, bool(selected)

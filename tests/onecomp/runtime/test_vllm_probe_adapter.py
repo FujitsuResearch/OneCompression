@@ -208,6 +208,34 @@ def test_stability_requires_consecutive_complete_probes():
     assert probe_calls[1][1].max_tokens == probe_calls[0][1].max_tokens - 4
 
 
+@pytest.mark.parametrize(("probe_limit", "expected"), [(7, ""), (16, "0.5")])
+def test_deer_ignores_unboxed_fraction_before_explicit_box(monkeypatch, probe_limit, expected):
+    monkeypatch.setitem(ProbeTokenizer.pieces, 0, r"Answer is \frac")
+    monkeypatch.setitem(ProbeTokenizer.pieces, 1, "1")
+    monkeypatch.setitem(ProbeTokenizer.pieces, 2, "0.5")
+    monkeypatch.setitem(ProbeTokenizer.pieces, 13, r", then \boxed")
+    trial = [0, 8, 1, 9, 8, 16, 9, 13, 8, 2, 9, 7]
+
+    def script(prefix):
+        if 10 in prefix:
+            token = trial[len(prefix) - prefix.index(10) - 1]
+            return token, 0.8 if token == 2 else 0.99
+        return ScriptedVLLM.next_token(prefix)
+
+    result = VLLMProbeReasoningAdapter(ScriptedVLLM(script)).generate(
+        [1],
+        config=ReasoningConfig(
+            policy="deer", probe_max_tokens=probe_limit, confidence_threshold=0.7
+        ),
+        reasoning_format=FORMAT,
+        max_new_tokens=3,
+    )
+    assert result.state.probe_answers == [expected]
+    assert bool(result.state.interventions) == bool(expected)
+    assert result.state.probe_confidences == pytest.approx([0.8] if expected else [])
+    assert result.state.probe_tokens == (11 if expected else probe_limit)
+
+
 def test_probe_limit_on_inner_closing_brace_does_not_resume():
     def script(prefix):
         if 10 in prefix:

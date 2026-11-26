@@ -224,7 +224,12 @@ class VLLMProbeReasoningAdapter:
         request_id: str = "request",
         on_token: Callable[[int, str], None] | None = None,
     ) -> GenerationResult:
-        """Generate from token IDs and report the accepted trajectory and probe work."""
+        """Generate from token IDs and report the accepted trajectory and probe work.
+
+        When set, on_token(token_id, text) reports accepted tokens in order.
+        Calls arrive in chunks after synchronous vLLM generation returns. The
+        remaining final answer can arrive as one chunk.
+        """
         if config.policy not in self.supported_policies:
             raise ValueError(f"{config.policy!r} uses VLLMReasoningAdapter's logits processor")
         prompt_ids = list(prompt_ids)
