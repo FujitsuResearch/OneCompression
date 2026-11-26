@@ -27,7 +27,7 @@ import torch
 
 logger = getLogger(__name__)
 
-from onecomp.utils.device import cleanup_memory, empty_cache
+from onecomp.utils.device import empty_cache
 
 from .utils import (
     DEFAULT_L,
@@ -248,7 +248,7 @@ def lowrank_osvd(
 
     del eig_vals, eig_vecs, sqrt_eig, inv_sqrt_eig, U_r, S_r, V_r, sqrt_S
     del H_fp32, W_fp32
-    cleanup_memory()
+    empty_cache()
 
     return U_prime.to(W.dtype), V_prime.to(W.dtype)
 
@@ -341,7 +341,7 @@ def init_single_path(
     B_amp, Q_V_amp = amplitude_rank_l_approx(V_prime.abs(), l)
 
     del U_prime, V_prime
-    cleanup_memory()
+    empty_cache()
 
     return MDBFParams(
         A_sign=A_sign,
@@ -415,7 +415,7 @@ def initialize_MDBF(
         W_residual -= W_p
         W_recon += W_p
         del W_p
-        cleanup_memory()
+        empty_cache()
 
     final_error = torch.norm(W_float - W_recon, p="fro").item()
     logger.debug(
@@ -423,6 +423,6 @@ def initialize_MDBF(
     )
 
     del W_float, W_residual
-    cleanup_memory()
+    empty_cache()
 
     return all_params, W_recon

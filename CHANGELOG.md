@@ -1,5 +1,68 @@
 # Change log
 
+## [Unreleased]
+
+### New Features
+
+- **Runtime reasoning compression (experimental)**: new `onecomp.reasoning` and
+  `onecomp.runtime` packages shorten the thinking phase of reasoning models
+  (e.g. Qwen3) at inference time without training. This release provides the
+  policy/controller API and the budget baselines (fixed and prompt-based
+  budgets). A greedy Transformers reference backend and a vLLM 0.21 logits
+  processor apply them per request. Compression is disabled by default. See the
+  [reasoning compression guide](docs/user-guide/reasoning-compression.md) and the
+  [example](example/example_reasoning_compression.py).
+- **ThinkBrake reasoning policy (experimental)**: `policy="thinkbrake"` stops
+  reasoning at a sentence or transition boundary when the end-of-thinking token
+  is nearly the most likely next token. It reads only the logits that decoding
+  already produces, so it adds no model forward, and runs in both the
+  Transformers reference backend and the vLLM logits processor.
+- **Answer-probe reasoning policies (experimental)**: `policy="deer"` stops when
+  a trial answer, decoded on a temporary branch, is confident, and
+  `policy="stability"` stops when consecutive trial answers agree. Probes reuse
+  the request's KV cache and restore it exactly in the Transformers reference
+  backend. The offline vLLM adapter uses independent vLLM requests and can reuse
+  blocks via prefix caching.
+- **Attention-based reasoning policy (experimental)**: `policy="asag_reference"`
+  is a reference interpretation of ASAG that combines trial-answer confidence
+  with attention-entropy convergence and can bias the next token or jump to a
+  fresh approach. The offline vLLM adapter supports ASAG, using a matching
+  eager Transformers model for the modes that require attention weights.
+
+## [v1.5.0(WIP)+perf/drop-quantizer-gc-collect] 2026-11-05
+
+### Enhancement
+
+- Removed the full `gc.collect()` calls that GPTQ, RTN, DBF, MDBF, ARB, CQ, QBB, QuIP
+  and OneBit made for every quantized linear layer (several per layer in MDBF and in
+  QuIP with `incoh_mode="had"`). Each call scanned every object Python tracks, adding
+  overhead to every layer, while intermediate tensors are already freed by reference
+  counting. Quantization is faster, especially for quantizers that spend little time
+  per layer, such as RTN and GPTQ. Quantization results are unchanged.
+
+### Tests
+
+- Added a `BaseQuantizeSpec` test that fails if `quantize_layer` calls `gc.collect()`
+  explicitly, plus MDBF cases that also run ADMM, gradient refinement and
+  activation-aware initialization, so that the removed per-layer calls are not added
+  back.
+
+## [v1.5.0(WIP)+feature/issue-58-low-memory-loader] 2026-10-21
+
+### Enhancement
+
+- Load GPTQ and mixed GPTQ checkpoints of Qwen3 and Llama models with low host memory in `load_quantized_model()` ([#58](https://github.com/FujitsuResearch/OneCompression/issues/58)). Instead of building a dense model on CPU and reading the whole checkpoint, the loader plans the load from the safetensors headers on an empty (meta) model and then reads the tensors one at a time onto their final device. On an RTX 4090 host, loading a 4-bit GPTQ Qwen3-8B checkpoint onto the GPU peaked at 2.2 GiB of host memory instead of 19.7 GiB. Existing calls need no change: other checkpoints are still loaded by the previous loader, after a warning. The new keyword-only `load_strategy` argument (`"auto"`, `"streaming"`, `"legacy"`) and `onecomp.StreamingUnsupportedError` control this fallback. See [Low-memory loading](docs/api/quantized_model_loader.md#low-memory-loading) in the API reference for the supported checkpoints, the strategies and the memory requirements. Accelerate 1.9.0 or later is now required, because the new loader passes `clear_cache` to `set_module_tensor_to_device`.
+
+## [v1.5.0] 2026-mm-dd
+
+### Formal agent context compaction
+
+- Added the production `onecomp.compaction` `formal-v1` profile with durable SQLite WAL archives, integrity and provenance checks, stable catalogs, explicit migration from JSONL, bounded exact recovery, and efficient chunk/range reads without duplicating stored bodies.
+- Added standalone compaction and provider APIs with host-authoritative budgeting, guarded transcript replacement, summary preservation, and updated PostToolUse, Codex, OpenCode, and OpenHands integrations.
+- Hardened MCP and archive operations with authenticated tenant-bound sessions, TTL/capacity limits, leases, safe pagination/search, immutable responses, validated tool inputs, and compatibility routing for legacy clients.
+- Added the `onecomp-arc` operational CLI, atomic and redacted reports, white-base PNG/SVG dashboards, deterministic CPU benchmarks, and sandbox-safe hook recall and export workflows.
+- Expanded reliability, privacy, Unicode, concurrency, restart, migration, provider-boundary, CLI, MCP, visualization, and native-SDK tests, while tightening package discovery and torch-free imports.
+
 ## [v1.4.3] 2026-11-19
 
 ### Bug Fixes

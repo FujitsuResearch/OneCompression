@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "transformers >= 5.5.0",
-    "accelerate",
+    "accelerate >= 1.9.0",
     "datasets",
     "lm-eval",
     "primefac",
@@ -45,6 +45,10 @@ Changelog = "https://github.com/FujitsuResearch/OneCompression/blob/main/CHANGEL
 
 [project.scripts]
 onecomp = "onecomp.cli:main"
+onecomp-mcp = "onecomp.mcp.__main__:main"
+onecomp-arc-hook = "onecomp.compaction.adapters.hooks:hook_main"
+onecomp-arc-recall = "onecomp.compaction.adapters.hooks:recall_main"
+onecomp-arc = "onecomp.compaction.cli:main"
 onecomp-eval = "onecomp.eval.run_evaluate:main"
 onecomp-gguf = "onecomp.cpu.cli:main"
 
@@ -69,6 +73,9 @@ dev = [
 ]
 visualize = [
     "matplotlib>=3.10.8",
+]
+openhands = [
+    "openhands-sdk>=1.36,<2",
 ]
 hydra = [
     "hydra-core",
@@ -204,6 +211,7 @@ line_length = 99
 version = {attr = "onecomp.__version__.__version__"}
 
 [tool.setuptools.packages.find]
+include = ["onecomp*", "vllm_plugins*", "llamacpp_plugins*"]
 exclude = ["tests", "tests.*"]
 
 [tool.setuptools.package-data]

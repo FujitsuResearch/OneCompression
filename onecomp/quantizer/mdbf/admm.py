@@ -22,7 +22,7 @@ import torch
 
 logger = getLogger(__name__)
 
-from onecomp.utils.device import cleanup_memory
+from onecomp.utils.device import empty_cache
 
 from .initialize import MDBFParams
 from .utils import (
@@ -714,7 +714,7 @@ def optimize_MDBF_admm(
         del F, G
     for F, G in optimized_factors:
         del F, G
-    cleanup_memory()
+    empty_cache()
 
     return optimized_params, W_recon.to(dtype)
 
@@ -976,7 +976,7 @@ def _admm_refine_single_path_hessian(
 
     del H_eig_vals, H_eig_vecs, LamU, GamV, H_use, W_float, I_r, I_m
     del V, U, best_V, best_U
-    cleanup_memory()
+    empty_cache()
 
     return F_opt, G_opt
 
@@ -1076,6 +1076,6 @@ def optimize_MDBF_admm_hessian(
     opt_params = _factor_matrices_to_params(F_opt, G_opt, l, dtype)
 
     del F_opt, G_opt
-    cleanup_memory()
+    empty_cache()
 
     return [opt_params], W_recon.to(dtype)
